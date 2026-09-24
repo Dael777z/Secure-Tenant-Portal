@@ -1,0 +1,39 @@
+import { describe, expect, it } from "vitest"
+import { AppError } from "../types/errors"
+import { MemoryDatabase } from "./memory-db"
+import { login, refresh, signup } from "./auth"
+
+describe("auth service", () => {
+    it("normalizes signup email and prevents duplicates", async () => {
+        const database = new MemoryDatabase()
+
+        const user = await signup(database, " Resident@Example.com ", "correct horse")
+
+        expect(user.email).toBe("resident@example.com")
+        await expect(signup(database, "resident@example.com", "another password"))
+            .rejects.toMatchObject({ code: "EMAIL_IN_USE" })
+    })
+
+    it("rotates refresh tokens and rejects the previous token", async () => {
+        const database = new MemoryDatabase()
+        await signup(database, "resident@example.com", "correct horse")
+
+        const firstLogin = await login(database, "resident@example.com", "correct horse")
+        const rotated = await refresh(database, firstLogin.refresh_token)
+
+        expect(rotated.access_token).toEqual(expect.any(String))
+        expect(rotated.refresh_token).not.toBe(firstLogin.refresh_token)
+        await expect(refresh(database, firstLogin.refresh_token))
+            .rejects.toMatchObject({ code: "INVALID_TOKEN" })
+    })
+
+    it("uses one generic error for unknown users and wrong passwords", async () => {
+        const database = new MemoryDatabase()
+        await signup(database, "resident@example.com", "correct horse")
+
+        await expect(login(database, "missing@example.com", "correct horse"))
+            .rejects.toBeInstanceOf(AppError)
+        await expect(login(database, "resident@example.com", "wrong password"))
+            .rejects.toMatchObject({ code: "INVALID_CREDENTIALS" })
+    })
+})
