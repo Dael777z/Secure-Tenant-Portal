@@ -1,6 +1,6 @@
 # Secure-Tenant-Portal
 
-Front-end: Express + React.js
+Front-end: React
 Back-end: Typescript + Python
 Database: PostgreSQL
 Payments API: Plaid
