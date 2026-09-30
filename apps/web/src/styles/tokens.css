@@ -1,0 +1,244 @@
+/*
+ * Design tokens.
+ *
+ * Two palettes, deliberately different, because the two audiences are in
+ * different situations.
+ *
+ * The resident side is light, warm, and quiet. People arrive here to look at
+ * money they owe, often when something has gone wrong, and sometimes at 11pm on
+ * the fourth. A dark, dense, dashboard-flavoured interface reads as an
+ * institution's system for tracking you; a light one with generous spacing and
+ * real prose reads as a document about your account. That difference is not
+ * decoration — the proposal makes comprehension of this screen an evaluated
+ * criterion.
+ *
+ * The manager side is dense, because it is a working console that someone has
+ * open all day beside a spreadsheet and a phone.
+ *
+ * Both are blue and white, as the client asked on 2026-09-28: white surfaces,
+ * Summit navy (#103b60) for the brand band (the manager sidebar, the resident
+ * header, the sign-in panel), and one blue (#1560b8) for everything you can act
+ * on. White text on #1560b8 is 6.2:1; the muted text (#536b84) is at least
+ * 4.5:1 on every light surface it sits on.
+ *
+ * Both palettes are checked for WCAG AA at the sizes they are actually used.
+ */
+
+:root {
+  /* Type. The intended faces are Syne (display), Crimson Pro (body), and
+     IBM Plex Mono (money). No external font requests: see index.html. */
+  --font-display: "Syne", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Crimson Pro", "Iowan Old Style", Georgia, "Times New Roman", serif;
+  --font-ui: "Avenir Next", "Segoe UI", system-ui, -apple-system, sans-serif;
+  /* Every amount of money in this application is set in this face, tabular and
+     lining, so that columns of figures align on the decimal point and a balance
+     is never ambiguous. */
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+
+  --step--2: 0.75rem;
+  --step--1: 0.85rem;
+  --step-0: 1rem;
+  --step-1: 1.2rem;
+  --step-2: 1.5rem;
+  --step-3: 2rem;
+  --step-4: 2.7rem;
+  --step-5: 3.4rem;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+
+  --radius-sm: 4px;
+  --radius: 8px;
+  --radius-lg: 14px;
+  --radius-full: 999px;
+
+  --border-width: 1px;
+  --transition: 140ms cubic-bezier(0.2, 0, 0.3, 1);
+
+  /* Semantic colours, shared vocabulary across both themes. */
+  --owed: var(--color-warn);
+  --paid: var(--color-good);
+  --failed: var(--color-bad);
+}
+
+/* ------------------------------------------------------------------ *
+ * Resident — light
+ * ------------------------------------------------------------------ */
+
+.theme-tenant {
+  /* Blue and white (client, 2026-09-28): white surfaces on a faint blue page,
+     Summit navy for the header, blue for anything you can act on. */
+  --bg: #f3f7fc;
+  --bg-raised: #ffffff;
+  --bg-sunken: #e9f0f8;
+  --bg-inset: #e2ebf5;
+
+  --ink: #0e2238;
+  --ink-muted: #3d5670;
+  --ink-faint: #536b84;
+  --ink-inverse: #ffffff;
+
+  --line: #d5e1ee;
+  --line-strong: #b5c8dc;
+
+  --accent: #1560b8;
+  --accent-hover: #0f4c94;
+  --accent-soft: #e3eefb;
+  --accent-ink: #ffffff;
+
+  --color-good: #1d6f40;
+  --color-good-soft: #e1f2e8;
+  --color-warn: #8a5300;
+  --color-warn-soft: #fcefdc;
+  --color-bad: #a8321f;
+  --color-bad-soft: #fbe6e2;
+  --color-info: #1560b8;
+  --color-info-soft: #e3eefb;
+
+  /* The navy band: header and sign-in panel. */
+  --brand: #103b60;
+  --brand-ink: #ffffff;
+  --brand-ink-muted: #c3d5e8;
+  --brand-hover: rgba(255, 255, 255, 0.12);
+
+  --shadow-sm: 0 1px 2px rgba(14, 34, 56, 0.06);
+  --shadow: 0 2px 10px rgba(14, 34, 56, 0.07);
+  --shadow-lg: 0 12px 34px rgba(14, 34, 56, 0.14);
+
+  --focus: #1560b8;
+}
+
+/* ------------------------------------------------------------------ *
+ * Manager workspace — Figma "Manager Prototype 2"
+ *
+ * The values below are the prototype's shared portal tokens, copied from the
+ * Figma variables (file "Prototypes", page "Manger Prototype 2"). The Figma
+ * names are kept as --color-* / --radius-* / --space-* so a designer and a
+ * developer can point at the same word; the older semantic names (--bg, --ink,
+ * --accent, --color-good …) are mapped onto them so every manager screen that
+ * predates the prototype picks up the new palette without being rewritten.
+ *
+ * Type is Inter, as in the prototype, served from apps/web/fonts/ (see the
+ * @font-face rules in workspace.css) — same origin, so no third-party request.
+ * ------------------------------------------------------------------ */
+
+.theme-manager {
+  /* Blue and white (client, 2026-09-28). The Figma prototype's navy stays as
+     the sidebar and the phone tab bar (see .ws-sidebar in workspace.css, which
+     restores the prototype's own light-on-navy values there); the working
+     area is white with blue accents. Same variable names as the prototype. */
+  --color-app: #f3f7fc;
+  --color-sidebar: #103b60;
+  --color-panel: #ffffff;
+  --color-card: #edf3fa;
+  --color-stroke: #d3e0ed;
+  --color-text: #0e2238;
+  --color-secondary: #3d5670;
+  --color-muted: #536b84;
+  --color-info: #1560b8;
+  --color-blue: #1560b8;
+  --color-success: #1d6f40;
+  --color-warning: #8a5300;
+  --color-danger: #b3321f;
+
+  /* Hover wash for rows and list items in the working area. */
+  --ws-hover: #e6eff9;
+
+  --radius-10: 10px;
+  --radius-12: 12px;
+  --radius-14: 14px;
+  --radius-999: 999px;
+
+  --space-0: 0px;
+  --space-4px: 4px;
+  --space-8px: 8px;
+  --space-12px: 12px;
+  --space-16px: 16px;
+  --space-24px: 24px;
+
+  --font-figma: "Inter", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-ui: var(--font-figma);
+  --font-display: var(--font-figma);
+  --font-body: var(--font-figma);
+
+  /* Semantic names used by the pre-prototype screens, mapped to the above. */
+  --bg: var(--color-app);
+  --bg-raised: var(--color-panel);
+  --bg-sunken: #e9f0f8;
+  --bg-inset: var(--color-card);
+
+  --ink: var(--color-text);
+  --ink-muted: var(--color-secondary);
+  --ink-faint: var(--color-muted);
+  --ink-inverse: #ffffff;
+
+  --line: var(--color-stroke);
+  --line-strong: #b5c8dc;
+
+  --accent: var(--color-blue);
+  --accent-hover: #0f4c94;
+  --accent-soft: #e3eefb;
+  --accent-ink: #ffffff;
+
+  --color-good: var(--color-success);
+  --color-good-soft: #e1f2e8;
+  --color-warn: var(--color-warning);
+  --color-warn-soft: #fcefdc;
+  --color-bad: var(--color-danger);
+  --color-bad-soft: #fbe6e2;
+  --color-info-soft: #e3eefb;
+
+  --shadow-sm: 0 1px 2px rgba(14, 34, 56, 0.05);
+  --shadow: 0 2px 10px rgba(14, 34, 56, 0.07);
+  --shadow-lg: 0 16px 40px rgba(14, 34, 56, 0.16);
+
+  --focus: var(--color-info);
+}
+
+/* The sign-in page belongs to neither role yet: the resident palette, with the
+   navy band as the left panel. */
+.theme-neutral {
+  --bg: #f3f7fc;
+  --bg-raised: #ffffff;
+  --bg-sunken: #103b60;
+  --bg-inset: #e2ebf5;
+
+  --ink: #0e2238;
+  --ink-muted: #3d5670;
+  --ink-faint: #536b84;
+  --ink-inverse: #ffffff;
+
+  --line: #d5e1ee;
+  --line-strong: #b5c8dc;
+
+  --accent: #1560b8;
+  --accent-hover: #0f4c94;
+  --accent-soft: #e3eefb;
+  --accent-ink: #ffffff;
+
+  --color-good: #1d6f40;
+  --color-good-soft: #e1f2e8;
+  --color-warn: #8a5300;
+  --color-warn-soft: #fcefdc;
+  --color-bad: #a8321f;
+  --color-bad-soft: #fbe6e2;
+  --color-info: #1560b8;
+  --color-info-soft: #e3eefb;
+
+  --brand: #103b60;
+  --brand-ink: #ffffff;
+  --brand-ink-muted: #c3d5e8;
+  --brand-hover: rgba(255, 255, 255, 0.12);
+
+  --shadow-sm: 0 1px 2px rgba(14, 34, 56, 0.06);
+  --shadow: 0 2px 10px rgba(14, 34, 56, 0.07);
+  --shadow-lg: 0 12px 34px rgba(14, 34, 56, 0.14);
+
+  --focus: #1560b8;
+}

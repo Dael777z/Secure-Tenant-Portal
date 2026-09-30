@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.local
+.env.*.local
+var/
+dist/
+*.log
+.DS_Store
+.idea/
+.vscode/
+coverage/
+*.tsbuildinfo
+
+# Local only: files set aside for the demo, not shared
+Not Necessary/

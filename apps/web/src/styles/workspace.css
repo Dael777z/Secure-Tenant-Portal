@@ -1,0 +1,1340 @@
+/*
+ * Manager workspace — layout and components from the Figma prototype
+ * ("Prototypes" → "Manger Prototype 2": Desktop / Manager Dashboard,
+ * Desktop / Rent Roll, Desktop / Maintenance Queue, Mobile / Manager Home,
+ * Mobile / Alerts & Approvals, Mobile / Maintenance Detail).
+ *
+ * Every class here is prefixed ws- so it cannot collide with the older
+ * component sheet. Each block names the Figma component it implements.
+ * Sizes are the prototype's own (px), expressed with its tokens from
+ * tokens.css; type follows its text styles:
+ *   Heading 1 28/41 600 · Heading 2 22/32 600 · Heading 3 18/26 600
+ *   Body 14/20 400 · Button 14/20 500 · Label 12/17 500 · Body Small 12/17 400
+ *
+ * Inter, the prototype's typeface, is self-hosted from apps/web/fonts (SIL Open
+ * Font License, see fonts/Inter-OFL.txt), so matching the design costs no
+ * third-party request. Only the manager workspace uses it; the resident side
+ * keeps its own type.
+ */
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/app/fonts/inter-400.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/app/fonts/inter-500.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/app/fonts/inter-600.woff2") format("woff2");
+}
+
+.theme-manager {
+  background: var(--color-app);
+  font-family: var(--font-figma);
+}
+
+.theme-manager .money,
+.theme-manager .num {
+  font-family: var(--font-figma);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* Shell: Sidebar (220px) + Main content ---------------------------- */
+
+.ws {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  min-height: 100vh;
+  min-height: 100dvh;
+  /* The sidebar column stays navy the full height of a long page. */
+  background: linear-gradient(to right, var(--color-sidebar) 220px, var(--color-app) 220px);
+  color: var(--color-text);
+}
+
+/* The navy band. The prototype's own light-on-navy values, re-declared here so
+   everything inside the sidebar and the phone tab bar reads as before while the
+   working area beside it is white. */
+.ws-sidebar,
+.ws-tabbar {
+  --color-text: #f4f8fc;
+  --color-secondary: #c3d5e8;
+  --color-muted: #9fb7cd;
+  --color-info: #7cbcff;
+  --color-panel: #1b4a73;
+  --color-card: #1f5584;
+  --ws-hover: rgba(255, 255, 255, 0.1);
+  color: var(--color-text);
+}
+
+.ws-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  overflow: hidden auto;
+  background: var(--color-sidebar);
+}
+
+.ws-sidebar__eyebrow {
+  font-size: 12px;
+  line-height: 17px;
+  font-weight: 500;
+  color: var(--color-info);
+  text-transform: uppercase;
+}
+
+.ws-sidebar__title {
+  white-space: nowrap;
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.ws-sidebar__brand-space {
+  height: 24px;
+  flex-shrink: 0;
+}
+
+/* Sidebar Nav — State=Default / State=Active */
+.ws-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ws-nav__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--radius-12);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--color-text);
+  text-decoration: none;
+  transition: background var(--transition);
+}
+
+.ws-nav__item:hover {
+  background: var(--ws-hover);
+}
+
+.ws-nav__item.is-active {
+  background: var(--color-card);
+}
+
+.ws-nav__badge {
+  margin-left: auto;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-999);
+  background: #f05d5e;
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.ws-sidebar__flex {
+  flex: 1 0 0;
+  min-height: 8px;
+}
+
+.ws-user {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ws-user__name {
+  display: block;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--color-text);
+  white-space: pre;
+}
+
+.ws-user__role {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--color-secondary);
+}
+
+.ws-user__signout {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--radius-10);
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.ws-user__signout:hover {
+  background: var(--color-panel);
+  color: var(--color-text);
+}
+
+.ws-main {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+  padding: 24px;
+}
+
+.ws-main--tight {
+  gap: 16px;
+}
+
+/* Screens that predate the prototype render inside a .container; let the
+   workspace own the padding so they line up with the new screens. */
+.ws-main > .container {
+  max-width: none;
+  margin: 0;
+  padding-inline: 0;
+}
+
+.ws-main h1,
+.ws-main h2,
+.ws-main h3 {
+  font-family: var(--font-figma);
+  letter-spacing: 0;
+}
+
+.ws-main .lede {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--color-secondary);
+}
+
+/* A column of blocks at the prototype's content gap. */
+.ws-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+.ws-main--tight .ws-stack {
+  gap: 16px;
+}
+
+/* Header: Page title + control ------------------------------------- */
+
+.ws-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.ws-header__title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 0 1 800px;
+  min-width: 0;
+}
+
+.ws-h1 {
+  font-size: 28px;
+  line-height: 41px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.ws-h2 {
+  font-size: 22px;
+  line-height: 32px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.ws-h3 {
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.ws-sub {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--color-secondary);
+}
+
+.ws-header__control {
+  flex: 0 0 auto;
+}
+
+.ws-header__control--wide {
+  width: 300px;
+}
+
+.ws-header__control--button {
+  width: 210px;
+}
+
+.ws-header__control > .ws-btn {
+  width: 100%;
+}
+
+/* Button — Style=Primary / Secondary / Ghost ----------------------- */
+
+.ws-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  border: 0;
+  border-radius: var(--radius-10);
+  font: 500 14px/20px var(--font-figma);
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.ws-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.ws-btn--primary {
+  background: var(--color-blue);
+  color: #ffffff;
+}
+
+.ws-btn--primary:hover:not(:disabled) {
+  background: #0f4c94;
+}
+
+.ws-btn--secondary {
+  background: var(--color-panel);
+  color: var(--color-blue);
+  box-shadow: inset 0 0 0 1px var(--color-stroke);
+}
+
+.ws-btn--secondary:hover:not(:disabled) {
+  background: var(--color-card);
+}
+
+.ws-btn--ghost {
+  background: transparent;
+  color: var(--color-secondary);
+}
+
+.ws-btn--ghost:hover:not(:disabled) {
+  color: var(--color-text);
+}
+
+.ws-btn--block {
+  width: 100%;
+}
+
+/* Card/KPI --------------------------------------------------------- */
+
+.ws-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.ws-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border-radius: var(--radius-12);
+  background: var(--color-card);
+  color: inherit;
+  text-decoration: none;
+  min-width: 0;
+}
+
+a.ws-kpi:hover {
+  box-shadow: inset 0 0 0 1px var(--color-stroke);
+}
+
+.ws-kpi__title {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--color-secondary);
+}
+
+.ws-kpi__value {
+  font-size: 28px;
+  line-height: 41px;
+  font-weight: 600;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums lining-nums;
+  white-space: nowrap;
+}
+
+.ws-kpi__detail {
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--color-muted);
+}
+
+/* Field/Dropdown, Field/Search ------------------------------------- */
+
+.ws-filters {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.ws-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 230px;
+  max-width: 100%;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-10);
+  background: var(--color-panel);
+}
+
+.ws-field--search {
+  width: 360px;
+}
+
+.ws-field--wide {
+  width: 300px;
+}
+
+.ws-field--block {
+  width: 100%;
+}
+
+.ws-field:focus-within {
+  border-color: var(--color-info);
+}
+
+.ws-field select,
+.ws-field input {
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  border: 0;
+  border-radius: var(--radius-10);
+  background: transparent;
+  color: var(--color-secondary);
+  font: 400 14px/20px var(--font-figma);
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.ws-field select {
+  padding-right: 32px;
+  cursor: pointer;
+}
+
+.ws-field select:focus,
+.ws-field input:focus {
+  outline: none;
+}
+
+.ws-field input::placeholder {
+  color: var(--color-secondary);
+  opacity: 1;
+}
+
+.ws-field option {
+  background: var(--color-panel);
+  color: var(--color-text);
+}
+
+/* The prototype writes the chevron into the label ("All properties ⌄"). */
+.ws-field--select::after {
+  content: "⌄";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-65%);
+  pointer-events: none;
+  color: var(--color-secondary);
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* Panels and tables (Table/RentRow, Table/MaintenanceRow) --------- */
+
+.ws-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 24px;
+  border-radius: var(--radius-14);
+  background: var(--color-panel);
+  min-width: 0;
+}
+
+.ws-table-wrap {
+  overflow-x: auto;
+}
+
+.ws-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 8px;
+  margin-block: -8px;
+  font: 400 14px/20px var(--font-figma);
+  color: var(--color-text);
+}
+
+.ws-table thead th {
+  position: static;
+  padding: 16px 8px;
+  border: 0;
+  background: var(--color-card);
+  font: 500 12px/17px var(--font-figma);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--color-secondary);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ws-table thead th:first-child {
+  padding-left: 16px;
+  border-radius: var(--radius-10) 0 0 var(--radius-10);
+}
+
+.ws-table thead th:last-child {
+  padding-right: 16px;
+  border-radius: 0 var(--radius-10) var(--radius-10) 0;
+}
+
+.ws-table tbody td {
+  padding: 8px;
+  border: 0;
+  vertical-align: middle;
+  background: var(--color-panel);
+}
+
+.ws-table tbody td:first-child {
+  padding-left: 16px;
+  border-radius: var(--radius-12) 0 0 var(--radius-12);
+}
+
+.ws-table tbody td:last-child {
+  padding-right: 16px;
+  border-radius: 0 var(--radius-12) var(--radius-12) 0;
+}
+
+.ws-table tbody tr.is-clickable {
+  cursor: pointer;
+}
+
+.ws-table tbody tr.is-clickable:hover td,
+.ws-table tbody tr.is-clickable:focus-visible td {
+  background: var(--ws-hover);
+}
+
+.ws-table tbody tr:focus-visible {
+  outline: 2px solid var(--color-info);
+  outline-offset: -2px;
+}
+
+.ws-table .ws-cell-meta {
+  display: block;
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--color-muted);
+}
+
+.ws-table .ws-money {
+  font-variant-numeric: tabular-nums lining-nums;
+  white-space: nowrap;
+}
+
+/* Column widths from the prototype (Rent Roll / Maintenance Queue). */
+.ws-col-68 { width: 84px; }
+.ws-col-80 { width: 96px; }
+.ws-col-130 { width: 146px; }
+.ws-col-150 { width: 166px; }
+.ws-col-160 { width: 176px; }
+.ws-col-260 { width: 276px; }
+
+.ws-empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--color-secondary);
+}
+
+/* Status Pill ------------------------------------------------------ */
+
+.ws-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px;
+  border-radius: var(--radius-999);
+  background: var(--color-card);
+  font: 400 14px/20px var(--font-figma);
+  white-space: nowrap;
+}
+
+/* The mobile detail variant: smaller, on the panel colour, with a dot. */
+.ws-pill--compact {
+  background: var(--color-panel);
+  font: 500 12px/17px var(--font-figma);
+}
+
+.ws-tone--success { color: var(--color-success); }
+.ws-tone--danger { color: var(--color-danger); }
+.ws-tone--warning { color: var(--color-warning); }
+.ws-tone--info { color: var(--color-info); }
+.ws-tone--muted { color: var(--color-secondary); }
+
+.ws-late {
+  margin-left: 8px;
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--color-danger);
+}
+
+/* Pagination ------------------------------------------------------- */
+
+.ws-pager {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-top: 8px;
+}
+
+.ws-pager__count {
+  flex: 0 1 700px;
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--color-secondary);
+}
+
+.ws-pager .ws-btn {
+  width: 120px;
+}
+
+/* Recent Activity (Item/Activity) ---------------------------------- */
+
+.ws-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ws-activity__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px;
+  border-radius: var(--radius-12);
+  color: inherit;
+  text-decoration: none;
+}
+
+a.ws-activity__item:hover {
+  background: var(--ws-hover);
+}
+
+.ws-activity__dot {
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 600;
+  color: var(--color-info);
+}
+
+.ws-activity__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 0 1 850px;
+  min-width: 0;
+}
+
+.ws-activity__title {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.ws-activity__detail {
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--color-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-activity__time {
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+/* Reports and Settings rows -------------------------------------- */
+
+.ws-report {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border-radius: var(--radius-12);
+  background: var(--color-card);
+  color: inherit;
+  text-decoration: none;
+}
+
+.ws-report__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.ws-report .ws-btn {
+  flex: 0 0 auto;
+  min-width: 150px;
+}
+
+a.ws-report--link:hover {
+  color: inherit;
+  box-shadow: inset 0 0 0 1px var(--color-stroke);
+}
+
+.ws-report__go {
+  color: var(--color-info);
+  font-size: 18px;
+}
+
+.ws-wrap {
+  white-space: normal;
+}
+
+.ws-policy {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius-12);
+  background: var(--color-card);
+}
+
+.ws-policy__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.ws-policy .field[hidden] {
+  display: none;
+}
+
+.theme-manager .input,
+.theme-manager .select,
+.theme-manager .textarea {
+  background: var(--color-panel);
+  border-color: var(--color-stroke);
+  color: var(--color-text);
+}
+
+/* Mobile / Manager Home -------------------------------------------- */
+
+.ws-greeting {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ws-greeting__hello {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--color-secondary);
+}
+
+.ws-greeting__role {
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--color-muted);
+}
+
+.ws-kpis--mobile {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ws-kpis--mobile .ws-kpi {
+  padding: 12px;
+}
+
+/* Rent collected card with Progress/Bar */
+.ws-collected {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius-12);
+  background: var(--color-card);
+}
+
+.ws-progress {
+  height: 8px;
+  border-radius: var(--radius-12);
+  background: var(--color-stroke);
+  overflow: hidden;
+}
+
+.ws-progress__fill {
+  height: 8px;
+  border-radius: var(--radius-999);
+  background: var(--color-blue);
+}
+
+.ws-quick {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ws-quick__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+/* Card/Panel */
+.ws-action {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--radius-12);
+  background: var(--color-card);
+  color: inherit;
+  text-decoration: none;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.ws-action:hover {
+  box-shadow: inset 0 0 0 1px var(--color-stroke);
+}
+
+.ws-action__title {
+  font-weight: 500;
+  color: var(--color-text);
+  max-width: 10ch;
+}
+
+.ws-action__sub {
+  color: var(--color-secondary);
+}
+
+/* Mobile / Alerts & Approvals (Item/Alert) ------------------------- */
+
+.ws-segments {
+  display: flex;
+  gap: 8px;
+}
+
+.ws-segments .ws-btn {
+  flex: 0 0 auto;
+}
+
+.ws-alerts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ws-alert {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--radius-12);
+  background: var(--color-card);
+  color: inherit;
+  text-decoration: none;
+}
+
+a.ws-alert:hover {
+  box-shadow: inset 0 0 0 1px var(--color-stroke);
+}
+
+.ws-alert__title {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.ws-alert__detail {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--color-secondary);
+}
+
+.ws-alert__meta {
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--color-muted);
+  white-space: pre;
+}
+
+/* Mobile / Maintenance Detail -------------------------------------- */
+
+.ws-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 720px;
+}
+
+.ws-back {
+  display: inline-flex;
+  gap: 8px;
+  align-self: flex-start;
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 600;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.ws-back__arrow {
+  color: var(--color-info);
+}
+
+.ws-detail__title {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.ws-detail__meta {
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--color-secondary);
+}
+
+.ws-photo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 124px;
+  padding: 16px;
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-12);
+  background: var(--color-card);
+  overflow: hidden;
+}
+
+.ws-photo--filled {
+  height: auto;
+  min-height: 124px;
+  padding: 0;
+}
+
+.ws-photo img {
+  width: 100%;
+  max-height: 320px;
+  object-fit: cover;
+}
+
+.ws-photo__glyph {
+  font-size: 28px;
+  line-height: 41px;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.ws-photo__caption {
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--color-secondary);
+}
+
+.ws-detail__body {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--color-secondary);
+  max-width: none;
+  white-space: pre-wrap;
+}
+
+.ws-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius-12);
+  background: var(--color-panel);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.ws-facts__row {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.ws-facts__label {
+  color: var(--color-secondary);
+}
+
+.ws-facts__value {
+  color: var(--color-text);
+}
+
+.ws-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.ws-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ws-timeline__item {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--radius-12);
+  background: var(--color-panel);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.ws-timeline__item .ws-activity__dot {
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.ws-timeline__note {
+  color: var(--color-secondary);
+  white-space: pre-wrap;
+}
+
+.ws-timeline__meta {
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--color-muted);
+}
+
+/* Mobile Navigation (Home / Units / Tasks / Alerts / More) --------- */
+
+.ws-tabbar {
+  display: none;
+}
+
+.ws-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 64px;
+  color: var(--color-muted);
+  font: 500 12px/17px var(--font-figma);
+  text-decoration: none;
+}
+
+.ws-tab img {
+  width: 24px;
+  height: 24px;
+}
+
+.ws-tab:hover,
+.ws-tab.is-active {
+  color: var(--color-text);
+}
+
+/* The base sheet colours every link on hover; these are whole-card links. */
+a.ws-kpi:hover,
+a.ws-alert:hover,
+a.ws-action:hover,
+a.ws-activity__item:hover,
+a.ws-collected:hover,
+.ws-back:hover {
+  color: inherit;
+}
+
+.ws-nav__item:hover {
+  color: var(--color-text);
+}
+
+/* Dialog on the workspace palette ---------------------------------- */
+
+.theme-manager .dialog {
+  background: var(--color-panel);
+  color: var(--color-text);
+  border: 1px solid var(--color-stroke);
+  border-radius: var(--radius-14);
+}
+
+/* KPI cards are white on the page, like panels. */
+.theme-manager .ws-kpi {
+  background: var(--color-panel);
+}
+
+/* White cards on the faint blue page get a hairline so they read as cards. */
+.theme-manager .ws-panel,
+.theme-manager .ws-kpi,
+.theme-manager .card {
+  border: 1px solid var(--color-stroke);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Visibility helpers for the two layouts of one screen ------------- */
+
+.ws-only-mobile {
+  display: none !important;
+}
+
+/* Responsive -------------------------------------------------------- */
+
+@media (max-width: 1100px) {
+  .ws-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+}
+
+@media (max-width: 720px) {
+  .ws {
+    grid-template-columns: minmax(0, 1fr);
+    background: var(--color-app);
+  }
+
+  .ws-sidebar {
+    display: none;
+  }
+
+  .ws-main {
+    gap: 16px;
+    padding: 8px 16px calc(77px + 16px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .ws-only-desktop {
+    display: none !important;
+  }
+
+  .ws-only-mobile {
+    display: flex !important;
+  }
+
+  .ws-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ws-header__title {
+    flex: none;
+  }
+
+  .ws-header__control--wide,
+  .ws-header__control--button,
+  .ws-field,
+  .ws-field--search {
+    width: 100%;
+  }
+
+  .ws-h1 {
+    font-size: 22px;
+    line-height: 32px;
+  }
+
+  .ws-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .ws-kpis--mobile {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .ws-kpi {
+    padding: 12px;
+  }
+
+  .ws-panel {
+    padding: 12px;
+  }
+
+  .ws-pager .ws-btn {
+    width: auto;
+  }
+
+  .ws-activity__item {
+    padding: 12px 8px;
+    gap: 12px;
+  }
+
+  .ws-activity__time {
+    display: none;
+  }
+
+  /* Tables become one card per row: the prototype has no phone rent roll or
+     queue, and a six-column table at 393px is a horizontal-scroll trap. */
+  .ws-panel--rows {
+    padding: 0;
+    background: transparent;
+  }
+
+  .ws-table,
+  .ws-table tbody {
+    display: block;
+    margin: 0;
+  }
+
+  .ws-table thead {
+    display: none;
+  }
+
+  .ws-table tbody tr {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 4px 12px;
+    margin-bottom: 8px;
+    padding: 12px;
+    border-radius: var(--radius-12);
+    background: var(--color-card);
+  }
+
+  .ws-table tbody td,
+  .ws-table tbody td:first-child,
+  .ws-table tbody td:last-child {
+    display: block;
+    padding: 0;
+    border-radius: 0;
+    background: none;
+  }
+
+  .ws-table tbody tr.is-clickable:hover td {
+    background: none;
+  }
+
+  .ws-table .ws-pill {
+    background: var(--color-panel);
+  }
+
+  .ws-table--roll td:nth-child(1) { grid-area: 1 / 1; font-weight: 600; }
+  .ws-table--roll td:nth-child(2) { grid-area: 1 / 2; }
+  .ws-table--roll td:nth-child(3) { display: none; }
+  .ws-table--roll td:nth-child(4) { grid-area: 2 / 2; color: var(--color-secondary); font-size: 12px; line-height: 17px; }
+  .ws-table--roll td:nth-child(4)::before { content: "Balance "; }
+  .ws-table--roll td:nth-child(5) { display: none; }
+  .ws-table--roll td:nth-child(6) { grid-area: 1 / 3 / 3 / 4; }
+
+  .ws-table--queue td:nth-child(1) { grid-area: 1 / 1; font-size: 12px; line-height: 17px; color: var(--color-muted); }
+  .ws-table--queue td:nth-child(2) { grid-area: 1 / 2; font-size: 12px; line-height: 17px; color: var(--color-secondary); }
+  .ws-table--queue td:nth-child(2)::before { content: "Unit "; }
+  .ws-table--queue td:nth-child(3) { grid-area: 2 / 1 / 3 / 4; }
+  .ws-table--queue td:nth-child(4) { grid-area: 1 / 3; font-size: 12px; line-height: 17px; }
+  .ws-table--queue td:nth-child(5) { grid-area: 3 / 1 / 4 / 4; }
+
+  .ws-table--plain td:nth-child(n + 3) { display: none; }
+
+  .ws-table--units td:nth-child(1) { grid-area: 1 / 1; font-weight: 600; }
+  .ws-table--units td:nth-child(2) { display: none; }
+  .ws-table--units td:nth-child(3) { grid-area: 1 / 2; }
+  .ws-table--units td:nth-child(4) { display: none; }
+  .ws-table--units td:nth-child(5) { grid-area: 2 / 2; font-size: 12px; line-height: 17px; color: var(--color-secondary); }
+  .ws-table--units td:nth-child(5)::before { content: "Balance "; }
+  .ws-table--units td:nth-child(6) { display: none; }
+  .ws-table--units td:nth-child(7) { grid-area: 1 / 3 / 3 / 4; }
+
+  .ws-table--tenants td:nth-child(1) { grid-area: 1 / 1 / 2 / 3; }
+  .ws-table--tenants td:nth-child(2) { grid-area: 1 / 3; font-weight: 600; }
+  .ws-table--tenants td:nth-child(3) { grid-area: 2 / 1 / 3 / 3; font-size: 12px; line-height: 17px; color: var(--color-secondary); }
+  .ws-table--tenants td:nth-child(4) { display: none; }
+  .ws-table--tenants td:nth-child(5) { grid-area: 2 / 3; }
+  .ws-table--tenants td:nth-child(6) { display: none; }
+
+  .ws-report {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ws-tabbar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    display: flex;
+    justify-content: space-between;
+    gap: 4px;
+    padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+    border-radius: var(--radius-12) var(--radius-12) 0 0;
+    background: var(--color-sidebar);
+  }
+
+  .ws-facts__row {
+    grid-template-columns: 150px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  /* Mobile / Manager Home keeps the name at Heading 1. */
+  .ws-greeting .ws-h1 {
+    font-size: 28px;
+    line-height: 41px;
+  }
+}
+
+@media (max-width: 380px) {
+  .ws-kpis--mobile .ws-kpi__value {
+    font-size: 24px;
+  }
+}
+
+.ws-lease {
+  white-space: nowrap;
+}

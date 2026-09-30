@@ -1,0 +1,8 @@
+{
+  "name": "@portal/web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser client. Plain ES modules, no build step — the API type-strips TypeScript on the way out.",
+  "dependencies": {}
+}

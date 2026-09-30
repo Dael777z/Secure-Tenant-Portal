@@ -1,0 +1,11 @@
+{
+  "name": "@portal/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Types, money primitives, validation, and the API contract — imported by both the server and the browser client, so the two cannot disagree.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*"
+  }
+}

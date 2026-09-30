@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Summit</title>
+    <meta name="description" content="One shared rent record, read the same way by residents and by management." />
+
+    <!--
+      No external stylesheets, no external fonts, no analytics. (The manager
+      workspace uses Inter, self-hosted from apps/web/fonts/ — same origin.)
+
+      This is a deliberate choice rather than a limitation. A webfont request to a
+      third party sends every resident's IP address and page visit to that party
+      on every load, which would sit badly in a system whose whole argument is
+      that residents' data does not leave the operator's own infrastructure. The
+      Content-Security-Policy the API sets forbids external origins outright, so
+      the type below is a system-font stack chosen to sit close to the intended
+      faces. To use the real ones, drop the .woff2 files into apps/web/fonts/,
+      add @font-face rules in styles/tokens.css, and nothing else changes.
+    -->
+    <link rel="stylesheet" href="/app/src/styles/tokens.css" />
+    <link rel="stylesheet" href="/app/src/styles/base.css" />
+    <link rel="stylesheet" href="/app/src/styles/components.css" />
+    <link rel="stylesheet" href="/app/src/styles/tenant.css" />
+    <link rel="stylesheet" href="/app/src/styles/manager.css" />
+    <link rel="stylesheet" href="/app/src/styles/workspace.css" />
+    <link rel="stylesheet" href="/app/src/styles/messages.css" />
+    <link rel="stylesheet" href="/app/src/styles/portfolio.css" />
+
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231b3a5c'/%3E%3Cpath d='M8 22V13l8-5 8 5v9' stroke='%23f4f1ea' stroke-width='2.2' fill='none' stroke-linejoin='round'/%3E%3Cpath d='M12 22v-5h8v5' stroke='%23f4f1ea' stroke-width='2.2' fill='none' stroke-linejoin='round'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
+    <div id="root" class="app-shell">
+      <div class="boot">Loading…</div>
+    </div>
+    <div id="toasts" class="toasts" aria-live="polite" aria-atomic="false"></div>
+    <script type="module" src="/app/src/main.js"></script>
+  </body>
+</html>

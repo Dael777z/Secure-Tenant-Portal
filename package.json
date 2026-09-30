@@ -1,0 +1,31 @@
+{
+  "name": "resident-portal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A self-hosted resident portal built around one shared, append-only rent ledger.",
+  "type": "module",
+  "workspaces": ["packages/*", "apps/*"],
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "start": "node apps/api/src/main.ts serve",
+    "migrate": "node apps/api/src/main.ts migrate",
+    "seed": "node apps/api/src/main.ts seed",
+    "check": "node apps/api/src/main.ts check",
+    "routes": "node apps/api/src/main.ts routes",
+    "test": "node --test apps/api/tests/isolation.test.ts && node --test apps/api/tests/ledger.test.ts && node --test apps/api/tests/payments.test.ts && node --test apps/api/tests/notifications.test.ts && node --test apps/api/tests/dashboard.test.ts && node --test apps/api/tests/messages.test.ts && node --test apps/api/tests/meeting.test.ts && node --test apps/api/tests/reset-autopay.test.ts",
+    "test:isolation": "node --test apps/api/tests/isolation.test.ts",
+    "test:ledger": "node --test apps/api/tests/ledger.test.ts",
+    "test:payments": "node --test apps/api/tests/payments.test.ts",
+    "test:notifications": "node --test apps/api/tests/notifications.test.ts",
+    "test:dashboard": "node --test apps/api/tests/dashboard.test.ts",
+    "test:messages": "node --test apps/api/tests/messages.test.ts",
+    "test:meeting": "node --test apps/api/tests/meeting.test.ts",
+    "test:reset-autopay": "node --test apps/api/tests/reset-autopay.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

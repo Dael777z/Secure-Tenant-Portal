@@ -1,0 +1,18 @@
+{
+  "name": "@portal/api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "API, domain services, migrations, and the scheduled job runner. No runtime dependencies.",
+  "main": "src/main.ts",
+  "scripts": {
+    "start": "node src/main.ts serve",
+    "migrate": "node src/main.ts migrate",
+    "seed": "node src/main.ts seed",
+    "check": "node src/main.ts check",
+    "routes": "node src/main.ts routes",
+    "test": "node --test tests/*.test.ts"
+  },
+  "dependencies": {},
+  "comment": "The empty dependencies block is deliberate. See README: this process runs on a property manager's own hardware, and every runtime dependency is a supply-chain surface the operator inherits. PostgreSQL wire protocol, HTTP, SMTP, SigV4, SCRAM and password hashing are all implemented against Node's standard library."
+}
