@@ -1,0 +1,38 @@
+.container {
+  max-width: 720px;
+  margin: 4rem auto;
+  padding: 0 1rem;
+  text-align: center;
+}
+
+.connect {
+  font-size: 1rem;
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 8px;
+  background: #111;
+  color: #fff;
+  cursor: pointer;
+}
+
+.connect:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.error {
+  color: #c0392b;
+}
+
+table {
+  width: 100%;
+  margin-top: 2rem;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+th,
+td {
+  padding: 0.6rem;
+  border-bottom: 1px solid #ddd;
+}
