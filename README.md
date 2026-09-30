@@ -12,9 +12,9 @@ Summit is a website that property managers and residents share. The manager adds
 
 ---
 
-## Who built what
+## What is built
 
-I designed and built the portal: the idea, the screens, the manager and workflows, and the features
+Designed and built the portal: the idea, the screens, the manager and workflows, and the features
 before implementation I used Claude to refine it and to build some of the more technical parts I wanted handled carefully:
 
 - **Security underneath the app.** The database itself keeps each resident's data separate. Even if a page has a bug, it can't show one person's data to another.
