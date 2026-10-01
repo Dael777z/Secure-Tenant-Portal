@@ -26,19 +26,13 @@ export const permissionsByRole: Record<Role, readonly Permission[]> = {
     tenant: ["ledger:read:self", "payment:create:self", "maintenance:create"],
 }
 
-function authenticatedRole(req: ValidRequest, res: Response): Role | undefined {
-    const role = req.user?.role
-    if (!role) {
-        res.status(401).json({ error: "Not authenticated" })
-        return undefined
-    }
-    return role
-}
-
 export const requirePermission = (permission: Permission) => {
     return (req: ValidRequest, res: Response, next: NextFunction): void => {
-        const userRole = authenticatedRole(req, res)
-        if (!userRole) return
+        const userRole = req.user?.role
+        if (!userRole) {
+            res.status(401).json({ error: "Not authenticated" })
+            return undefined
+        }
 
         if (!permissionsByRole[userRole].includes(permission)) {
             res.status(403).json({ error: "Insufficient permissions" })

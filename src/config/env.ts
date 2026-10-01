@@ -27,8 +27,6 @@ function booleanValue(name: string, fallback: boolean): boolean {
 
 export const env = {
     port: positiveInteger("PORT", 3000),
-    domainName: process.env.DOMAIN_NAME?.trim() || "localhost",
-    networkInterface: process.env.INTERFACE?.trim() || "0.0.0.0",
     webOrigin: process.env.WEB_ORIGIN?.trim() || "http://localhost:5173",
     secureCookies: booleanValue("SECURE_COOKIES", false),
     accessSecret: required("JWT_ACCESS_SECRET"),

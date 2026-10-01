@@ -6,7 +6,7 @@ import { permissionsByRole, requirePermission } from "../middleware/rbac"
 import { login, logout, refresh, signup } from "../services/auth"
 import type { DatabaseInterface, ValidRequest } from "../types/interfaces"
 
-export function createApiRouter(db: DatabaseInterface): Router {
+export function createAuthRouter(db: DatabaseInterface): Router {
     const router = Router()
     const cookieOptions = {
         httpOnly: true,
@@ -23,6 +23,7 @@ export function createApiRouter(db: DatabaseInterface): Router {
         }
 
         const user = await signup(db, email, password) 
+        
         res.status(201).json({ id: user.id, email: user.email, role: user.role })
     })
 

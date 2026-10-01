@@ -1,26 +1,38 @@
 {
+  "name": "Portal",
   "scripts": {
-    "build": "npx tsc -p .",
-    "start": "node dist/app.js",
+    "dev": "concurrently -n backend, frontend \"npm:dev:backend\" \"npm:dev:frontend\"",
+    "build": "npm run build:frontend && tsc -p tsconfig.json",
+    "start": "node dist/server/app.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "dev:backend": "tsx src/app.ts",
+    "dev:frontend": "vite --config frontend/vite.config.ts",
+    "build:frontend": "vite build --config frontend/vite.config.ts"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
     "@types/cookie-parser": "^1.4.10",
-    "@types/cors": "^2.8.19",
     "@types/jsonwebtoken": "^9.0.10",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.5",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
+    "vite": "^8.3.0",
     "vitest": "^5.0.1"
   },
   "dependencies": {
     "@types/express": "^5.0.6",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
-    "cors": "^2.8.6",
     "dotenv": "^18.0.1",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
-    "pino": "^10.3.1"
+    "pino": "^10.3.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-plaid-link": "^5.0.0"
   }
 }
