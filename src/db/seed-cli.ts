@@ -18,6 +18,7 @@ async function main() {
             adminEmail: process.env.SEED_ADMIN_EMAIL?.trim() || "manager@example.com",
             adminPassword,
             bcryptRounds: Number(process.env.BCRYPT_ROUNDS || 12),
+            tenantPassword: process.env.SEED_TENANT_PASSWORD?.trim() || undefined,
         }))
     } finally {
         await pool.end()

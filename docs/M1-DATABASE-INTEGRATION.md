@@ -7,9 +7,22 @@ This connects Scott's Express skeleton to Postgres using Angel's schema, and
 adds integration tests that run the skeleton's auth API against a real
 database. Nothing on the frontend changed.
 
+## Try it on Windows (one click)
+
+1. Double-click **`Start Demo.cmd`** in the repo folder. The first run takes a few minutes; later starts take seconds. It:
+   - finds or downloads a portable Node.js 22 and PostgreSQL. These are shared with the resident-portal launcher and need no admin rights.
+   - creates its own demo database in `%LOCALAPPDATA%\SecureTenantPortal`.
+   - writes `.env`, which stays on your PC and is ignored by git. It asks once for the Plaid sandbox keys; press Enter to skip.
+   - runs `npm install`, `db:migrate` and `db:seed`, then `npm run dev`, and opens http://localhost:5173.
+2. Sign in:
+   - Tenant: `tenant@example.com` / `tenant-demo-password`
+   - Manager: `manager@example.com` / `manager-demo-password`
+   - In Plaid Link's sandbox: `user_good` / `pass_good`.
+3. **`Stop Demo.cmd`** stops the app and the database. **`Reset Demo.cmd`** starts the data over.
+
 ---
 
-## Run it
+## Run it (any OS, by hand)
 
 1. Start Postgres. With Docker: `npm run db:up`. That starts `docker-compose.db.yml`: Postgres 16 on localhost:5432, with a `portal` database and a `portal_test` database. Any local Postgres works too.
 2. Copy `.env.example` to `.env`. Fill in `JWT_ACCESS_SECRET` and `SEED_ADMIN_PASSWORD`. The `DATABASE_URL` and `TEST_DATABASE_URL` values already match `db:up`.

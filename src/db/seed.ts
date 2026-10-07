@@ -6,6 +6,8 @@ export interface SeedOptions {
     adminEmail: string
     adminPassword: string
     bcryptRounds: number
+    /** For demos: also sign the invited tenant up with this password. */
+    tenantPassword?: string
 }
 
 /**
@@ -63,6 +65,10 @@ export async function seed(pool: Pool, options: SeedOptions): Promise<string> {
         throw error
     } finally {
         client.release()
+    }
+    if (options.tenantPassword) {
+        await db.completeSignup("tenant@example.com", await bcrypt.hash(options.tenantPassword, options.bcryptRounds))
+        return `seeded: manager ${options.adminEmail}; tenant@example.com is signed up (demo password set)`
     }
     return `seeded: manager ${options.adminEmail}; tenant@example.com is invited (sign up at /api/auth/signup)`
 }
