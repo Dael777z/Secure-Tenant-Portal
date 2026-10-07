@@ -1,19 +1,24 @@
 {
   "name": "Portal",
   "scripts": {
-    "dev": "concurrently -n backend, frontend \"npm:dev:backend\" \"npm:dev:frontend\"",
+    "dev": "concurrently -n backend,frontend \"npm:dev:backend\" \"npm:dev:frontend\"",
     "build": "npm run build:frontend && tsc -p tsconfig.json",
     "start": "node dist/server/app.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "dev:backend": "tsx src/app.ts",
     "dev:frontend": "vite --config frontend/vite.config.ts",
-    "build:frontend": "vite build --config frontend/vite.config.ts"
+    "build:frontend": "vite build --config frontend/vite.config.ts",
+    "test:integration": "vitest run src/integration",
+    "db:migrate": "tsx src/db/migrate-cli.ts",
+    "db:seed": "tsx src/db/seed-cli.ts",
+    "db:up": "docker compose -f docker-compose.db.yml up -d"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
     "@types/cookie-parser": "^1.4.10",
     "@types/jsonwebtoken": "^9.0.10",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
@@ -30,6 +35,7 @@
     "dotenv": "^18.0.1",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
+    "pg": "^8.23.1",
     "pino": "^10.3.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

@@ -8,6 +8,7 @@ const statusByCode = {
     INVALID_TOKEN: 401,
     USER_NOT_FOUND: 404,
     VALIDATION_ERROR: 400,
+    SIGNUP_NOT_ALLOWED: 403,
 } as const
 
 export function errorHandler(logger: LogService): ErrorRequestHandler {

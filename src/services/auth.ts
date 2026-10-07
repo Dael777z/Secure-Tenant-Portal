@@ -1,25 +1,35 @@
 import bcrypt from "bcrypt"
+import crypto from "crypto"
 import { env } from "../config/env"
 import type { AuthStore } from "../types/interfaces"
 import { AppError } from "../types/errors"
 import { generateAccessToken, generateRefreshToken, hashToken } from "../utils/tokens"
 
+// Sign-up is for tenants the office has already added (agreed 10/1): the
+// tenant row exists with no password, and signing up sets one. An address that
+// was never invited, or has already signed up, gets the same answer either way.
 export async function signup(db: AuthStore, email: string, password_r: string) {
     const normalizedEmail = email.trim().toLowerCase()
     if (!normalizedEmail || password_r.length < 8) throw new AppError("VALIDATION_ERROR")
 
-    const existing = await db.findUserByEmail(normalizedEmail)
-
-    if (existing) throw new AppError("EMAIL_IN_USE")
-    
+    // Hash first, so the response takes the same time whether or not there is an invitation.
     const password_h = await bcrypt.hash(password_r, env.bcryptRounds)
 
-    return db.createUser({ email: normalizedEmail, password_h, role: "tenant"})
+    const user = await db.completeSignup(normalizedEmail, password_h)
+    if (!user) throw new AppError("SIGNUP_NOT_ALLOWED")
+    return user
 }
+
+// A real bcrypt hash of a random value, compared against when the email is
+// unknown, so an unknown address takes as long as a wrong password.
+const DUMMY_HASH = bcrypt.hashSync(crypto.randomBytes(16).toString("hex"), env.bcryptRounds)
 
 export async function login(db: AuthStore, email: string, password: string) {
     const user = await db.findUserByEmail(email.trim().toLowerCase())
-    if (!user) throw new AppError("INVALID_CREDENTIALS")
+    if (!user) {
+        await bcrypt.compare(password, DUMMY_HASH)
+        throw new AppError("INVALID_CREDENTIALS")
+    }
     
     const match = await bcrypt.compare(password, user.password_h)
     if (!match) throw new AppError("INVALID_CREDENTIALS")

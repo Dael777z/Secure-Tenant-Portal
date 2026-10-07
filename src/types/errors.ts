@@ -4,6 +4,7 @@ export type AppErrorCode =
     | "INVALID_TOKEN"
     | "USER_NOT_FOUND"
     | "VALIDATION_ERROR"
+    | "SIGNUP_NOT_ALLOWED"
 
 export class AppError extends Error {
     constructor(public readonly code: AppErrorCode) {

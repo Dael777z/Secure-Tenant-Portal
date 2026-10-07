@@ -38,4 +38,6 @@ export const env = {
     logConsoleEnabled: booleanValue("LOG_CONSOLE_ENABLED", true),
     logFileEnabled: booleanValue("LOG_FILE_ENABLED", true),
     logFilePath: process.env.LOG_FILE_PATH?.trim() || "logs/application.jsonl",
+    /** Postgres. When unset in DEV mode the in-memory store is used instead. */
+    databaseUrl: process.env.DATABASE_URL?.trim() || "",
 }

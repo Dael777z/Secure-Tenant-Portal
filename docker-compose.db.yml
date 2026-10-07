@@ -1,0 +1,16 @@
+# Local Postgres for development only (`npm run db:up`). The app's own
+# container setup is separate; this is just the database.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: portal
+      POSTGRES_PASSWORD: portal-dev-only
+      POSTGRES_DB: portal
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - portal-db:/var/lib/postgresql/data
+      - ./db/create-test-db.sql:/docker-entrypoint-initdb.d/create-test-db.sql:ro
+volumes:
+  portal-db:

@@ -1,6 +1,8 @@
 import { env } from "../config/env"
 import { LogService } from "../logging/log-service"
 import { MemoryDatabase } from "../services/memory-db"
+import { PostgresDatabase } from "../services/postgres-db"
+import { createPool } from "../db/pool"
 import pino from "pino"
 import { dirname } from "path"
 import { mkdirSync } from "fs"
@@ -8,11 +10,15 @@ import { mkdirSync } from "fs"
 import type { DatabaseInterface } from "../types/interfaces"
 
 export function createDatabase(): DatabaseInterface {
+    if (env.databaseUrl) {
+        return new PostgresDatabase(createPool(env.databaseUrl))
+    }
+
     if (env.devMode) {
         return new MemoryDatabase()
     }
 
-    throw new Error("Production database adapter is not configured")
+    throw new Error("DATABASE_URL is required when DEV is off")
 }
 
 export function createLogger(): LogService {
