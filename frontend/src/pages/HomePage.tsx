@@ -1,12 +1,5 @@
 import type { PageKey } from "../types";
-import {
-  currentBalance,
-  rentDueDate,
-  lateFeeGraceDate,
-  mockLedger,
-  mockMaintenanceRequests,
-  mockNotices,
-} from "../data/mockData";
+import { useTenantData } from "../data/tenantData";
 import { formatCurrency } from "../components/formatCurrency";
 
 interface HomePageProps {
@@ -14,9 +7,10 @@ interface HomePageProps {
 }
 
 export function HomePage({ onNavigate }: HomePageProps) {
-  const recentActivity = mockLedger.slice(0, 3);
-  const openRequests = mockMaintenanceRequests.filter((r) => r.status !== "resolved");
-  const recentNotices = mockNotices.slice(0, 2);
+  const { currentBalance, rentDueDate, lateFeeGraceDate, ledger, maintenanceRequests, notices } = useTenantData();
+  const recentActivity = ledger.slice(0, 3);
+  const openRequests = maintenanceRequests.filter((r) => r.status !== "resolved");
+  const recentNotices = notices.slice(0, 2);
 
   return (
     <div className="home-grid">

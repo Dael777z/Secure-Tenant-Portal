@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { MaintenanceRequest, MaintenanceStatus } from "../types";
-import { mockMaintenanceRequests } from "../data/mockData";
+import { useTenantData } from "../data/tenantData";
+import { messageFor, tenantApi } from "../api/tenant";
 
 const statusLabel: Record<MaintenanceStatus, string> = {
   open: "Open",
@@ -9,7 +10,8 @@ const statusLabel: Record<MaintenanceStatus, string> = {
 };
 
 export function MaintenancePage() {
-  const [requests, setRequests] = useState<MaintenanceRequest[]>(mockMaintenanceRequests);
+  const { maintenanceRequests, refresh } = useTenantData();
+  const [requests, setRequests] = useState<MaintenanceRequest[]>(maintenanceRequests);
   const [selectedId, setSelectedId] = useState<string | null>(requests[0]?.id ?? null);
   const [showForm, setShowForm] = useState(false);
 
@@ -21,19 +23,16 @@ export function MaintenancePage() {
   }
 
   function handleNewRequest(newRequest: Omit<MaintenanceRequest, "id" | "submittedDate" | "status">) {
-    const request: MaintenanceRequest = {
-      id: `mr_${Date.now()}`,
-      submittedDate: new Date().toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      }),
-      status: "open",
-      ...newRequest,
-    };
-    setRequests((prev) => [request, ...prev]);
-    setSelectedId(request.id);
-    setShowForm(false);
+    // Saved on the server; the reply is the stored request.
+    tenantApi
+      .newMaintenanceRequest(newRequest.title, newRequest.description)
+      .then((request) => {
+        setRequests((prev) => [request, ...prev]);
+        setSelectedId(request.id);
+        setShowForm(false);
+        void refresh();
+      })
+      .catch((caught) => window.alert(messageFor(caught)));
   }
 
   return (

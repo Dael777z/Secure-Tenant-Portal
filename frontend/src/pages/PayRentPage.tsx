@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { currentBalance, paymentMethodOptions } from "../data/mockData";
+import { paymentMethodOptions } from "../data/mockData";
+import { useTenantData } from "../data/tenantData";
+import { messageFor, tenantApi } from "../api/tenant";
+import { PlaidLinkButton } from "../components/PlaidLinkButton";
 import { formatCurrency } from "../components/formatCurrency";
 import type { PaymentMethodKind } from "../types";
 
@@ -9,17 +12,32 @@ export function PayRentPage() {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethodKind>("bank");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [paidJustNow, setPaidJustNow] = useState(false);
+  const { currentBalance, bankAccounts, plaidEnabled, refresh } = useTenantData();
+  const [confirmation, setConfirmation] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const total = currentBalance + PROCESSING_FEE;
+  // Bank transfer only for now (client, 9/27). With Plaid set up, the money
+  // comes from the tenant's linked account; without it the payment is recorded
+  // as a demo transfer.
+  const bankAccount = bankAccounts[0] ?? null;
+  const needsBankLink = selectedMethod === "bank" && plaidEnabled && !bankAccount;
+  const canPay = selectedMethod === "bank" && total > 0 && !needsBankLink;
 
   function handlePay() {
     setIsSubmitting(true);
     setPaidJustNow(false);
+    setError(null);
 
-    window.setTimeout(() => {
-      setIsSubmitting(false);
-      setPaidJustNow(true);
-    }, 700);
+    tenantApi
+      .pay(Math.round(total * 100) / 100, bankAccount?.id ?? null)
+      .then(async (result) => {
+        setConfirmation(result.confirmation);
+        setPaidJustNow(true);
+        await refresh();
+      })
+      .catch((caught) => setError(messageFor(caught)))
+      .finally(() => setIsSubmitting(false));
   }
 
   return (
@@ -47,6 +65,20 @@ export function PayRentPage() {
             </button>
           ))}
         </div>
+
+        {selectedMethod === "bank" && bankAccount && (
+          <p className="method-note">
+            Paying from {bankAccount.name}
+            {bankAccount.mask ? ` ••${bankAccount.mask}` : ""}
+          </p>
+        )}
+        {needsBankLink && <PlaidLinkButton onLinked={() => void refresh()} />}
+        {selectedMethod === "bank" && !plaidEnabled && (
+          <p className="method-note">Demo mode: the payment is recorded, and no money moves.</p>
+        )}
+        {selectedMethod !== "bank" && (
+          <p className="method-note">For now, rent is paid by bank transfer only.</p>
+        )}
       </section>
 
       <section className="portal-panel" aria-labelledby="payment-summary-heading">
@@ -73,14 +105,19 @@ export function PayRentPage() {
           className="btn btn--primary"
           style={{ width: "100%", marginTop: 16 }}
           onClick={handlePay}
-          disabled={isSubmitting}
+          disabled={isSubmitting || !canPay}
         >
           {isSubmitting ? "Processing..." : `Pay ${formatCurrency(total)}`}
         </button>
 
         {paidJustNow && (
           <div className="pay-success-banner" role="status">
-            Payment submitted. Your receipt will appear in the ledger once it's confirmed.
+            Payment submitted{confirmation ? ` (${confirmation})` : ""}. It now shows in your ledger.
+          </div>
+        )}
+        {error && (
+          <div className="login-error" role="alert" style={{ marginTop: 12 }}>
+            {error}
           </div>
         )}
       </section>

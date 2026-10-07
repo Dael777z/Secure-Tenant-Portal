@@ -827,3 +827,18 @@
   color: #5b6b7f;
   font: 500 15px/1.4 system-ui, sans-serif;
 }
+
+/* Pay rent: which bank account pays, and the Plaid button (integration). */
+.method-note {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: #b9c7d8;
+}
+.plaid-link {
+  margin-top: 12px;
+}
+.plaid-link-error {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #ff9b9b;
+}

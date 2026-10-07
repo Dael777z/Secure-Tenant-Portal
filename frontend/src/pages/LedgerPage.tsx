@@ -1,7 +1,8 @@
-import { mockLedger } from "../data/mockData";
+import { useTenantData } from "../data/tenantData";
 import { formatCurrency } from "../components/formatCurrency";
 
 export function LedgerPage() {
+  const { ledger } = useTenantData();
   return (
     <section className="portal-panel" aria-label="Full ledger">
       <table className="ledger-table">
@@ -15,7 +16,7 @@ export function LedgerPage() {
           </tr>
         </thead>
         <tbody>
-          {mockLedger.map((entry) => (
+          {ledger.map((entry) => (
             <tr key={entry.id}>
               <td>{entry.date}</td>
               <td>{entry.description}</td>

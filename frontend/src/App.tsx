@@ -7,7 +7,7 @@ import { PayRentPage } from "./pages/PayRentPage";
 import { LedgerPage } from "./pages/LedgerPage";
 import { MaintenancePage } from "./pages/MaintenancePage";
 import { NoticesPage } from "./pages/NoticesPage";
-import { mockTenant } from "./data/mockData";
+import { TenantDataProvider, useTenantData } from "./data/tenantData";
 import { currentUser, login, logout, type SessionUser } from "./api/auth";
 import "./styles/portal.css";
 
@@ -21,8 +21,8 @@ const pageTitles: Record<PageKey, string> = {
 
 /* Root of the tenant-facing Resident Portal. */
 export default function App() {
-  // Sign-in is real (backend /api/auth); the page data is still Juan's mock
-  // data until the tenant API exists.
+  // Sign-in is real (backend /api/auth). Once in, TenantDataProvider loads the
+  // tenant's own lease, ledger, requests and notices from /api/tenant/summary.
   const [user, setUser] = useState<SessionUser | null>(null);
   const [checked, setChecked] = useState(false);
   const [activePage, setActivePage] = useState<PageKey>("home");
@@ -67,10 +67,26 @@ export default function App() {
     );
   }
 
-  // Unit and address are still mock; the name shown is who actually signed in.
-  // (/auth/me does not return the email, so after a reload it says "Resident".)
-  const shownName = user.email ?? "Resident";
-  const tenant = { ...mockTenant, name: shownName, initials: shownName.slice(0, 1).toUpperCase() };
+  return (
+    <TenantDataProvider>
+      <TenantShell activePage={activePage} onNavigate={setActivePage} onLogout={handleLogout} />
+    </TenantDataProvider>
+  );
+}
+
+/* The resident portal once signed in: Juan's layout, with the tenant's own data. */
+function TenantShell({
+  activePage,
+  onNavigate,
+  onLogout,
+}: {
+  activePage: PageKey;
+  onNavigate: (page: PageKey) => void;
+  onLogout: () => void;
+}) {
+  const { tenant } = useTenantData();
+  const setActivePage = onNavigate;
+  const handleLogout = onLogout;
 
   return (
     <div className="portal-shell">

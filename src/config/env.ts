@@ -40,4 +40,10 @@ export const env = {
     logFilePath: process.env.LOG_FILE_PATH?.trim() || "logs/application.jsonl",
     /** Postgres. When unset in DEV mode the in-memory store is used instead. */
     databaseUrl: process.env.DATABASE_URL?.trim() || "",
+    /** Plaid (Dael's integration). Both unset: the bank-link routes answer 503. */
+    plaidClientId: process.env.PLAID_CLIENT_ID?.trim() || "",
+    plaidSecret: process.env.PLAID_SECRET?.trim() || "",
+    plaidEnv: (process.env.PLAID_ENV?.trim() || "sandbox") as "sandbox" | "production",
+    /** Encrypts Plaid access tokens at rest. Falls back to the JWT secret in development. */
+    tokenEncryptionKey: process.env.TOKEN_ENCRYPTION_KEY?.trim() || process.env.JWT_ACCESS_SECRET?.trim() || "",
 }

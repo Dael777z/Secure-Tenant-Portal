@@ -46,8 +46,17 @@ export async function seed(pool: Pool, options: SeedOptions): Promise<string> {
             [unit101],
         )
         await client.query("INSERT INTO Lease_Tenants (LeaseID, tID) VALUES ($1, $2)", [lease.rows[0]!.leaseid, tenant.rows[0]!.tid])
-        await client.query("INSERT INTO Payment (LeaseID, ammount) VALUES ($1, 950.00)", [lease.rows[0]!.leaseid])
-        await client.query("INSERT INTO Maintenance_T (uID, tID) VALUES ($1, $2)", [unit101, tenant.rows[0]!.tid])
+        await client.query(
+            `INSERT INTO Payment (LeaseID, ammount, tID, method, confirmation, timestamp)
+             VALUES ($1, 950.00, $2, 'Bank transfer (demo)', 'CONF-10000001', '2026-09-03 10:00')`,
+            [lease.rows[0]!.leaseid, tenant.rows[0]!.tid],
+        )
+        await client.query(
+            `INSERT INTO Maintenance_T (uID, tID, title, description, status, created_at) VALUES
+               ($1, $2, 'Kitchen faucet leaking', 'Steady drip under the sink, worse in the morning.', 'in_progress', '2026-09-29 09:00'),
+               ($1, $2, 'Dishwasher clogged', 'Water pools at the bottom after a full cycle.', 'resolved', '2026-08-15 09:00')`,
+            [unit101, tenant.rows[0]!.tid],
+        )
         await client.query("COMMIT")
     } catch (error) {
         await client.query("ROLLBACK")

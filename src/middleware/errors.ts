@@ -9,6 +9,11 @@ const statusByCode = {
     USER_NOT_FOUND: 404,
     VALIDATION_ERROR: 400,
     SIGNUP_NOT_ALLOWED: 403,
+    NO_ACTIVE_LEASE: 404,
+    NOT_FOUND: 404,
+    DATABASE_REQUIRED: 503,
+    PLAID_NOT_CONFIGURED: 503,
+    PLAID_ERROR: 502,
 } as const
 
 export function errorHandler(logger: LogService): ErrorRequestHandler {

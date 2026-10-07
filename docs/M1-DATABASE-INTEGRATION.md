@@ -62,6 +62,67 @@ This branch is built on the one above.
 
 **Scott:** after `npm run build`, Express serves the app on :3000. The Origin check only accepts `WEB_ORIGIN`, which is `http://localhost:5173` by default. So in a production-style run, sign-in is refused unless `WEB_ORIGIN` matches the address in the browser. In dev, through Vite, it works.
 
+## Everything together (branch `feature/full-integration`)
+
+This is built on the two branches above. It joins Scott's skeleton, Angel's schema, Juan's tenant pages and Dael's Plaid link into one app. The rule was to adjust our code to theirs, and change theirs as little as possible.
+
+**What a tenant can do now, all against the database:**
+- See their name, unit and address from Angel's tables.
+- See their balance and full ledger. The ledger is built from Angel's `Lease` and `Payment` rows (see "How the ledger works").
+- Pay rent. This adds a `Payment` row with the payer, method and a confirmation number; the ledger and balance update.
+- See and file maintenance requests, stored on their unit.
+- See notices made from real records: rent due, payments received, repair updates.
+- Link a bank account through Plaid Link, using Dael's two calls with his paths. With Plaid keys set, Pay rent asks for a linked account first and labels the payment with it.
+
+**Checked:**
+- 50 automated tests: 15 new for this branch, covering the tenant API and the Plaid routes with Plaid replaced by a stand-in.
+- A browser run of the tenant pages against Postgres (10/10).
+
+### Run it
+
+As above (`db:up`, `.env`, `db:migrate`, `db:seed`), then:
+
+1. Sign up the seeded tenant, either with Insomnia (`POST /api/auth/signup` `{"email":"tenant@example.com","password":"…"}`) or with curl.
+2. `npm run dev`, open http://localhost:5173 and sign in.
+3. For bank linking, put the sandbox `PLAID_CLIENT_ID` and `PLAID_SECRET` in `.env`; they're in the Discord keys channel, never in git. In Plaid Link's sandbox, use `user_good` / `pass_good`. Without the keys, payments are recorded as "Bank transfer (demo)".
+
+### New API (Scott's grouping: `api/tenant/`)
+
+| Route | Who | What |
+|---|---|---|
+| `GET /api/tenant/summary` | tenant | Everything Juan's pages show, in his types (`frontend/src/types`): tenant, balance, due dates, ledger, requests, notices, linked banks |
+| `POST /api/tenant/payments` `{amount, bankAccountId?}` | tenant | Records a payment on their current lease |
+| `POST /api/tenant/maintenance` `{title, description}` | tenant | Files a request on their unit |
+| `POST /api/create_link_token` | tenant | Dael's route; the Plaid user is now the signed-in tenant |
+| `POST /api/exchange_and_get_auth` `{public_token}` | tenant | Dael's route; saves the linked accounts |
+
+Every route works from the signed-in tenant's own id. A tenant cannot reach another unit's lease, payments, requests or bank accounts; there are tests for that. Staff accounts get 403.
+
+### How the ledger works on Angel's tables
+
+`Lease.ammount_owed` is read as **monthly rent**:
+- It is charged on move-in, then on the 1st of each month until `end_date`.
+- Every `Payment` on the lease is a credit.
+- The balance is charges minus payments, in exact cents.
+
+This lives in one function (`src/services/ledger.ts`). If Angel adds a real ledger table, that function is what changes; the API and Juan's pages stay the same.
+
+### What changed in teammates' code (kept small on purpose)
+
+| Whose | What changed | Why |
+|---|---|---|
+| **Juan** | Each page reads `useTenantData()` instead of importing the mock arrays: 1–5 lines per page. New requests and payments call the API instead of a timer. Pay rent shows Dael's Connect button, and allows bank only. | Real data; client said bank transfers only. `mockData.ts` is untouched and still supplies the payment method options. |
+| **Dael** | His two routes moved into the main app (`src/routes/plaid.ts`) with the same paths and calls (`src/services/plaid.ts`), plus sign-in. His Connect button is `frontend/src/components/PlaidLinkButton.tsx`. | One server. The Plaid user must be the real tenant. |
+| **Dael** | Linked accounts are saved: Plaid ids, last 4 digits, and the access token **encrypted** (`src/utils/secrets.ts`). The response shows the routing number but only `••••` and the last 4 of the account number; the full number is not stored. | Client: name, email, phone only. The access token can pull the numbers later if a payment processor ever needs them. |
+| **Angel** | Migration `003_tenant_portal.sql`, additions only: maintenance `title`, `description`, `created_at`; payment `tID`, `method`, `confirmation`; a `Bank_Accounts` table. | What Juan's pages and Dael's flow need. Everything has a default; 001/002 are unchanged. |
+| **Scott** | Two routers mounted where his comment said (`// app.use("/api", createPlaidRouter())`), new error codes in his error map, and Plaid settings in `env.ts`. | Plugging in, not reworking. |
+
+### Still to do
+
+- **Moving money.** A payment is recorded, but no money moves. The next payments step is Plaid Transfer, or a processor using the saved Plaid link (Dael).
+- **The manager side** has no screens yet; staff get a placeholder.
+- **Late fees** are not charged. The due notice uses the 5th, per the client.
+
 ---
 
 ## What the team decided last week (Discord 9/27–10/2)

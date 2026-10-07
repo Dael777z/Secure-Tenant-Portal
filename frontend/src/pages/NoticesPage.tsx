@@ -1,5 +1,5 @@
 import type { NoticeType } from "../types";
-import { mockNotices } from "../data/mockData";
+import { useTenantData } from "../data/tenantData";
 
 //icons will be improved
 const icon: Record<NoticeType, string> = {
@@ -9,9 +9,10 @@ const icon: Record<NoticeType, string> = {
 };
 
 export function NoticesPage() {
+  const { notices } = useTenantData();
   return (
     <div className="notice-grid">
-      {mockNotices.map((notice) => (
+      {notices.map((notice) => (
         <div className="portal-panel notice-card" key={notice.id}>
           <div className={`notice-icon notice-icon--${notice.type}`} aria-hidden="true">
             {icon[notice.type]}

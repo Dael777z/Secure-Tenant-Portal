@@ -3,15 +3,24 @@ import { LogService } from "../logging/log-service"
 import { MemoryDatabase } from "../services/memory-db"
 import { PostgresDatabase } from "../services/postgres-db"
 import { createPool } from "../db/pool"
+import type { Pool } from "pg"
+import { TenantStore } from "../services/tenant-store"
+import { createPlaidGateway, type PlaidGateway } from "../services/plaid"
 import pino from "pino"
 import { dirname } from "path"
 import { mkdirSync } from "fs"
 
 import type { DatabaseInterface } from "../types/interfaces"
 
+let sharedPool: Pool | null = null
+function pool(): Pool {
+    sharedPool ??= createPool(env.databaseUrl)
+    return sharedPool
+}
+
 export function createDatabase(): DatabaseInterface {
     if (env.databaseUrl) {
-        return new PostgresDatabase(createPool(env.databaseUrl))
+        return new PostgresDatabase(pool())
     }
 
     if (env.devMode) {
@@ -61,4 +70,16 @@ export function createLogger(): LogService {
     }, pino.multistream(streams))
 
     return new LogService(logger)
+}
+
+/** The tenant pages' data store, when there is a database. */
+export function createTenantStore(): TenantStore | null {
+    if (!env.databaseUrl) return null
+    return new TenantStore(pool(), { timeZone: process.env.PORTAL_TIMEZONE?.trim() || "America/Denver" })
+}
+
+/** Dael's Plaid link, when PLAID_CLIENT_ID and PLAID_SECRET are set. */
+export function createPlaid(): PlaidGateway | null {
+    if (!env.plaidClientId || !env.plaidSecret) return null
+    return createPlaidGateway({ clientId: env.plaidClientId, secret: env.plaidSecret, env: env.plaidEnv })
 }
