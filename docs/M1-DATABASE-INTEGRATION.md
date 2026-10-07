@@ -46,6 +46,22 @@ Leave `DATABASE_URL` empty (with `DEV=1`) and the backend uses the in-memory sto
 | `src/utils/init.ts`, `src/config/env.ts` | `DATABASE_URL` set means Postgres; unset with `DEV=1` means memory. |
 | `package.json` | Adds `pg`. Fixes `npm run dev`: `-n backend, frontend` had a space, which is why Scott's terminal said `'frontend' is not recognized`. `npm audit fix` updated `proxy-addr` (critical, used by Express's `trust proxy`). |
 
+## Juan's tenant UI, connected (branch `feature/tenant-ui-integration`)
+
+This branch is built on the one above.
+
+- Juan's `tenant-side-ui` branch is copied into `frontend/`, unchanged, as its own commit with his authorship. It replaces the skeleton's placeholder page.
+- Sign-in is now real. The login form calls `/api/auth/login`. A reload keeps you signed in, and when the 15-minute access cookie expires the app refreshes it once. Sign out calls `/api/auth/logout`. The sidebar shows who signed in.
+- Staff accounts see a "manager side not built yet" screen instead of the resident pages.
+- **Still mock data:** rent, ledger, maintenance, notices, unit and address all come from `data/mockData.ts`. They switch over once the tenant API exists.
+- Checked in a browser against Postgres:
+  - A wrong password shows "That email and password do not match."
+  - The tenant signs in; all five pages open with no errors.
+  - Reload keeps the session; sign out works.
+  - The manager gets the staff screen.
+
+**Scott:** after `npm run build`, Express serves the app on :3000. The Origin check only accepts `WEB_ORIGIN`, which is `http://localhost:5173` by default. So in a production-style run, sign-in is refused unless `WEB_ORIGIN` matches the address in the browser. In dev, through Vite, it works.
+
 ---
 
 ## What the team decided last week (Discord 9/27–10/2)

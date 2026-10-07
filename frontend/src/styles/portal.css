@@ -819,3 +819,11 @@
   line-height: 1.5;
   margin-top: 16px;
 }
+/* Shown for a moment while the app asks the backend who is signed in. */
+.portal-loading {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  color: #5b6b7f;
+  font: 500 15px/1.4 system-ui, sans-serif;
+}

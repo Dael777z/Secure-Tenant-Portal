@@ -1,8 +1,10 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
+import { loginMessage } from "../api/auth";
 
 interface LoginPageProps {
-    onLogin: (email: string) => void;
+    /** Signs in against the backend; rejects with an AuthError on failure. */
+    onLogin: (email: string, password: string) => Promise<void>;
 }
 
 export function LoginPage({ onLogin }: LoginPageProps) {
@@ -22,10 +24,12 @@ export function LoginPage({ onLogin }: LoginPageProps) {
 
     setIsSubmitting(true);
 
-    window.setTimeout(() => {
-      setIsSubmitting(false);
-      onLogin(email);
-    }, 500);
+    onLogin(email, password)
+      .catch((caught: unknown) => {
+        setError(loginMessage(caught));
+        setPassword("");
+      })
+      .finally(() => setIsSubmitting(false));
   }
 
    return (
