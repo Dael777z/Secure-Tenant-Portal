@@ -1,6 +1,6 @@
 import { env } from "./config/env"
 import { createApp } from "./create-app"
-import { createDatabase, createLogger, createPlaid, createTenantStore } from "./utils/init"
+import { createDatabase, createLogger, createManagerStore, createPlaid, createTenantStore } from "./utils/init"
 import type { DatabaseInterface } from "./types/interfaces"
 import { resolve } from "node:path"
 
@@ -10,7 +10,8 @@ const database: DatabaseInterface = createDatabase()
 const logger = createLogger()
 const tenantStore = createTenantStore()
 const plaid = createPlaid()
-const app = createApp({ database, logger, distRoot, tenantStore, plaid })
+const managerStore = createManagerStore(database)
+const app = createApp({ database, logger, distRoot, tenantStore, plaid, managerStore })
 
 const server = app.listen(env.port, "0.0.0.0", () => {
   logger.info("server.started", {

@@ -5,6 +5,7 @@ import { PostgresDatabase } from "../services/postgres-db"
 import { createPool } from "../db/pool"
 import type { Pool } from "pg"
 import { TenantStore } from "../services/tenant-store"
+import { ManagerStore } from "../services/manager-store"
 import { createPlaidGateway, type PlaidGateway } from "../services/plaid"
 import pino from "pino"
 import { dirname } from "path"
@@ -82,4 +83,10 @@ export function createTenantStore(): TenantStore | null {
 export function createPlaid(): PlaidGateway | null {
     if (!env.plaidClientId || !env.plaidSecret) return null
     return createPlaidGateway({ clientId: env.plaidClientId, secret: env.plaidSecret, env: env.plaidEnv })
+}
+
+/** The manager side's data store, when there is a database. */
+export function createManagerStore(database: DatabaseInterface): ManagerStore | null {
+    if (!env.databaseUrl) return null
+    return new ManagerStore(pool(), database, { timeZone: process.env.PORTAL_TIMEZONE?.trim() || "America/Denver" })
 }

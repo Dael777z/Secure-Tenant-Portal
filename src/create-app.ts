@@ -8,6 +8,8 @@ import { errorHandler } from "./middleware/errors"
 import { createAuthRouter } from "./routes/auth"
 import { createTenantRouter } from "./routes/tenant"
 import { createPlaidRouter } from "./routes/plaid"
+import { createManagerRouter } from "./routes/manager"
+import type { ManagerStore } from "./services/manager-store"
 import type { TenantStore } from "./services/tenant-store"
 import type { PlaidGateway } from "./services/plaid"
 import { context } from "./middleware/context"
@@ -26,6 +28,8 @@ export function createApp(options: {
   tenantStore?: TenantStore | null
   /** Dael's Plaid link. Null: the bank-link routes answer 503. */
   plaid?: PlaidGateway | null
+  /** The manager side's data (needs Postgres). Null: those routes answer 503. */
+  managerStore?: ManagerStore | null
 }): Application {
   const { database, logger, distRoot } = options
   const tenantStore = options.tenantStore ?? null
@@ -48,6 +52,7 @@ export function createApp(options: {
   app.use("/api", createAuthRouter(database))
   app.use("/api", createPlaidRouter(plaid, tenantStore))
   app.use("/api", createTenantRouter(tenantStore, { plaidEnabled: plaid !== null }))
+  app.use("/api", createManagerRouter(options.managerStore ?? null))
 
   app.use(express.static(distRoot))
 

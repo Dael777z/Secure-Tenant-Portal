@@ -14,6 +14,7 @@ const statusByCode = {
     DATABASE_REQUIRED: 503,
     PLAID_NOT_CONFIGURED: 503,
     PLAID_ERROR: 502,
+    UNIT_OCCUPIED: 409,
 } as const
 
 export function errorHandler(logger: LogService): ErrorRequestHandler {

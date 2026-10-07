@@ -9,6 +9,7 @@ import { MaintenancePage } from "./pages/MaintenancePage";
 import { NoticesPage } from "./pages/NoticesPage";
 import { TenantDataProvider, useTenantData } from "./data/tenantData";
 import { currentUser, login, logout, type SessionUser } from "./api/auth";
+import { ManagerApp } from "./manager/ManagerApp";
 import "./styles/portal.css";
 
 const pageTitles: Record<PageKey, string> = {
@@ -19,7 +20,7 @@ const pageTitles: Record<PageKey, string> = {
   notices: "Notices",
 };
 
-/* Root of the tenant-facing Resident Portal. */
+/* Root of the portal: residents get the resident portal, staff the manager side. */
 export default function App() {
   // Sign-in is real (backend /api/auth). Once in, TenantDataProvider loads the
   // tenant's own lease, ledger, requests and notices from /api/tenant/summary.
@@ -51,20 +52,10 @@ export default function App() {
     return <LoginPage onLogin={handleLogin} />;
   }
 
+  // Staff (property managers, maintenance) get the manager side; what each
+  // role can do there comes from its permissions.
   if (user.role !== "tenant") {
-    return (
-      <div className="login-shell">
-        <div className="login-form-panel">
-          <div className="login-form-card">
-            <h2 className="login-form-heading">Signed in as staff</h2>
-            <p>The property manager side is not built yet. This screen is the resident portal.</p>
-            <button type="button" className="btn btn--primary" onClick={handleLogout}>
-              Sign out
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+    return <ManagerApp user={user} onLogout={handleLogout} />;
   }
 
   return (

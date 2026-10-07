@@ -446,6 +446,8 @@ ALTER ROLE portal LOGIN PASSWORD '$($config.appPassword)' NOSUPERUSER;
   Write-Host ''
   Write-Host "   Tenant:   tenant@example.com    password: $(Get-EnvValue 'SEED_TENANT_PASSWORD')"
   Write-Host "   Manager:  $(if (Get-EnvValue 'SEED_ADMIN_EMAIL') { Get-EnvValue 'SEED_ADMIN_EMAIL' } else { 'manager@example.com' })   password: $(Get-EnvValue 'SEED_ADMIN_PASSWORD')"
+  Write-Host "   Repairs:  maintenance@example.com   password: $(Get-EnvValue 'SEED_ADMIN_PASSWORD')"
+  Write-Host '             (every sample resident shares the tenant password)' -ForegroundColor DarkGray
   Write-Host "   Plaid:    $plaid"
   Write-Host ''
   Write-Host '   Keep this window open. Close it or press Ctrl+C to stop the app.'

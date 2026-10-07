@@ -10,6 +10,7 @@ export type AppErrorCode =
     | "DATABASE_REQUIRED"
     | "PLAID_NOT_CONFIGURED"
     | "PLAID_ERROR"
+    | "UNIT_OCCUPIED"
 
 export class AppError extends Error {
     constructor(public readonly code: AppErrorCode) {

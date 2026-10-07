@@ -15,8 +15,9 @@ database. Nothing on the frontend changed.
    - writes `.env`, which stays on your PC and is ignored by git. It asks once for the Plaid sandbox keys; press Enter to skip.
    - runs `npm install`, `db:migrate` and `db:seed`, then `npm run dev`, and opens http://localhost:5173.
 2. Sign in:
-   - Tenant: `tenant@example.com` / `tenant-demo-password`
+   - Tenant: `tenant@example.com` / `tenant-demo-password` (every sample resident who has signed up uses the same password, e.g. `aisha.okafor@example.com`)
    - Manager: `manager@example.com` / `manager-demo-password`
+   - Maintenance staff: `maintenance@example.com` / `manager-demo-password`
    - In Plaid Link's sandbox: `user_good` / `pass_good`.
 3. **`Stop Demo.cmd`** stops the app and the database. **`Reset Demo.cmd`** starts the data over.
 
@@ -28,7 +29,7 @@ database. Nothing on the frontend changed.
 2. Copy `.env.example` to `.env`. Fill in `JWT_ACCESS_SECRET` and `SEED_ADMIN_PASSWORD`. The `DATABASE_URL` and `TEST_DATABASE_URL` values already match `db:up`.
 3. `npm install`
 4. `npm run db:migrate`: builds the tables. It is safe to run again.
-5. `npm run db:seed`: adds a manager login (`SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`), a property with units 101–104, and an invited tenant `tenant@example.com` on a lease.
+5. `npm run db:seed`: adds a manager login (`SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`), a maintenance login, and the demo portfolio (see "Demo data" under the manager side). With `SEED_TENANT_PASSWORD` set, `tenant@example.com` can sign in right away; without it, the tenant is invited and signs up first.
 6. `npm run dev`, then in Insomnia:
    - `POST /api/auth/signup` `{"email":"tenant@example.com","password":"…"}` returns 201. Any other email returns 403.
    - `POST /api/auth/login`, then `GET /api/auth/me`, as in Scott's demo.
@@ -133,8 +134,64 @@ This lives in one function (`src/services/ledger.ts`). If Angel adds a real ledg
 ### Still to do
 
 - **Moving money.** A payment is recorded, but no money moves. The next payments step is Plaid Transfer, or a processor using the saved Plaid link (Dael).
-- **The manager side** has no screens yet; staff get a placeholder.
+- ~~The manager side~~: done, see below.
 - **Late fees** are not charged. The due notice uses the 5th, per the client.
+
+---
+
+## The manager side (branch `feature/manager-side`)
+
+Staff now get a real workspace after signing in, ported from the manager screens in our resident-portal reference and cut down to what Angel's tables store. Same sign-in and session as the tenant side; Scott's RBAC decides what each role can do. No new permissions were added.
+
+| Who | Sees | Can do |
+|---|---|---|
+| Property manager (`manager@example.com`) | Dashboard, Properties, Rent Roll, Tenants, lease pages, Maintenance, Updates | Everything below |
+| Maintenance staff (`maintenance@example.com`) | Maintenance only | File requests, move them between New / In progress / Resolved |
+| Tenant | the resident portal, as before | `/api/manager/*` returns 403 |
+
+**Screens**
+- **Dashboard**: portfolio counts, occupancy, rent collected vs. expected this month, outstanding, overdue accounts, open maintenance, recent activity, and the top items that need attention. A quick-actions bar (**+ New lease, + Add property, + Add unit, Record a payment, + Invite tenant, Maintenance request**) sits on the main screens.
+- **Properties**: one card per building with occupancy and money owed; a property page lists its units.
+- **Rent Roll**: every unit with residents, rent, balance and status (Owes rent / Paid up / Vacant), filters, search and totals.
+- **Tenants**: everyone with a resident account, whether they have signed up yet, and their balance. Contact details can be corrected; the email stays the tenant's sign-in.
+- **Lease page**: balance, rent, dates, residents and cosigners (add or remove, at least one stays), the full ledger, record an office payment (check, cash, money order, bank transfer), change rent, end the lease.
+- **Maintenance**: the queue across all properties; status changes show up in the resident's portal.
+- **Updates**: overdue rent, new requests and residents who have not signed up, worst first.
+
+A new lease can add residents who are not in the system yet: they are created as invited tenants and sign up themselves with `POST /api/auth/signup`, exactly like the seeded tenant.
+
+### Manager API
+
+| Route | Permission | What |
+|---|---|---|
+| `GET /api/manager/me` | `maintenance:manage` | The signed-in staff member's name and role |
+| `GET /api/manager/dashboard`, `properties`, `units?propertyId=`, `tenants`, `leases/:id`, `updates` | `ledger:read:property` | Reads |
+| `POST/PUT /api/manager/properties[/:id]`, `units[/:id]` | `users:provision` | Portfolio. A unit number is unique within its property. |
+| `POST /api/manager/tenants`, `PUT /api/manager/tenants/:id` | `users:provision` | Invite a tenant; fix name or phone |
+| `POST /api/manager/leases` `{unitId, startDate, endDate?, monthlyRent, tenantIds, newTenants}` | `users:provision` | New lease on a vacant unit (409 `UNIT_OCCUPIED` otherwise) |
+| `PUT /api/manager/leases/:id` `{monthlyRent?, endDate?}` | `users:provision` | Change rent or end the lease |
+| `POST /api/manager/leases/:id/tenants`, `DELETE .../tenants/:tid` | `users:provision` | Add or remove a resident |
+| `POST /api/manager/leases/:id/payments` `{amount, method, tenantId?}` | `ledger:adjust` | Office payment, confirmation `OFF-########` |
+| `GET/POST /api/manager/maintenance`, `PUT /api/manager/maintenance/:id` `{status}` | `maintenance:manage` | The queue |
+
+Every property manager sees every property, as the client asked on 9/28. Money stays in dollars, as in Angel's `NUMERIC` columns, and the ledger is the same `buildLedger` the tenant side uses, so both sides always show the same balance.
+
+### Demo data (`npm run db:seed`)
+
+Two properties (Woodcrest Apartments 101–112, Mesilla Court A1–A6), 14 leases with rent history since each move-in: most paid on time, some a month or two behind, one partial payment, one lease with two cosigners, one resident who has not signed up yet (Nora Brooks), and six maintenance requests in every status. `tenant@example.com` is on unit 101.
+
+### What changed
+
+| File | Change |
+|---|---|
+| `src/services/manager-store.ts`, `src/routes/manager.ts`, `src/types/manager.ts` | New: the manager API on Angel's tables |
+| `src/db/seed.ts` | Richer demo data (above) and a maintenance login |
+| `src/db/pool.ts` | A dropped idle database connection (Postgres restart, Reset Demo) no longer crashes the server |
+| `src/create-app.ts`, `src/utils/init.ts`, `src/app.ts`, error maps | Mount the router; add `UNIT_OCCUPIED` (409) |
+| `frontend/src/manager/*` | New: the manager screens, styles prefixed `mgr-` so Juan's CSS is untouched |
+| `frontend/src/App.tsx` | Staff get `<ManagerApp>` instead of the placeholder |
+
+**Checked:** 61 automated tests (11 new for the manager API, including role access), and a browser run of the manager side (18/18) and the tenant side against the same database.
 
 ---
 
