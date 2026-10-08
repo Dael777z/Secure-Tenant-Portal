@@ -70,7 +70,18 @@ export type Dialog =
   | { kind: "maintenance"; unitId?: number }
   | { kind: "rent"; leaseId: number; monthlyRent: number }
   | { kind: "endLease"; leaseId: number; label: string }
-  | { kind: "addResident"; leaseId: number };
+  | { kind: "addResident"; leaseId: number }
+  | { kind: "attachReceipt"; leaseId: number; paymentId: number; label: string }
+  | {
+      kind: "confirm";
+      title: string;
+      body: string;
+      confirmLabel: string;
+      run: () => Promise<unknown>;
+      done: string;
+      /** Where to go afterwards (for example, off a lease page that no longer exists). */
+      after?: Route;
+    };
 
 /* ------------------------------------------------------------------ *
  * App context

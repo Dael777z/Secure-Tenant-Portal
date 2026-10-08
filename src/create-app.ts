@@ -44,7 +44,8 @@ export function createApp(options: {
 
   // middleware
   app.use(context)
-  app.use(express.json())
+  // 6 MB: room for a payment receipt (at most 4 MB, sent as base64).
+  app.use(express.json({ limit: "6mb" }))
   app.use(cookieParser())
   app.use(verifyRequestOrigin)
   app.use(logging(logger))

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { loginMessage } from "../api/auth";
+import { SignUpForm } from "../components/SignUpForm";
 
 interface LoginPageProps {
     /** Signs in against the backend; rejects with an AuthError on failure. */
@@ -12,6 +13,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [signingUp, setSigningUp] = useState(false);
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -45,6 +47,10 @@ export function LoginPage({ onLogin }: LoginPageProps) {
 
       <div className="login-form-panel">
         <div className="login-form-card">
+          {signingUp ? (
+            <SignUpForm onLogin={onLogin} onBack={() => setSigningUp(false)} />
+          ) : (
+          <>
           <h2 className="login-form-heading">Sign in</h2>
 
           <form onSubmit={handleSubmit} noValidate>
@@ -101,6 +107,15 @@ export function LoginPage({ onLogin }: LoginPageProps) {
             . The leasing office can also reset it for you, and either way the reset is
             recorded on your account.
           </p>
+
+          <p className="login-footnote">
+            New resident?{" "}
+            <button type="button" className="link-button link-button--dark" onClick={() => setSigningUp(true)}>
+              Create your account
+            </button>
+          </p>
+          </>
+          )}
         </div>
       </div>
     </div>

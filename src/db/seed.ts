@@ -10,6 +10,12 @@ export interface SeedOptions {
     tenantPassword?: string
     /** "Today" for the sample history. Defaults to now. */
     today?: Date
+    /**
+     * false: a clean start for a live demo. Only the two staff logins and one
+     * example tenant (tenant@example.com, Unit 101, this month's rent due),
+     * plus three empty units to lease. Default true: the full sample portfolio.
+     */
+    sampleData?: boolean
 }
 
 /**
@@ -97,6 +103,8 @@ export async function seed(pool: Pool, options: SeedOptions): Promise<string> {
     const residentHash = tenantHash ?? staffHash
     let confirmation = 10_000_000
 
+    if (options.sampleData === false) return seedClean(pool, residentHash, tenantHash !== null, today, options.adminEmail)
+
     const client = await pool.connect()
     try {
         await client.query("BEGIN")
@@ -178,4 +186,30 @@ export async function seed(pool: Pool, options: SeedOptions): Promise<string> {
         ? "tenant@example.com is signed up (demo password set)"
         : "tenant@example.com is invited (sign up at /api/auth/signup)"
     return `seeded: manager ${options.adminEmail} and maintenance@example.com (same password); 2 properties, 18 units, 14 leases; ${tenantLine}`
+}
+
+/** The clean start: one property, four units, one example tenant on Unit 101. */
+async function seedClean(pool: Pool, residentHash: string, signedUp: boolean, today: Date, adminEmail: string): Promise<string> {
+    const client = await pool.connect()
+    try {
+        await client.query("BEGIN")
+        const units = await addProperty(client, "Woodcrest Apartments", "2400 Woodcrest Dr, Las Cruces, NM 88011", ["101", "102", "103", "104"])
+        const monthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1)).toISOString().slice(0, 10)
+        const lease = await client.query<{ leaseid: number }>(
+            "INSERT INTO Lease (uID, start_date, end_date, ammount_owed) VALUES ($1, $2, NULL, '950.00') RETURNING LeaseID AS leaseid",
+            [units.get("101")!, monthStart],
+        )
+        const tenant = await client.query<{ tid: number }>(
+            "INSERT INTO Tenants (Name, Phone, Email, password_hash, signed_up) VALUES ('Test Tenant', '(575) 555-0101', 'tenant@example.com', $1, $2) RETURNING tID AS tid",
+            [signedUp ? residentHash : null, signedUp],
+        )
+        await client.query("INSERT INTO Lease_Tenants (LeaseID, tID) VALUES ($1, $2)", [lease.rows[0]!.leaseid, tenant.rows[0]!.tid])
+        await client.query("COMMIT")
+    } catch (error) {
+        await client.query("ROLLBACK")
+        throw error
+    } finally {
+        client.release()
+    }
+    return `seeded (clean start): manager ${adminEmail} and maintenance@example.com; Woodcrest Apartments, units 101-104; tenant@example.com on Unit 101`
 }

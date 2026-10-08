@@ -31,6 +31,13 @@ interface PaymentRow {
     confirmation: string | null
 }
 
+/** A receipt file, already checked by the route (type matches its first bytes, at most 4 MB). */
+export interface Receipt {
+    filename: string
+    contentType: "image/jpeg" | "image/png" | "image/webp" | "application/pdf"
+    data: Buffer
+}
+
 const isActive = (lease: { start_date: string; end_date: string | null }, today: string) =>
     lease.start_date <= today && (lease.end_date === null || lease.end_date >= today)
 
@@ -242,7 +249,7 @@ export class ManagerStore {
         )
         const lease = rows[0]
         if (!lease) throw new AppError("NOT_FOUND")
-        const [payments, people] = await Promise.all([
+        const [payments, people, receipts] = await Promise.all([
             this.pool.query<PaymentRow>(
                 "SELECT payID AS payid, LeaseID AS leaseid, ammount::text AS ammount, timestamp AS paid_at, method, confirmation FROM Payment WHERE LeaseID = $1 ORDER BY timestamp",
                 [leaseId],
@@ -250,6 +257,10 @@ export class ManagerStore {
             this.pool.query<{ tid: number; name: string; email: string; phone: string | null; signed_up: boolean }>(
                 `SELECT t.tID AS tid, t.Name AS name, t.Email AS email, t.Phone AS phone, t.signed_up
                  FROM Lease_Tenants lt JOIN Tenants t ON t.tID = lt.tID WHERE lt.LeaseID = $1 ORDER BY t.Name`,
+                [leaseId],
+            ),
+            this.pool.query<{ payid: number }>(
+                "SELECT r.payID AS payid FROM Payment_Receipts r JOIN Payment p ON p.payID = r.payID WHERE p.LeaseID = $1",
                 [leaseId],
             ),
         ])
@@ -267,6 +278,7 @@ export class ManagerStore {
             tenants: people.rows.map((t) => ({ id: t.tid, name: t.name, email: t.email, phone: t.phone, signedUp: t.signed_up })),
             balance: built.balance,
             ledger: built.entries,
+            receiptPaymentIds: receipts.rows.map((r) => r.payid),
         }
     }
 
@@ -351,7 +363,10 @@ export class ManagerStore {
     }
 
     /** An offline payment the office received (check, cash, money order…). */
-    async recordPayment(leaseId: number, input: { amount: number; method: string; tenantId: number | null }): Promise<string> {
+    async recordPayment(
+        leaseId: number,
+        input: { amount: number; method: string; tenantId: number | null; receipt?: Receipt | null },
+    ): Promise<string> {
         const lease = await this.pool.query("SELECT 1 FROM Lease WHERE LeaseID = $1", [leaseId])
         if (!lease.rowCount) throw new AppError("NOT_FOUND")
         if (input.tenantId !== null) {
@@ -359,16 +374,54 @@ export class ManagerStore {
             if (!onLease.rowCount) throw new AppError("VALIDATION_ERROR")
         }
         const confirmation = `OFF-${crypto.randomInt(10_000_000, 99_999_999)}`
-        await this.pool.query(
-            "INSERT INTO Payment (LeaseID, ammount, tID, method, confirmation) VALUES ($1, $2, $3, $4, $5)",
-            [leaseId, input.amount.toFixed(2), input.tenantId, `${input.method} (recorded by office)`.slice(0, 60), confirmation],
-        )
+        // The payment and its receipt are saved together or not at all.
+        const client = await this.pool.connect()
+        try {
+            await client.query("BEGIN")
+            const { rows } = await client.query<{ payid: number }>(
+                "INSERT INTO Payment (LeaseID, ammount, tID, method, confirmation) VALUES ($1, $2, $3, $4, $5) RETURNING payID AS payid",
+                [leaseId, input.amount.toFixed(2), input.tenantId, `${input.method} (recorded by office)`.slice(0, 60), confirmation],
+            )
+            if (input.receipt) await this.saveReceipt(client, rows[0]!.payid, input.receipt)
+            await client.query("COMMIT")
+        } catch (error) {
+            await client.query("ROLLBACK")
+            throw error
+        } finally {
+            client.release()
+        }
         return confirmation
     }
 
     /* ---------------------------------------------------------------- *
-     * Maintenance
+     * Receipts (004): stored in the database next to the payment
      * ---------------------------------------------------------------- */
+
+    private async saveReceipt(client: PoolClient | Pool, payId: number, receipt: Receipt): Promise<void> {
+        await client.query(
+            `INSERT INTO Payment_Receipts (payID, filename, content_type, size_bytes, data) VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (payID) DO UPDATE SET filename = EXCLUDED.filename, content_type = EXCLUDED.content_type,
+               size_bytes = EXCLUDED.size_bytes, data = EXCLUDED.data, uploaded_at = now()`,
+            [payId, receipt.filename, receipt.contentType, receipt.data.length, receipt.data],
+        )
+    }
+
+    /** Attach (or replace) the receipt of a payment already on the lease. */
+    async attachReceipt(leaseId: number, payId: number, receipt: Receipt): Promise<void> {
+        const payment = await this.pool.query("SELECT 1 FROM Payment WHERE payID = $1 AND LeaseID = $2", [payId, leaseId])
+        if (!payment.rowCount) throw new AppError("NOT_FOUND")
+        await this.saveReceipt(this.pool, payId, receipt)
+    }
+
+    async receipt(leaseId: number, payId: number): Promise<Receipt> {
+        const { rows } = await this.pool.query<{ filename: string; content_type: Receipt["contentType"]; data: Buffer }>(
+            `SELECT r.filename, r.content_type, r.data FROM Payment_Receipts r JOIN Payment p ON p.payID = r.payID
+             WHERE r.payID = $1 AND p.LeaseID = $2`,
+            [payId, leaseId],
+        )
+        if (!rows[0]) throw new AppError("NOT_FOUND")
+        return { filename: rows[0].filename, contentType: rows[0].content_type, data: rows[0].data }
+    }
 
     async maintenance(): Promise<MaintenanceRow[]> {
         const { rows } = await this.pool.query<{
@@ -407,6 +460,90 @@ export class ManagerStore {
     async setMaintenanceStatus(id: number, status: MaintenanceRow["status"]): Promise<void> {
         const result = await this.pool.query("UPDATE Maintenance_T SET status = $2 WHERE mID = $1", [id, status])
         if (!result.rowCount) throw new AppError("NOT_FOUND")
+    }
+
+    /* ---------------------------------------------------------------- *
+     * Deleting: only what leaves the records honest. Anything with money
+     * history (a lease with payments, a unit or property that was ever
+     * leased) stays on record; the database's own RESTRICT rules back this up.
+     * ---------------------------------------------------------------- */
+
+    /** A tenant who is not on a current lease. Their past payments and requests stay, unattributed. */
+    async deleteTenant(tID: number): Promise<void> {
+        const tenant = await this.pool.query("SELECT 1 FROM Tenants WHERE tID = $1", [tID])
+        if (!tenant.rowCount) throw new AppError("NOT_FOUND")
+        // Current or future leases count; only leases that have ended let go of them.
+        const onLease = await this.pool.query(
+            `SELECT 1 FROM Lease_Tenants lt JOIN Lease l ON l.LeaseID = lt.LeaseID
+             WHERE lt.tID = $1 AND (l.end_date IS NULL OR l.end_date >= $2::date) LIMIT 1`,
+            [tID, this.today()],
+        )
+        if (onLease.rowCount) throw new AppError("TENANT_ON_LEASE")
+        await this.pool.query("DELETE FROM Tenants WHERE tID = $1", [tID])
+    }
+
+    /** A lease entered by mistake: no payments yet. Its residents stay, as invited tenants. */
+    async deleteLease(leaseId: number): Promise<void> {
+        const client = await this.pool.connect()
+        try {
+            await client.query("BEGIN")
+            const lease = await client.query("SELECT 1 FROM Lease WHERE LeaseID = $1 FOR UPDATE", [leaseId])
+            if (!lease.rowCount) throw new AppError("NOT_FOUND")
+            const paid = await client.query("SELECT 1 FROM Payment WHERE LeaseID = $1 LIMIT 1", [leaseId])
+            if (paid.rowCount) throw new AppError("LEASE_HAS_PAYMENTS")
+            await client.query("DELETE FROM Lease WHERE LeaseID = $1", [leaseId])
+            await client.query("COMMIT")
+        } catch (error) {
+            await client.query("ROLLBACK")
+            throw error
+        } finally {
+            client.release()
+        }
+    }
+
+    /** Undo a payment the office recorded (confirmation OFF-…). Tenant payments stay. */
+    async deleteOfficePayment(leaseId: number, payId: number): Promise<void> {
+        const removed = await this.pool.query(
+            "DELETE FROM Payment WHERE payID = $1 AND LeaseID = $2 AND confirmation LIKE 'OFF-%'",
+            [payId, leaseId],
+        )
+        if (removed.rowCount) return
+        const exists = await this.pool.query("SELECT 1 FROM Payment WHERE payID = $1 AND LeaseID = $2", [payId, leaseId])
+        throw new AppError(exists.rowCount ? "NOT_OFFICE_PAYMENT" : "NOT_FOUND")
+    }
+
+    /** A unit that was never leased. Its maintenance requests go with it. */
+    async deleteUnit(uID: number): Promise<void> {
+        const unit = await this.pool.query("SELECT 1 FROM Units WHERE uID = $1", [uID])
+        if (!unit.rowCount) throw new AppError("NOT_FOUND")
+        const leased = await this.pool.query("SELECT 1 FROM Lease WHERE uID = $1 LIMIT 1", [uID])
+        if (leased.rowCount) throw new AppError("UNIT_HAS_LEASES")
+        try {
+            await this.pool.query("DELETE FROM Units WHERE uID = $1", [uID])
+        } catch (error) {
+            if ((error as { code?: string }).code === "23503") throw new AppError("UNIT_HAS_LEASES")
+            throw error
+        }
+    }
+
+    /** A property none of whose units was ever leased. Its units go with it. */
+    async deleteProperty(pID: number): Promise<void> {
+        const property = await this.pool.query("SELECT 1 FROM Property WHERE pID = $1", [pID])
+        if (!property.rowCount) throw new AppError("NOT_FOUND")
+        const leased = await this.pool.query("SELECT 1 FROM Lease l JOIN Units u ON u.uID = l.uID WHERE u.pID = $1 LIMIT 1", [pID])
+        if (leased.rowCount) throw new AppError("PROPERTY_HAS_LEASES")
+        try {
+            await this.pool.query("DELETE FROM Property WHERE pID = $1", [pID])
+        } catch (error) {
+            if ((error as { code?: string }).code === "23503") throw new AppError("PROPERTY_HAS_LEASES")
+            throw error
+        }
+    }
+
+    /** A maintenance request filed by mistake or no longer needed. */
+    async deleteMaintenance(mID: number): Promise<void> {
+        const removed = await this.pool.query("DELETE FROM Maintenance_T WHERE mID = $1", [mID])
+        if (!removed.rowCount) throw new AppError("NOT_FOUND")
     }
 
     /** The signed-in staff member's name for the sidebar ("admin:N" ids only). */

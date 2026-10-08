@@ -1090,3 +1090,13 @@ body:has(.mgr-shell) {
 .mgr-table td.mgr-row-actions > * + * {
   margin-left: 6px;
 }
+
+/* Links that look like buttons (View receipt) */
+.mgr-shell a.mgr-btn {
+  display: inline-block;
+  text-decoration: none;
+}
+
+.mgr-shell a.mgr-btn--secondary {
+  color: var(--mgr-blue-dark);
+}

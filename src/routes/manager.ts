@@ -2,7 +2,7 @@ import { Router, type RequestHandler } from "express"
 
 import { authenticateJWT } from "../middleware/auth"
 import { requirePermission } from "../middleware/rbac"
-import type { ManagerStore } from "../services/manager-store"
+import type { ManagerStore, Receipt } from "../services/manager-store"
 import { AppError } from "../types/errors"
 import type { Permission, ValidRequest } from "../types/interfaces"
 
@@ -44,6 +44,28 @@ const email = (value: unknown): string => {
 const person = (value: unknown) => {
     const v = (value ?? {}) as Record<string, unknown>
     return { name: text(v.name, 255)!, email: email(v.email), phone: text(v.phone, 20, { optional: true }) }
+}
+
+/** Receipt types, recognised by their first bytes (the browser's stated type is not trusted alone). */
+const RECEIPT_TYPES: Array<{ type: Receipt["contentType"]; matches: (b: Buffer) => boolean }> = [
+    { type: "image/jpeg", matches: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
+    { type: "image/png", matches: (b) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) },
+    { type: "image/webp", matches: (b) => b.subarray(0, 4).toString("latin1") === "RIFF" && b.subarray(8, 12).toString("latin1") === "WEBP" },
+    { type: "application/pdf", matches: (b) => b.subarray(0, 5).toString("latin1") === "%PDF-" },
+]
+export const RECEIPT_MAX_BYTES = 4 * 1024 * 1024
+
+/** { filename, data (base64) } → a checked receipt, or RECEIPT_INVALID. */
+const receipt = (value: unknown): Receipt => {
+    const v = (value ?? {}) as Record<string, unknown>
+    if (typeof v.data !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(v.data)) throw new AppError("RECEIPT_INVALID")
+    const data = Buffer.from(v.data, "base64")
+    if (data.length === 0 || data.length > RECEIPT_MAX_BYTES) throw new AppError("RECEIPT_INVALID")
+    const kind = RECEIPT_TYPES.find((t) => t.matches(data))
+    if (!kind) throw new AppError("RECEIPT_INVALID")
+    const name = typeof v.filename === "string" ? v.filename : ""
+    const filename = name.replace(/[^A-Za-z0-9._ -]/g, "_").slice(0, 120).trim() || "receipt"
+    return { filename, contentType: kind.type, data }
 }
 
 export function createManagerRouter(store: ManagerStore | null): Router {
@@ -148,6 +170,7 @@ export function createManagerRouter(store: ManagerStore | null): Router {
             amount: money(body.amount),
             method: body.method,
             tenantId: body.tenantId === undefined || body.tenantId === null ? null : id(body.tenantId),
+            receipt: body.receipt === undefined || body.receipt === null ? null : receipt(body.receipt),
         })
         res.status(201).json({ confirmation })
     })
@@ -174,6 +197,48 @@ export function createManagerRouter(store: ManagerStore | null): Router {
         const status = (req.body as Record<string, unknown>).status
         if (status !== "submitted" && status !== "in_progress" && status !== "resolved") throw new AppError("VALIDATION_ERROR")
         await need().setMaintenanceStatus(id(req.params.requestId), status)
+        res.json({ ok: true })
+    })
+
+    // Receipts (stored in the database with the payment)
+    router.put("/manager/leases/:leaseId/payments/:paymentId/receipt", ...can("ledger:adjust"), async (req, res) => {
+        await need().attachReceipt(id(req.params.leaseId), id(req.params.paymentId), receipt(req.body))
+        res.json({ ok: true })
+    })
+    router.get("/manager/leases/:leaseId/payments/:paymentId/receipt", ...can("ledger:read:property"), async (req, res) => {
+        const file = await need().receipt(id(req.params.leaseId), id(req.params.paymentId))
+        res.set({
+            "Content-Type": file.contentType,
+            "Content-Disposition": `inline; filename="${file.filename}"`,
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
+        })
+        res.send(file.data)
+    })
+
+    // Deleting (each store method says what may go and what stays on record)
+    router.delete("/manager/tenants/:tenantId", ...can("users:provision"), async (req, res) => {
+        await need().deleteTenant(id(req.params.tenantId))
+        res.json({ ok: true })
+    })
+    router.delete("/manager/leases/:leaseId", ...can("users:provision"), async (req, res) => {
+        await need().deleteLease(id(req.params.leaseId))
+        res.json({ ok: true })
+    })
+    router.delete("/manager/leases/:leaseId/payments/:paymentId", ...can("ledger:adjust"), async (req, res) => {
+        await need().deleteOfficePayment(id(req.params.leaseId), id(req.params.paymentId))
+        res.json({ ok: true })
+    })
+    router.delete("/manager/units/:unitId", ...can("users:provision"), async (req, res) => {
+        await need().deleteUnit(id(req.params.unitId))
+        res.json({ ok: true })
+    })
+    router.delete("/manager/properties/:propertyId", ...can("users:provision"), async (req, res) => {
+        await need().deleteProperty(id(req.params.propertyId))
+        res.json({ ok: true })
+    })
+    router.delete("/manager/maintenance/:requestId", ...can("maintenance:manage"), async (req, res) => {
+        await need().deleteMaintenance(id(req.params.requestId))
         res.json({ ok: true })
     })
 

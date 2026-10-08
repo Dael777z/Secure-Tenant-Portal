@@ -15,6 +15,12 @@ const statusByCode = {
     PLAID_NOT_CONFIGURED: 503,
     PLAID_ERROR: 502,
     UNIT_OCCUPIED: 409,
+    TENANT_ON_LEASE: 409,
+    LEASE_HAS_PAYMENTS: 409,
+    NOT_OFFICE_PAYMENT: 409,
+    UNIT_HAS_LEASES: 409,
+    PROPERTY_HAS_LEASES: 409,
+    RECEIPT_INVALID: 400,
 } as const
 
 export function errorHandler(logger: LogService): ErrorRequestHandler {

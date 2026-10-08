@@ -11,6 +11,12 @@ export type AppErrorCode =
     | "PLAID_NOT_CONFIGURED"
     | "PLAID_ERROR"
     | "UNIT_OCCUPIED"
+    | "TENANT_ON_LEASE"
+    | "LEASE_HAS_PAYMENTS"
+    | "NOT_OFFICE_PAYMENT"
+    | "UNIT_HAS_LEASES"
+    | "PROPERTY_HAS_LEASES"
+    | "RECEIPT_INVALID"
 
 export class AppError extends Error {
     constructor(public readonly code: AppErrorCode) {

@@ -59,7 +59,34 @@ export interface LeaseDetail {
   tenants: Array<{ id: number; name: string; email: string; phone: string | null; signedUp: boolean }>;
   balance: number;
   ledger: LedgerEntry[];
+  /** Payment ids (the number in a ledger line's "payment-<id>") that have a receipt on file. */
+  receiptPaymentIds: number[];
 }
+
+/** A receipt picked in the browser, sent as base64. */
+export interface ReceiptUpload {
+  filename: string;
+  data: string;
+}
+
+export const RECEIPT_MAX_BYTES = 4 * 1024 * 1024;
+export const RECEIPT_ACCEPT = "image/jpeg,image/png,image/webp,application/pdf";
+
+/** Read a picked file as a receipt upload, checking type and size first. */
+export async function readReceipt(file: File): Promise<ReceiptUpload> {
+  if (/\.(heic|heif)$/i.test(file.name) || /heic|heif/i.test(file.type)) {
+    throw new Error("iPhone HEIC photos can't be stored. On the iPhone, set Camera → Formats → Most Compatible, or take a screenshot of the photo and upload that.");
+  }
+  if (!RECEIPT_ACCEPT.split(",").includes(file.type)) throw new Error("Upload a JPEG, PNG or WebP photo, or a PDF.");
+  if (file.size > RECEIPT_MAX_BYTES) throw new Error("That file is over 4 MB. Take a smaller photo or crop it.");
+  const buffer = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < buffer.length; i += 0x8000) binary += String.fromCharCode(...buffer.subarray(i, i + 0x8000));
+  return { filename: file.name, data: btoa(binary) };
+}
+
+/** Where the browser opens a stored receipt (the sign-in cookie goes along). */
+export const receiptUrl = (leaseId: number, paymentId: number) => `/api/manager/leases/${leaseId}/payments/${paymentId}/receipt`;
 
 export type RequestStatus = "submitted" | "in_progress" | "resolved";
 
@@ -161,8 +188,18 @@ export const managerApi = {
   addTenantToLease: (id: number, input: { tenantId: number } | { newTenant: NewPerson }) =>
     send<{ ok: true }>("POST", `/leases/${id}/tenants`, input),
   removeTenantFromLease: (id: number, tenantId: number) => send<{ ok: true }>("DELETE", `/leases/${id}/tenants/${tenantId}`),
-  recordPayment: (leaseId: number, input: { amount: number; method: string; tenantId: number | null }) =>
+  recordPayment: (leaseId: number, input: { amount: number; method: string; tenantId: number | null; receipt?: ReceiptUpload | null }) =>
     send<{ confirmation: string }>("POST", `/leases/${leaseId}/payments`, input),
+  attachReceipt: (leaseId: number, paymentId: number, receipt: ReceiptUpload) =>
+    send<{ ok: true }>("PUT", `/leases/${leaseId}/payments/${paymentId}/receipt`, receipt),
+
+  // Deleting: the server refuses anything with history it must keep (see managerMessage).
+  deleteTenant: (id: number) => send<{ ok: true }>("DELETE", `/tenants/${id}`),
+  deleteLease: (id: number) => send<{ ok: true }>("DELETE", `/leases/${id}`),
+  undoPayment: (leaseId: number, paymentId: number) => send<{ ok: true }>("DELETE", `/leases/${leaseId}/payments/${paymentId}`),
+  deleteUnit: (id: number) => send<{ ok: true }>("DELETE", `/units/${id}`),
+  deleteProperty: (id: number) => send<{ ok: true }>("DELETE", `/properties/${id}`),
+  deleteMaintenance: (id: number) => send<{ ok: true }>("DELETE", `/maintenance/${id}`),
   createMaintenance: (input: { unitId: number; title: string; description: string }) =>
     send<{ id: number }>("POST", "/maintenance", input),
   setMaintenanceStatus: (id: number, status: RequestStatus) => send<{ ok: true }>("PUT", `/maintenance/${id}`, { status }),
@@ -178,6 +215,12 @@ export function managerMessage(error: unknown): string {
     if (error.code === "NOT_FOUND") return "That record no longer exists. Refresh and try again.";
     if (error.code === "VALIDATION_ERROR") return "Some details are missing or not valid. Check the form and try again.";
     if (error.code === "DATABASE_REQUIRED") return "The database is not connected.";
+    if (error.code === "TENANT_ON_LEASE") return "This tenant is on a current or upcoming lease. Remove them from the lease, or end it, first.";
+    if (error.code === "LEASE_HAS_PAYMENTS") return "This lease has payments on it, so it stays on record. End the lease instead.";
+    if (error.code === "NOT_OFFICE_PAYMENT") return "Only payments the office recorded can be undone. A tenant's own payment stays on record.";
+    if (error.code === "UNIT_HAS_LEASES") return "This unit has lease history, so it stays on record.";
+    if (error.code === "PROPERTY_HAS_LEASES") return "This property has units with lease history, so it stays on record.";
+    if (error.code === "RECEIPT_INVALID") return "The receipt must be a JPEG, PNG or WebP photo, or a PDF, of at most 4 MB.";
   }
   return "We could not reach the server. Check your connection and try again.";
 }

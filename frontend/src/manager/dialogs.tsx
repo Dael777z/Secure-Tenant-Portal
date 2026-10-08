@@ -1,7 +1,7 @@
 // Every add/edit form on the manager side, opened as a dialog from the quick
 // actions bar or from a screen. Each one closes and refreshes on success.
 import { useRef, useState, type FormEvent } from "react";
-import { managerApi, PAYMENT_METHODS, type NewPerson, type UnitRow } from "./api";
+import { managerApi, PAYMENT_METHODS, RECEIPT_ACCEPT, readReceipt, type NewPerson, type ReceiptUpload, type UnitRow } from "./api";
 import { Field, LocalError, Modal, money, todayIso, useLoad, useManager, useSubmit, type Dialog } from "./ui";
 
 type Props<K extends Dialog["kind"]> = Extract<Dialog, { kind: K }> & { onClose: () => void };
@@ -28,6 +28,10 @@ export function DialogHost({ dialog, onClose }: { dialog: Dialog; onClose: () =>
       return <EndLeaseDialog {...dialog} onClose={onClose} />;
     case "addResident":
       return <AddResidentDialog {...dialog} onClose={onClose} />;
+    case "attachReceipt":
+      return <AttachReceiptDialog {...dialog} onClose={onClose} />;
+    case "confirm":
+      return <ConfirmDialog {...dialog} onClose={onClose} />;
   }
 }
 
@@ -284,6 +288,38 @@ function UnitDialog({ id, propertyId, unitNum: initialNum, onClose }: Props<"uni
   );
 }
 
+/** Pick a receipt photo or PDF; checked as soon as it is picked. */
+function ReceiptPicker({ value, onChange }: { value: ReceiptUpload | null; onChange: (r: ReceiptUpload | null) => void }) {
+  const [problem, setProblem] = useState<string | null>(null);
+  const [reading, setReading] = useState(false);
+  return (
+    <Field label="Receipt (optional)" hint="A photo of the check, money order or cash receipt, or a PDF. Up to 4 MB. Stored with the payment.">
+      <input
+        type="file"
+        accept={RECEIPT_ACCEPT}
+        aria-label="Receipt file"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          setProblem(null);
+          if (!file) return onChange(null);
+          setReading(true);
+          readReceipt(file)
+            .then((r) => onChange(r))
+            .catch((err: Error) => {
+              onChange(null);
+              e.target.value = "";
+              setProblem(err.message);
+            })
+            .finally(() => setReading(false));
+        }}
+      />
+      {reading && <span className="mgr-field__hint">Reading the file…</span>}
+      {value && !reading && <span className="mgr-field__hint">Attached: {value.filename}</span>}
+      {problem && <span className="mgr-alert mgr-alert--error" role="alert">{problem}</span>}
+    </Field>
+  );
+}
+
 /* ------------------------------------------------------------------ *
  * Record a payment (check, cash, money order taken at the office)
  * ------------------------------------------------------------------ */
@@ -297,6 +333,7 @@ function PaymentDialog({ leaseId, onClose }: Props<"payment">) {
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<string>(PAYMENT_METHODS[0]);
   const [payer, setPayer] = useState("");
+  const [receipt, setReceipt] = useState<ReceiptUpload | null>(null);
   const [confirmation, setConfirmation] = useState<string | null>(null);
   const { busy, error, run } = useSubmit(() => changed("Payment recorded."));
 
@@ -307,7 +344,9 @@ function PaymentDialog({ leaseId, onClose }: Props<"payment">) {
           <p>
             {chosen ? unitLabel(chosen) : "The lease"} was credited. Confirmation <strong className="mgr-mono">{confirmation}</strong>.
           </p>
-          <p className="mgr-muted">The resident sees it in their ledger right away.</p>
+          <p className="mgr-muted">
+            The resident sees it in their ledger right away.{receipt ? " The receipt is stored with it; open it from the lease's ledger." : ""}
+          </p>
           <div className="mgr-modal__actions">
             <button type="button" className="mgr-btn mgr-btn--primary" onClick={onClose}>
               Done
@@ -327,7 +366,7 @@ function PaymentDialog({ leaseId, onClose }: Props<"payment">) {
           void run(async () => {
             if (!lease) throw new LocalError("Choose the lease this payment is for.");
             const amt = parseMoney(amount || (chosen && chosen.balance > 0 ? String(chosen.balance) : ""), "the amount received");
-            const result = await managerApi.recordPayment(Number(lease), { amount: amt, method, tenantId: payer ? Number(payer) : null });
+            const result = await managerApi.recordPayment(Number(lease), { amount: amt, method, tenantId: payer ? Number(payer) : null, receipt });
             setConfirmation(result.confirmation);
           });
         }}
@@ -374,6 +413,7 @@ function PaymentDialog({ leaseId, onClose }: Props<"payment">) {
             </select>
           </Field>
         )}
+        <ReceiptPicker value={receipt} onChange={setReceipt} />
         <ErrorText error={error} />
         <Actions busy={busy} loading={!units.data} label="Record payment" onClose={onClose} />
       </form>
@@ -619,6 +659,66 @@ function AddResidentDialog({ leaseId, onClose }: Props<"addResident">) {
         )}
         <ErrorText error={error} />
         <Actions busy={busy} loading={!tenants.data} label="Add to lease" onClose={onClose} />
+      </form>
+    </Modal>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Attach a receipt to a payment already recorded
+ * ------------------------------------------------------------------ */
+
+function AttachReceiptDialog({ leaseId, paymentId, label, onClose }: Props<"attachReceipt">) {
+  const { changed } = useManager();
+  const [receipt, setReceipt] = useState<ReceiptUpload | null>(null);
+  const { busy, error, run } = useSubmit(() => {
+    onClose();
+    changed("Receipt saved.");
+  });
+  return (
+    <Modal title="Attach a receipt" onClose={onClose}>
+      <form
+        className="mgr-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void run(async () => {
+            if (!receipt) throw new LocalError("Choose the receipt file first.");
+            await managerApi.attachReceipt(leaseId, paymentId, receipt);
+          });
+        }}
+      >
+        <p>For the payment: {label}</p>
+        <ReceiptPicker value={receipt} onChange={setReceipt} />
+        <ErrorText error={error} />
+        <Actions busy={busy} label="Save receipt" onClose={onClose} />
+      </form>
+    </Modal>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Confirm a delete (the server explains if something must stay)
+ * ------------------------------------------------------------------ */
+
+function ConfirmDialog({ title, body, confirmLabel, run: work, done, after, onClose }: Props<"confirm">) {
+  const { changed, go } = useManager();
+  const { busy, error, run } = useSubmit(() => {
+    onClose();
+    changed(done);
+    if (after) go(after);
+  });
+  return (
+    <Modal title={title} onClose={onClose}>
+      <form
+        className="mgr-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void run(work);
+        }}
+      >
+        <p>{body}</p>
+        <ErrorText error={error} />
+        <Actions busy={busy} label={confirmLabel} onClose={onClose} danger />
       </form>
     </Modal>
   );

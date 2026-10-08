@@ -197,4 +197,98 @@ describe.skipIf(!hasDatabase)("manager API on Postgres", () => {
         expect(body.updates.some((u: { kind: string }) => u.kind === "maintenance_new")).toBe(true)
         expect(body.updates.some((u: { kind: string; detail: string }) => u.kind === "not_signed_up" && u.detail.includes("Nora Brooks"))).toBe(true)
     })
+
+    it("receipts: stored with the office payment, checked by type, viewable by staff only", async () => {
+        const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from("receipt image bytes")])
+        const units = (await json("GET", "/manager/units", manager)).body.units as Array<{ unitNum: string; leaseId: number | null; tenants: Array<{ id: number }> }>
+        const u102 = units.find((u) => u.unitNum === "102")!
+
+        const paid = await json("POST", `/manager/leases/${u102.leaseId}/payments`, manager, {
+            amount: 100, method: "Money order", receipt: { filename: "money order #4471.png", data: png.toString("base64") },
+        })
+        expect(paid.status).toBe(201)
+        const lease = (await json("GET", `/manager/leases/${u102.leaseId}`, manager)).body as { receiptPaymentIds: number[]; ledger: Array<{ id: string; confirmation?: string }> }
+        const entry = lease.ledger.find((e) => e.confirmation === paid.body.confirmation)!
+        const payId = Number(entry.id.replace("payment-", ""))
+        expect(lease.receiptPaymentIds).toContain(payId)
+
+        const file = await call("GET", `/manager/leases/${u102.leaseId}/payments/${payId}/receipt`, manager)
+        expect(file.headers.get("content-type")).toBe("image/png")
+        expect(file.headers.get("content-disposition")).toBe('inline; filename="money order _4471.png"')
+        expect(Buffer.from(await file.arrayBuffer()).equals(png)).toBe(true)
+        expect((await call("GET", `/manager/leases/${u102.leaseId}/payments/${payId}/receipt`, tenant)).status).toBe(403)
+
+        // Not an image or PDF, or too big: refused, and the payment is not saved either.
+        const before = (await json("GET", `/manager/leases/${u102.leaseId}`, manager)).body.ledger.length
+        const text = await json("POST", `/manager/leases/${u102.leaseId}/payments`, manager, {
+            amount: 50, method: "Cash", receipt: { filename: "notes.txt", data: Buffer.from("just text").toString("base64") },
+        })
+        expect(text.body).toEqual({ error: "RECEIPT_INVALID" })
+        const big = Buffer.concat([Buffer.from("%PDF-1.7\n"), Buffer.alloc(4 * 1024 * 1024)])
+        expect((await json("POST", `/manager/leases/${u102.leaseId}/payments`, manager, {
+            amount: 50, method: "Cash", receipt: { filename: "big.pdf", data: big.toString("base64") },
+        })).body).toEqual({ error: "RECEIPT_INVALID" })
+        expect((await json("GET", `/manager/leases/${u102.leaseId}`, manager)).body.ledger.length).toBe(before)
+
+        // Attach one later to an earlier payment; undoing the payment removes its receipt.
+        const pdf = Buffer.from("%PDF-1.4\n% a receipt\n")
+        const older = lease.ledger.find((e) => e.confirmation?.startsWith("CONF-"))!
+        const olderId = Number(older.id.replace("payment-", ""))
+        expect((await json("PUT", `/manager/leases/${u102.leaseId}/payments/${olderId}/receipt`, manager, { filename: "stub.pdf", data: pdf.toString("base64") })).status).toBe(200)
+        expect((await call("GET", `/manager/leases/${u102.leaseId}/payments/${olderId}/receipt`, manager)).headers.get("content-type")).toBe("application/pdf")
+        expect((await json("DELETE", `/manager/leases/${u102.leaseId}/payments/${payId}`, manager)).status).toBe(200)
+        expect((await call("GET", `/manager/leases/${u102.leaseId}/payments/${payId}/receipt`, manager)).status).toBe(404)
+    })
+
+    it("deletes only what leaves the records honest", async () => {
+        const del = (path: string, cookie = manager) => json("DELETE", path, cookie)
+        const tenants = async () => (await json("GET", "/manager/tenants", manager)).body.tenants as Array<{ id: number; name: string }>
+
+        // Tenants: not while on a current lease; yes once their lease has ended (A5 ended above).
+        const raj = (await tenants()).find((t) => t.name === "Raj P. Johnson")!
+        expect((await del(`/manager/tenants/${raj.id}`)).body).toEqual({ error: "TENANT_ON_LEASE" })
+        const hana = (await tenants()).find((t) => t.name === "Hana Tanaka")!
+        expect((await del(`/manager/tenants/${hana.id}`)).status).toBe(200)
+        expect((await tenants()).some((t) => t.name === "Hana Tanaka")).toBe(false)
+        const invited = await json("POST", "/manager/tenants", manager, { name: "Del Me", email: "del.me@example.com" })
+        expect((await del(`/manager/tenants/${invited.body.id}`)).status).toBe(200)
+
+        // Leases: a mistaken one with no payments goes; one with payments stays.
+        const units = (await json("GET", "/manager/units", manager)).body.units as Array<{ id: number; unitNum: string; propertyId: number; propertyName: string; leaseId: number | null }>
+        const u101 = units.find((u) => u.unitNum === "101")!
+        expect((await del(`/manager/leases/${u101.leaseId}`)).body).toEqual({ error: "LEASE_HAS_PAYMENTS" })
+        const u1a = units.find((u) => u.unitNum === "1A")!
+        expect((await del(`/manager/leases/${u1a.leaseId}`)).status).toBe(200)
+        expect((await json("GET", `/manager/leases/${u1a.leaseId}`, manager)).status).toBe(404)
+
+        // Units and properties: only without lease history.
+        expect((await del(`/manager/units/${u101.id}`)).body).toEqual({ error: "UNIT_HAS_LEASES" })
+        expect((await del(`/manager/properties/${u101.propertyId}`)).body).toEqual({ error: "PROPERTY_HAS_LEASES" })
+        const u108 = units.find((u) => u.unitNum === "108")!
+        expect((await del(`/manager/units/${u108.id}`)).status).toBe(200)
+        expect((await del(`/manager/units/${u1a.id}`)).status).toBe(200)
+        expect((await del(`/manager/properties/${u1a.propertyId}`)).status).toBe(200)
+        const props = (await json("GET", "/manager/properties", manager)).body.properties as Array<{ name: string }>
+        expect(props.map((p) => p.name).sort()).toEqual(["Mesilla Court", "Woodcrest Apartments"])
+
+        // Payments: the office's own entry can be undone; a tenant's payment cannot.
+        const lease = (await json("GET", `/manager/leases/${u101.leaseId}`, manager)).body as { balance: number; ledger: Array<{ id: string; confirmation?: string }> }
+        const office = lease.ledger.find((e) => e.confirmation?.startsWith("OFF-"))!
+        const theirs = lease.ledger.find((e) => e.confirmation?.startsWith("CONF-"))!
+        expect((await del(`/manager/leases/${u101.leaseId}/payments/${theirs.id.replace("payment-", "")}`)).body).toEqual({ error: "NOT_OFFICE_PAYMENT" })
+        expect((await del(`/manager/leases/${u101.leaseId}/payments/${office.id.replace("payment-", "")}`)).status).toBe(200)
+        expect((await json("GET", `/manager/leases/${u101.leaseId}`, manager)).body.balance).toBe(lease.balance + 950)
+
+        // Maintenance: staff may delete requests; nobody else on staff side may delete tenants.
+        // (The earlier "Smoke detector" request was on unit 1A, so deleting 1A took it along.)
+        const a1 = units.find((u) => u.unitNum === "A1")!
+        await json("POST", "/manager/maintenance", manager, { unitId: a1.id, title: "Filed by mistake" })
+        const queue = (await json("GET", "/manager/maintenance", staff)).body.requests as Array<{ id: number; title: string }>
+        expect(queue.some((r) => r.title === "Smoke detector chirping")).toBe(false)
+        const smoke = queue.find((r) => r.title === "Filed by mistake")!
+        expect((await del(`/manager/maintenance/${smoke.id}`, staff)).status).toBe(200)
+        expect((await del(`/manager/maintenance/${smoke.id}`, staff)).status).toBe(404)
+        expect((await del(`/manager/tenants/${raj.id}`, staff)).status).toBe(403)
+        expect((await del(`/manager/maintenance/${queue[0]!.id}`, tenant)).status).toBe(403)
+    })
 })

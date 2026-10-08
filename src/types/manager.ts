@@ -50,6 +50,8 @@ export interface LeaseDetail {
     tenants: Array<{ id: number; name: string; email: string; phone: string | null; signedUp: boolean }>
     balance: number
     ledger: LedgerEntry[]
+    /** payIDs (the number in a ledger entry's "payment-<id>") that have a receipt on file. */
+    receiptPaymentIds: number[]
 }
 
 export interface MaintenanceRow {

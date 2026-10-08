@@ -3,7 +3,8 @@
 // views (manager-dashboard, -portfolio, -rentroll, -directory, -maintenance,
 // -exceptions), cut down to what the team's schema stores.
 import { useMemo, useState } from "react";
-import { managerApi, type RequestStatus, type UnitRow, type UpdateRow } from "./api";
+import { managerApi, receiptUrl, type RequestStatus, type UnitRow, type UpdateRow } from "./api";
+import type { LedgerEntry } from "../types";
 import { Empty, Kpi, Loading, PageHeader, StatusPill, isoDate, money, percent, timeAgo, useLoad, useManager } from "./ui";
 
 /* ------------------------------------------------------------------ *
@@ -189,6 +190,23 @@ export function PropertyPage({ id }: { id: number }) {
               <button type="button" className="mgr-btn mgr-btn--ghost" onClick={() => open({ kind: "property", id, name: property.name, address: property.address })}>
                 Edit property
               </button>
+              <button
+                type="button"
+                className="mgr-btn mgr-btn--danger-ghost"
+                onClick={() =>
+                  open({
+                    kind: "confirm",
+                    title: "Delete property",
+                    body: `Delete ${property.name} and its ${property.units} unit${property.units === 1 ? "" : "s"}? This only works if none of its units was ever leased.`,
+                    confirmLabel: "Delete property",
+                    run: () => managerApi.deleteProperty(id),
+                    done: `${property.name} deleted.`,
+                    after: { name: "properties" },
+                  })
+                }
+              >
+                Delete property
+              </button>
               <button type="button" className="mgr-btn mgr-btn--primary" onClick={() => open({ kind: "unit", propertyId: id })}>
                 + Add unit
               </button>
@@ -271,6 +289,22 @@ function UnitTable({ units, showProperty }: { units: UnitRow[]; showProperty: bo
                       </button>
                       <button type="button" className="mgr-btn mgr-btn--ghost mgr-btn--small" onClick={() => open({ kind: "unit", id: u.id, propertyId: u.propertyId, unitNum: u.unitNum })}>
                         Rename
+                      </button>
+                      <button
+                        type="button"
+                        className="mgr-btn mgr-btn--danger-ghost mgr-btn--small"
+                        onClick={() =>
+                          open({
+                            kind: "confirm",
+                            title: "Delete unit",
+                            body: `Delete Unit ${u.unitNum} at ${u.propertyName}? Its maintenance requests go with it. A unit that was ever leased stays on record.`,
+                            confirmLabel: "Delete unit",
+                            run: () => managerApi.deleteUnit(u.id),
+                            done: `Unit ${u.unitNum} deleted.`,
+                          })
+                        }
+                      >
+                        Delete
                       </button>
                     </>
                   )
@@ -423,6 +457,24 @@ export function TenantsPage() {
                             Edit
                           </button>
                         )}
+                        {can("users:provision") && t.leaseId === null && (
+                          <button
+                            type="button"
+                            className="mgr-btn mgr-btn--danger-ghost mgr-btn--small"
+                            onClick={() =>
+                              open({
+                                kind: "confirm",
+                                title: "Delete tenant",
+                                body: `Delete ${t.name} (${t.email})? Their account and sign-in go. Payments and requests from past leases stay on record without their name.`,
+                                confirmLabel: "Delete tenant",
+                                run: () => managerApi.deleteTenant(t.id),
+                                done: `${t.name} deleted.`,
+                              })
+                            }
+                          >
+                            Delete
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -440,6 +492,51 @@ export function TenantsPage() {
  * Lease
  * ------------------------------------------------------------------ */
 
+/** "payment-42" → 42; charges have no payment id. */
+const paymentIdOf = (entryId: string) => (entryId.startsWith("payment-") ? Number(entryId.slice("payment-".length)) : NaN);
+
+/** On a ledger payment line: open or attach the receipt; undo an office entry. */
+function PaymentActions({ leaseId, entry, hasReceipt }: { leaseId: number; entry: LedgerEntry; hasReceipt: boolean }) {
+  const { open, can } = useManager();
+  const paymentId = paymentIdOf(entry.id);
+  if (Number.isNaN(paymentId)) return null;
+  const office = entry.confirmation?.startsWith("OFF-") ?? false;
+  const label = `${money(entry.amount)} on ${entry.date}${entry.method ? `, ${entry.method}` : ""}`;
+  return (
+    <>
+      {hasReceipt ? (
+        <a className="mgr-btn mgr-btn--secondary mgr-btn--small" href={receiptUrl(leaseId, paymentId)} target="_blank" rel="noopener">
+          View receipt
+        </a>
+      ) : (
+        can("ledger:adjust") && (
+          <button type="button" className="mgr-btn mgr-btn--ghost mgr-btn--small" onClick={() => open({ kind: "attachReceipt", leaseId, paymentId, label })}>
+            Attach
+          </button>
+        )
+      )}
+      {office && can("ledger:adjust") && (
+        <button
+          type="button"
+          className="mgr-btn mgr-btn--danger-ghost mgr-btn--small"
+          onClick={() =>
+            open({
+              kind: "confirm",
+              title: "Undo payment",
+              body: `Undo the office entry ${label} (${entry.confirmation})? The balance goes back up, and its receipt is removed too.`,
+              confirmLabel: "Undo payment",
+              run: () => managerApi.undoPayment(leaseId, paymentId),
+              done: "Payment undone.",
+            })
+          }
+        >
+          Undo
+        </button>
+      )}
+    </>
+  );
+}
+
 export function LeasePage({ id }: { id: number }) {
   const { go, open, can, changed } = useManager();
   const { data, error } = useLoad(() => managerApi.lease(id), [id]);
@@ -448,6 +545,7 @@ export function LeasePage({ id }: { id: number }) {
 
   if (!data) return <Loading error={error} />;
   const label = `Unit ${data.unitNum} - ${data.propertyName}`;
+  const hasPayments = data.ledger.some((e) => e.id.startsWith("payment-"));
   const ended = data.endDate !== null && data.endDate < new Date().toISOString().slice(0, 10);
 
   async function remove(tenantId: number) {
@@ -491,6 +589,25 @@ export function LeasePage({ id }: { id: number }) {
                   End lease
                 </button>
               </>
+            )}
+            {can("users:provision") && !hasPayments && (
+              <button
+                type="button"
+                className="mgr-btn mgr-btn--danger-ghost"
+                onClick={() =>
+                  open({
+                    kind: "confirm",
+                    title: "Delete lease",
+                    body: `Delete this lease on ${label}? Use this for a lease entered by mistake: it has no payments yet. Its residents stay in Tenants.`,
+                    confirmLabel: "Delete lease",
+                    run: () => managerApi.deleteLease(id),
+                    done: "Lease deleted. The unit is vacant again.",
+                    after: { name: "rent-roll" },
+                  })
+                }
+              >
+                Delete lease
+              </button>
             )}
           </>
         }
@@ -545,6 +662,7 @@ export function LeasePage({ id }: { id: number }) {
                     <th scope="col">Method</th>
                     <th scope="col" className="mgr-num">Amount</th>
                     <th scope="col" className="mgr-num">Balance</th>
+                    <th scope="col">Receipt</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -558,6 +676,9 @@ export function LeasePage({ id }: { id: number }) {
                       <td className="mgr-muted">{e.method ?? "—"}</td>
                       <td className={`mgr-num ${e.amount > 0 ? "mgr-credit" : ""}`}>{e.amount > 0 ? `+${money(e.amount)}` : money(e.amount)}</td>
                       <td className="mgr-num">{money(e.balanceAfter)}</td>
+                      <td className="mgr-row-actions">
+                        <PaymentActions leaseId={id} entry={e} hasReceipt={data.receiptPaymentIds.includes(paymentIdOf(e.id))} />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -665,6 +786,23 @@ export function MaintenancePage() {
                     {label}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  className="mgr-btn mgr-btn--small mgr-btn--danger-ghost"
+                  disabled={busy === r.id}
+                  onClick={() =>
+                    open({
+                      kind: "confirm",
+                      title: "Delete request",
+                      body: `Delete "${r.title}" (Unit ${r.unitNum})? The resident no longer sees it either.`,
+                      confirmLabel: "Delete request",
+                      run: () => managerApi.deleteMaintenance(r.id),
+                      done: "Request deleted.",
+                    })
+                  }
+                >
+                  Delete
+                </button>
               </div>
             </article>
           ))}
