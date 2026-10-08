@@ -1,5 +1,6 @@
 // The tenant API (src/routes/tenant.ts) and Dael's Plaid routes (src/routes/plaid.ts).
 import type { LedgerEntry, MaintenanceRequest, Notice, Tenant } from "../types";
+import { apiFetch } from "./session";
 
 export interface LinkedBankAccount {
   id: string;
@@ -27,11 +28,7 @@ export class ApiError extends Error {
 }
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    credentials: "same-origin",
-    ...init,
-    headers: { "content-type": "application/json", ...(init.headers ?? {}) },
-  });
+  const res = await apiFetch(`/api${path}`, init);
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError((body as { error?: string }).error ?? "UNKNOWN", res.status);
   return body as T;

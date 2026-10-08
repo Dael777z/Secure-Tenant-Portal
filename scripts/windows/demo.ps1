@@ -109,6 +109,15 @@ function Test-Download([string]$Url) {
   } catch { return $false }
 }
 
+# Vite listens on "localhost", which newer Node.js on Windows binds to the IPv6
+# address [::1] only, so 127.0.0.1 alone never answers. Try every spelling.
+function Test-Local([int]$Port, [string]$Path = '/') {
+  foreach ($hostName in @('localhost', '127.0.0.1', '[::1]')) {
+    if (Test-Url "http://${hostName}:$Port$Path") { return $true }
+  }
+  return $false
+}
+
 function Expand-Zip([string]$Zip, [string]$Destination, [string[]]$Exclude = @()) {
   New-Item -ItemType Directory -Force -Path $Destination | Out-Null
   $tar = Join-Path $env:SystemRoot 'System32\tar.exe'
@@ -433,10 +442,13 @@ ALTER ROLE portal LOGIN PASSWORD '$($config.appPassword)' NOSUPERUSER;
   $up = $false
   while ((Get-Date) -lt $deadline) {
     if ($app.HasExited) { break }
-    if ((Test-Url 'http://127.0.0.1:5173/') -and (Test-Url "http://127.0.0.1:$apiPort/api/auth/me")) { $up = $true; break }
+    if ((Test-Local 5173 '/') -and (Test-Local $apiPort '/api/auth/me')) { $up = $true; break }
     Start-Sleep -Milliseconds 700
   }
-  if (-not $up) { throw 'The app did not come up. The messages above say why.' }
+  if (-not $up) {
+    if ($app.HasExited) { throw 'The app stopped while starting. The messages above say why.' }
+    throw 'The app did not answer at http://localhost:5173 within 90 seconds. The messages above say why.'
+  }
 
   $plaid = if (Get-EnvValue 'PLAID_CLIENT_ID') { 'on (sandbox): in Plaid Link use user_good / pass_good' } else { 'off: payments are recorded as a demo bank transfer' }
   Write-Host ''

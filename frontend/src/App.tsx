@@ -9,6 +9,7 @@ import { MaintenancePage } from "./pages/MaintenancePage";
 import { NoticesPage } from "./pages/NoticesPage";
 import { TenantDataProvider, useTenantData } from "./data/tenantData";
 import { currentUser, login, logout, type SessionUser } from "./api/auth";
+import { SESSION_CHECK } from "./api/session";
 import { ManagerApp } from "./manager/ManagerApp";
 import "./styles/portal.css";
 
@@ -32,6 +33,19 @@ export default function App() {
     currentUser()
       .then(setUser)
       .finally(() => setChecked(true));
+  }, []);
+
+  // A call was refused (401/403): maybe the session ended, or someone signed in
+  // as a different person in another tab. Ask who is signed in now, and switch
+  // to the right side if it changed.
+  useEffect(() => {
+    const check = () => {
+      void currentUser().then((now) => {
+        setUser((was) => (now?.user_id === was?.user_id && now?.role === was?.role ? was : now));
+      });
+    };
+    window.addEventListener(SESSION_CHECK, check);
+    return () => window.removeEventListener(SESSION_CHECK, check);
   }, []);
 
   async function handleLogin(email: string, password: string) {

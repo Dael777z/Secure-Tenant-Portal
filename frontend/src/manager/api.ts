@@ -1,5 +1,6 @@
 // The manager API (src/routes/manager.ts). Shapes mirror src/types/manager.ts.
 import type { LedgerEntry } from "../types";
+import { apiFetch } from "../api/session";
 
 export interface StaffProfile {
   name: string;
@@ -121,11 +122,7 @@ export class ManagerApiError extends Error {
 }
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`/api/manager${path}`, {
-    credentials: "same-origin",
-    ...init,
-    headers: { "content-type": "application/json", ...(init.headers ?? {}) },
-  });
+  const res = await apiFetch(`/api/manager${path}`, init);
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new ManagerApiError((body as { error?: string }).error ?? "UNKNOWN", res.status);
   return body as T;
