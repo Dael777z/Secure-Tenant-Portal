@@ -39,11 +39,11 @@ export function MaintenancePage() {
   return (
     <div className="maintenance-grid">
       <div className="maintenance-list">
-        <button type="button" className="maintenance-action" onClick={() => setShowForm(true)}>
+        <button type="button" className="maintenance-action" aria-current={showForm} onClick={() => setShowForm(true)}>
           + New Request
         </button>
         <button type="button" className="maintenance-action maintenance-action--secondary">
-          Text Property Management
+          Text Property Management 
         </button>
 
         {requests.map((req) => (

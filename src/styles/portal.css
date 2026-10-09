@@ -376,6 +376,7 @@
   padding: 14px;
   border-radius: 10px;
   border: 1px solid rgba(253, 252, 252, 0.15);
+  border-color: gray;
   background: rgb(10, 50, 68);
   cursor: pointer;
   text-align: left;
@@ -502,7 +503,7 @@
 .maintenance-action {
   width: 100%;
   padding: 12px 14px;
-  background: var(--portal-accent);
+  background: transparent;
   color: var(--portal-white);
   border: none;
   font-size: 13px;
@@ -512,7 +513,9 @@
 }
 
 .maintenance-action--secondary {
-  background: var(--portal-slate);
+  background: transparent;
+  border-top: 2px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.08);
 }
 
 .maintenance-item {
@@ -520,14 +523,18 @@
   text-align: left;
   padding: 14px;
   border: none;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.08);
   background: transparent;
   color: var(--portal-white);
   cursor: pointer;
 }
 
 .maintenance-item[aria-current="true"] {
-  background: rgba(255, 255, 255, 0.06);
+  background:  var(--portal-accent);
+}
+
+.maintenance-action[aria-current="true"] {
+  background: var(--portal-accent);
 }
 
 .maintenance-item-top {
