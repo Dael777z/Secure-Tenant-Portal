@@ -4,6 +4,7 @@ import { formatCurrency } from "../components/formatCurrency";
 export function LedgerPage() {
   return (
     <section className="portal-panel" aria-label="Full ledger">
+       <div className="table-scroll">
       <table className="ledger-table">
         <thead>
           <tr>
@@ -29,6 +30,7 @@ export function LedgerPage() {
           ))}
         </tbody>
       </table>
+      </div>
     </section>
   );
 }
