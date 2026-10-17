@@ -4,6 +4,7 @@ import type { Auth } from "../middleware/auth"
 import type { RateLimits } from "../middleware/rate-limit"
 import type { ManagerService } from "../services/manager-service"
 import { AppError } from "../types/errors"
+import { MANUAL_CHARGE_KINDS, type ManualChargeKind } from "../types/inputs"
 import type { InviteResult } from "../types/manager"
 import type { ValidRequest } from "../types/access"
 import { date, id, money, person, receipt, text } from "./validate"
@@ -15,8 +16,8 @@ import { date, id, money, person, receipt, text } from "./validate"
  *
  *   ledger:read:property  the portfolio, rent roll, tenants, leases, updates
  *   users:provision       add or change properties, units, tenants, leases
- *   ledger:adjust         record or reverse an office payment, receipts
- *   maintenance:manage    the maintenance queue
+ *   ledger:adjust         record or reverse an office payment, add a charge, receipts
+ *   maintenance:manage    the maintenance queue (the only thing maintenance staff may do)
  */
 
 export function createManagerRouter(deps: {
@@ -102,6 +103,10 @@ export function createManagerRouter(deps: {
     router.post("/manager/tenants/:tenantId/invite", limits.sensitive, ...can("users:provision"), async (req, res) => {
         res.json(withLink(await manager.reissueInvite(id(req.params.tenantId))))
     })
+    // A signed-up tenant who cannot sign in: their password stops working, and this link sets a new one.
+    router.post("/manager/tenants/:tenantId/reset", limits.sensitive, ...can("users:provision"), async (req, res) => {
+        res.json(withLink(await manager.resetSignIn(id(req.params.tenantId))))
+    })
     router.delete("/manager/tenants/:tenantId", ...can("users:provision"), async (req, res) => {
         await manager.deactivateTenant(id(req.params.tenantId))
         res.json({ ok: true })
@@ -154,6 +159,19 @@ export function createManagerRouter(deps: {
             receipt: body.receipt === undefined || body.receipt === null ? null : receipt(body.receipt),
         })
         res.status(201).json({ confirmation })
+    })
+    // A late fee, deposit, utility bill, proration or other charge (rent is billed automatically).
+    router.post("/manager/leases/:leaseId/charges", limits.sensitive, ...can("ledger:adjust"), async (req, res) => {
+        const body = req.body as Record<string, unknown>
+        if (typeof body.kind !== "string" || !(MANUAL_CHARGE_KINDS as readonly string[]).includes(body.kind)) throw new AppError("VALIDATION_ERROR")
+        res.status(201).json({
+            id: await manager.addCharge(id(req.params.leaseId), {
+                kind: body.kind as ManualChargeKind,
+                amount: money(body.amount),
+                dueDate: date(body.dueDate)!,
+                description: text(body.description, 200, { optional: true }),
+            }),
+        })
     })
     // Undo an office payment. Payments are never deleted: this adds a matching refund, shown as "Payment reversed".
     router.delete("/manager/leases/:leaseId/payments/:paymentId", ...can("ledger:adjust"), async (req, res) => {

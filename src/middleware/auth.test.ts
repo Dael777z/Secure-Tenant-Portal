@@ -46,8 +46,21 @@ describe("can", () => {
         const tenant = withToken(generateAccessToken(config, "tenant:2", "tenant"))
         const admin = withToken(generateAccessToken(config, "admin:3", "admin"))
         expect(pass(can("payment:create:self"), tenant)).toEqual({ type: "tenant", id: 2 })
-        expect(pass(can("maintenance:manage"), admin)).toEqual({ type: "admin", id: 3 })
+        expect(pass(can("maintenance:manage"), admin)).toEqual({ type: "admin", id: 3, role: "admin" })
         expect(() => pass(can("payment:create:self"), admin)).toThrow("FORBIDDEN")
         expect(() => pass(can("users:provision"), tenant)).toThrow("FORBIDDEN")
+    })
+
+    it("gives maintenance staff the maintenance queue and nothing else", () => {
+        const staff = withToken(generateAccessToken(config, "admin:4", "maintenance_staff"))
+        expect(pass(can("maintenance:manage"), staff)).toEqual({ type: "admin", id: 4, role: "maintenance_staff" })
+        expect(() => pass(can("ledger:read:property"), staff)).toThrow("FORBIDDEN")
+        expect(() => pass(can("ledger:adjust"), staff)).toThrow("FORBIDDEN")
+        expect(() => pass(can("users:provision"), staff)).toThrow("FORBIDDEN")
+    })
+
+    it("treats a staff role on a tenant id (or the reverse) as nobody", () => {
+        const mixed = withToken(generateAccessToken(config, "tenant:2", "maintenance_staff"))
+        expect(pass(can("maintenance:manage"), mixed)).toEqual({ type: "anonymous" })
     })
 })

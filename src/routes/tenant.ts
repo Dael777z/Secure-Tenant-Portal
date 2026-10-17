@@ -4,13 +4,14 @@ import type { Auth } from "../middleware/auth"
 import type { RateLimits } from "../middleware/rate-limit"
 import type { TenantService } from "../services/tenant-service"
 import type { ValidRequest } from "../types/access"
-import { id, money, text } from "./validate"
+import { id, idempotencyKey, money, text } from "./validate"
 
 /**
  * /api/tenant: the tenant pages, always as the signed-in tenant.
  *
  *   GET  /tenant/summary       balance, ledger, requests, notices, bank accounts
- *   POST /tenant/payments      { amount, bankAccountId? }  → { confirmation }
+ *   POST /tenant/payments      { amount, bankAccountId?, idempotencyKey? }  → { confirmation }
+ *                              (the same idempotencyKey again answers with the first payment's confirmation)
  *   POST /tenant/maintenance   { title, description? }     → the new request
  */
 export function createTenantRouter(deps: { tenant: TenantService; guard: Auth; limits: RateLimits; plaidEnabled: boolean; testPayments: boolean }): Router {
@@ -25,7 +26,7 @@ export function createTenantRouter(deps: { tenant: TenantService; guard: Auth; l
     router.post("/tenant/payments", limits.sensitive, ...guard.can("payment:create:self"), async (req: ValidRequest, res) => {
         const body = req.body as Record<string, unknown>
         const bankAccountId = body.bankAccountId === undefined || body.bankAccountId === null ? null : id(body.bankAccountId)
-        res.status(201).json(await tenant.recordPayment(req.user!.id, { amount: money(body.amount), bankAccountId }, flags))
+        res.status(201).json(await tenant.recordPayment(req.user!.id, { amount: money(body.amount), bankAccountId, idempotencyKey: idempotencyKey(body.idempotencyKey) }, flags))
     })
 
     router.post("/tenant/maintenance", limits.sensitive, ...guard.can("maintenance:create"), async (req: ValidRequest, res) => {

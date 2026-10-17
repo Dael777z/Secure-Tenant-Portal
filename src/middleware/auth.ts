@@ -6,8 +6,10 @@ import type { Permission, Role, ValidRequest } from "../types/access"
 import { AppError } from "../types/errors"
 
 export const permissionsByRole: Record<Role, readonly Permission[]> = {
-    // Every staff member has full access for now (the schema's Admin.role is only 'admin').
+    // A property manager.
     admin: ["ledger:read:property", "ledger:adjust", "maintenance:manage", "users:provision"],
+    // On-site maintenance: the queue and nothing else (003's policies say the same in the database).
+    maintenance_staff: ["maintenance:manage"],
     tenant: ["ledger:read:self", "payment:create:self", "maintenance:create"],
 }
 

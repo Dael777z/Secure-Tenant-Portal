@@ -2,11 +2,15 @@ import type { Request } from "express"
 
 /**
  * Roles and permissions. The schema has two kinds of account, Tenants and
- * Admin (whose role is only 'admin' for now). A narrower staff role would
- * widen that CHECK, be added here, and get a row in `permissionsByRole`
- * (middleware/auth.ts).
+ * Admin. An Admin row's role is 'admin' (a property manager, full access) or
+ * 'maintenance_staff' (the maintenance queue only, 003). What each may do is
+ * `permissionsByRole` (middleware/auth.ts); the database enforces the same.
  */
-export type Role = "admin" | "tenant"
+export type Role = "admin" | "maintenance_staff" | "tenant"
+
+/** The roles that live in the Admin table. */
+export type StaffRole = Exclude<Role, "tenant">
+export const isStaffRole = (role: string): role is StaffRole => role === "admin" || role === "maintenance_staff"
 
 export type Permission =
     | "ledger:read:self"

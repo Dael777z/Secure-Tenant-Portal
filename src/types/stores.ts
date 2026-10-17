@@ -1,5 +1,5 @@
 import type {
-    BankAccountInput, BankItem, CreatedLease, InviteToken, LeaseChanges, LeaseTenantInput, NewLease,
+    BankAccountInput, BankItem, CreatedLease, NewCharge, InviteToken, LeaseChanges, LeaseTenantInput, NewLease,
     NewMaintenance, NewPayment, NewRefreshToken, NewTenant, PropertyInput, TenantChanges, UnitInput,
 } from "./inputs"
 import type {
@@ -58,6 +58,12 @@ export interface PeopleStore {
     inviteTenant(data: NewTenant): Promise<InvitedTenant>
     /** Replace the invitation of a tenant who has not signed up. */
     reissueInvite(tID: number, invite: InviteToken): Promise<void>
+    /**
+     * A signed-up tenant who forgot their password: clear it, sign them out
+     * everywhere, and leave a new link (the invite token) as the only way back in.
+     * TENANT_NOT_SIGNED_UP for someone still invited (send the invite again instead).
+     */
+    resetSignIn(tID: number, invite: InviteToken): Promise<void>
     updateTenant(tID: number, changes: TenantChanges): Promise<void>
     /** Also signs them out everywhere. TENANT_ON_LEASE while on a current or future lease. */
     deactivateTenant(tID: number, today: string): Promise<void>
@@ -85,6 +91,8 @@ export interface LedgerStore {
     listChargesForLease(leaseId: number): Promise<ChargeRecord[]>
     /** Add the missing monthly rent charges up to `today`. Safe to repeat. Returns how many it added. */
     generateRentCharges(today: string, leaseId?: number): Promise<number>
+    /** A late fee, deposit, utility bill, proration or other charge on a lease. Returns its id. */
+    addCharge(input: NewCharge): Promise<number>
 }
 
 export interface PaymentStore {
@@ -92,8 +100,12 @@ export interface PaymentStore {
     /** Completed payments in, newest first. */
     listRecentPayments(limit: number): Promise<RecentPaymentRecord[]>
     listReceiptPaymentIds(leaseId: number): Promise<number[]>
-    /** A completed payment and its receipt, together. A tenant may only pay on their own lease. */
-    recordPayment(input: NewPayment): Promise<void>
+    /**
+     * A completed payment and its receipt, together. A tenant may only pay on their own lease.
+     * Returns the confirmation on record: the new one, or, when the idempotency key was
+     * already used on this lease, the first payment's (nothing new is written).
+     */
+    recordPayment(input: NewPayment): Promise<{ confirmation: string }>
     /** Adds a matching refund. NOT_OFFICE_PAYMENT for a tenant's payment, PAYMENT_ALREADY_REVERSED the second time. */
     reverseOfficePayment(leaseId: number, payId: number): Promise<void>
     attachReceipt(leaseId: number, payId: number, receipt: Receipt): Promise<void>

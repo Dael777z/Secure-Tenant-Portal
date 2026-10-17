@@ -58,7 +58,8 @@ export interface SeedProperty {
 }
 
 export interface SeedData {
-    staff: Array<{ name: string; email: string }>
+    /** `maintenance`: a maintenance staff login (the queue only) instead of a property manager. */
+    staff: Array<{ name: string; email: string; maintenance?: boolean }>
     properties: SeedProperty[]
 }
 
@@ -77,7 +78,10 @@ const TEST_TENANT: SeedTenant = { name: "Test Tenant", email: "tenant@example.co
 
 /** The full sample portfolio: two properties, 18 units, 14 leases, requests in every status. */
 export const sample = ({ monthsAgo, daysAgo }: Dates): SeedData => ({
-    staff: [{ name: "Dana Whitfield", email: "manager@example.com" }],
+    staff: [
+        { name: "Dana Whitfield", email: "manager@example.com" },
+        { name: "Luis Ortega", email: "maintenance@example.com", maintenance: true },
+    ],
     properties: [
         {
             name: "Woodcrest Apartments",
@@ -127,9 +131,12 @@ export const sample = ({ monthsAgo, daysAgo }: Dates): SeedData => ({
     ],
 })
 
-/** A clean start (for presenting, or a fresh hosted copy): the manager, one tenant on Unit 101 owing this month, three empty units. */
+/** A clean start (for presenting, or a fresh hosted copy): the manager, maintenance staff, one tenant on Unit 101 owing this month, three empty units. */
 export const clean = ({ monthsAgo }: Dates): SeedData => ({
-    staff: [{ name: "Dana Whitfield", email: "manager@example.com" }],
+    staff: [
+        { name: "Dana Whitfield", email: "manager@example.com" },
+        { name: "Luis Ortega", email: "maintenance@example.com", maintenance: true },
+    ],
     properties: [{
         name: "Woodcrest Apartments",
         address: "2400 Woodcrest Dr, Las Cruces, NM 88011",

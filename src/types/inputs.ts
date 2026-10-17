@@ -73,6 +73,24 @@ export interface NewPayment {
     confirmation: string
     /** Office payments only. */
     receipt?: Receipt | null
+    /**
+     * Tenant payments: one per checkout, so a double click or a retried request
+     * is recorded once (Payment.idempotency_key is unique).
+     */
+    idempotencyKey?: string | null
+}
+
+/** A charge the office adds by hand. Rent is billed by the rent job, so it is not one of these kinds. */
+export type ManualChargeKind = "deposit" | "late_fee" | "utility" | "proration" | "other"
+export const MANUAL_CHARGE_KINDS: readonly ManualChargeKind[] = ["deposit", "late_fee", "utility", "proration", "other"]
+
+export interface NewCharge {
+    leaseId: number
+    kind: ManualChargeKind
+    amount: number
+    /** YYYY-MM-DD */
+    dueDate: string
+    description: string | null
 }
 
 export interface NewMaintenance {

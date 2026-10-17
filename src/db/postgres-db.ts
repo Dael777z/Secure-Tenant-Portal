@@ -1,7 +1,7 @@
 import { types, type Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg"
 
 import type {
-    BankAccountInput, BankItem, CreatedLease, InviteToken, LeaseChanges, LeaseTenantInput, NewLease,
+    BankAccountInput, BankItem, CreatedLease, InviteToken, NewCharge, LeaseChanges, LeaseTenantInput, NewLease,
     NewMaintenance, NewPayment, NewRefreshToken, NewTenant, PropertyInput, TenantChanges, UnitInput,
 } from "../types/inputs"
 import type {
@@ -10,6 +10,7 @@ import type {
     Receipt, RecentPaymentRecord, SessionUser, StaffProfile, TenantMaintenanceRecord, UnitRecord, UserRecord,
 } from "../types/records"
 import type { DatabaseInterface } from "../types/stores"
+import { isStaffRole, type Role } from "../types/access"
 import { AppError } from "../types/errors"
 import { OFFICE_PAYMENT_PREFIX, reversalConfirmation } from "../utils/confirmations"
 import { adminId, parseUserId, tenantId } from "../utils/user-id"
@@ -49,6 +50,12 @@ const hasCode = (error: unknown, ...codes: string[]) => codes.includes((error as
 
 type UserType = "tenant" | "admin"
 const userIdOf = (type: UserType, id: number) => (type === "tenant" ? tenantId(id) : adminId(id))
+/** The app's role for an account row: tenants are 'tenant'; staff take Admin.role ('admin' or 'maintenance_staff'). */
+const roleOf = (type: UserType, adminRole: string | null): Role => {
+    if (type === "tenant") return "tenant"
+    if (adminRole && isStaffRole(adminRole)) return adminRole
+    throw new Error(`unknown staff role: ${adminRole}`)
+}
 
 export class PostgresDatabase implements DatabaseInterface {
     constructor(private readonly pool: Pool) {}
@@ -87,14 +94,14 @@ export class PostgresDatabase implements DatabaseInterface {
     // ---- Accounts and sessions (through the schema's SECURITY DEFINER auth_* functions)
 
     async findUserByEmail(email: string): Promise<UserRecord | null> {
-        const { rows } = await this.query<{ user_type: UserType; user_id: number; password_hash: string | null; signup_completed: boolean; mfa_enabled: boolean }>(
-            "SELECT user_type, user_id, password_hash, signup_completed, mfa_enabled FROM auth_lookup_user($1)",
+        const { rows } = await this.query<{ user_type: UserType; user_id: number; password_hash: string | null; signup_completed: boolean; role: string | null; mfa_enabled: boolean }>(
+            "SELECT user_type, user_id, password_hash, signup_completed, role, mfa_enabled FROM auth_lookup_user($1)",
             [email],
         )
         // An invited tenant has no password yet and cannot sign in.
         const row = rows.find((r) => r.signup_completed && r.password_hash)
         if (!row) return null
-        return { id: userIdOf(row.user_type, row.user_id), email, passwordHash: row.password_hash!, role: row.user_type, mfaEnabled: row.mfa_enabled }
+        return { id: userIdOf(row.user_type, row.user_id), email, passwordHash: row.password_hash!, role: roleOf(row.user_type, row.role), mfaEnabled: row.mfa_enabled }
     }
 
     async completeSignup(tokenHash: string, passwordHash: string): Promise<UserRecord | null> {
@@ -118,12 +125,12 @@ export class PostgresDatabase implements DatabaseInterface {
     }
 
     async consumeRefreshToken(tokenHash: string): Promise<SessionUser | null> {
-        const { rows } = await this.query<{ user_type: UserType; user_id: number; email: string }>(
-            "SELECT user_type, user_id, email FROM auth_consume_refresh_token($1)",
+        const { rows } = await this.query<{ user_type: UserType; user_id: number; email: string; role: string | null }>(
+            "SELECT user_type, user_id, email, role FROM auth_consume_refresh_token($1)",
             [tokenHash],
         )
         const row = rows[0]
-        return row ? { id: userIdOf(row.user_type, row.user_id), email: row.email, role: row.user_type } : null
+        return row ? { id: userIdOf(row.user_type, row.user_id), email: row.email, role: roleOf(row.user_type, row.role) } : null
     }
 
     async revokeRefreshToken(tokenHash: string): Promise<void> {
@@ -255,6 +262,24 @@ export class PostgresDatabase implements DatabaseInterface {
             if (!rows[0]) throw new AppError("NOT_FOUND")
             if (rows[0].signup_completed) throw new AppError("TENANT_ALREADY_SIGNED_UP")
             await client.query("UPDATE Tenants SET signup_token_hash = $2, signup_token_expires_at = $3 WHERE tID = $1", [tID, invite.tokenHash, invite.expiresAt])
+        })
+    }
+
+    async resetSignIn(tID: number, invite: InviteToken): Promise<void> {
+        await this.tx(async (client) => {
+            const { rows } = await client.query<{ signup_completed: boolean }>(
+                "SELECT signup_completed FROM Tenants WHERE tID = $1 AND deactivated_at IS NULL FOR UPDATE",
+                [tID],
+            )
+            if (!rows[0]) throw new AppError("NOT_FOUND")
+            if (!rows[0].signup_completed) throw new AppError("TENANT_NOT_SIGNED_UP")
+            // Back to "invited": 001's signup_password_consistency needs both columns to change together.
+            await client.query(
+                `UPDATE Tenants SET password_hash = NULL, signup_completed = false, signup_token_hash = $2, signup_token_expires_at = $3
+                 WHERE tID = $1`,
+                [tID, invite.tokenHash, invite.expiresAt],
+            )
+            await client.query("SELECT auth_revoke_all_tokens('tenant', $1)", [tID])
         })
     }
 
@@ -424,6 +449,23 @@ export class PostgresDatabase implements DatabaseInterface {
         return rows[0]?.n ?? 0
     }
 
+    async addCharge(input: NewCharge): Promise<number> {
+        return this.tx(async (client) => {
+            const lease = await client.query("SELECT 1 FROM Lease WHERE LeaseID = $1", [input.leaseId])
+            if (!lease.rowCount) throw new AppError("NOT_FOUND")
+            try {
+                const { rows } = await client.query<{ id: number }>(
+                    "INSERT INTO Charge (LeaseID, kind, amount, due_date, description) VALUES ($1, $2, $3, $4, $5) RETURNING chargeID AS id",
+                    [input.leaseId, input.kind, input.amount.toFixed(2), input.dueDate, input.description],
+                )
+                return rows[0]!.id
+            } catch (error) {
+                if (hasCode(error, PG.check)) throw new AppError("VALIDATION_ERROR")
+                throw error
+            }
+        })
+    }
+
     // ---- Payments and receipts
 
     async listPaymentsForLease(leaseId: number): Promise<PaymentRecord[]> {
@@ -458,7 +500,17 @@ export class PostgresDatabase implements DatabaseInterface {
         return rows.map((r) => r.id)
     }
 
-    async recordPayment(input: NewPayment): Promise<void> {
+    async recordPayment(input: NewPayment): Promise<{ confirmation: string }> {
+        const key = input.idempotencyKey ?? null
+        // The payment already recorded under this key on this lease, if any.
+        const earlier = async (client: PoolClient) => {
+            if (key === null) return null
+            const { rows } = await client.query<{ confirmation: string }>(
+                "SELECT transaction_id AS confirmation FROM Payment WHERE idempotency_key = $1 AND LeaseID = $2",
+                [key, input.leaseId],
+            )
+            return rows[0] ?? null
+        }
         // As the caller: the lease exists and the payer is on it. RLS lets a tenant see only their own lease.
         const check = async (client: PoolClient) => {
             const lease = await client.query("SELECT 1 FROM Lease WHERE LeaseID = $1", [input.leaseId])
@@ -467,25 +519,38 @@ export class PostgresDatabase implements DatabaseInterface {
                 const onLease = await client.query("SELECT 1 FROM Lease_Tenants WHERE LeaseID = $1 AND tID = $2", [input.leaseId, input.tenantId])
                 if (!onLease.rowCount) throw new AppError("VALIDATION_ERROR")
             }
+            return earlier(client)
         }
+        // Null when another request with the same key got there first.
         const write = async (client: PoolClient) => {
             const { rows } = await client.query<{ id: number }>(
-                `INSERT INTO Payment (LeaseID, direction, amount, status, transaction_id) VALUES ($1, 'charge', $2, 'completed', $3) RETURNING payID AS id`,
-                [input.leaseId, input.amount.toFixed(2), input.confirmation],
+                `INSERT INTO Payment (LeaseID, direction, amount, status, transaction_id, idempotency_key)
+                 VALUES ($1, 'charge', $2, 'completed', $3, $4)
+                 ON CONFLICT (idempotency_key) DO NOTHING
+                 RETURNING payID AS id`,
+                [input.leaseId, input.amount.toFixed(2), input.confirmation, key],
             )
-            const payId = rows[0]!.id
+            const payId = rows[0]?.id
+            if (payId === undefined) return null
             await client.query("INSERT INTO Payment_Details (payID, tID, method) VALUES ($1, $2, $3)", [payId, input.tenantId, input.method])
             if (input.receipt) await this.saveReceipt(client, payId, input.receipt)
+            return { confirmation: input.confirmation }
+        }
+        const lost = async (): Promise<{ confirmation: string }> => {
+            const first = await this.tx(earlier)
+            if (!first) throw new AppError("VALIDATION_ERROR")   // the key belongs to another lease
+            return first
         }
 
-        if (currentIdentity().type === "admin") {
-            await this.tx(async (client) => { await check(client); await write(client) })
-            return
+        if (currentIdentity().type === "admin") {   // staff (RLS refuses maintenance staff: no admin_all on Payment)
+            const result = await this.tx(async (client) => (await check(client)) ?? (await write(client)))
+            return result ?? lost()
         }
         // Tenants never write to the ledger themselves (schema rule): check as the tenant, then write as 'system'.
         if (input.receipt) throw new AppError("FORBIDDEN")
-        await this.tx(check)
-        await this.tx(write, SYSTEM)
+        const already = await this.tx(check)
+        if (already) return already
+        return (await this.tx(write, SYSTEM)) ?? lost()
     }
 
     async reverseOfficePayment(leaseId: number, payId: number): Promise<void> {
