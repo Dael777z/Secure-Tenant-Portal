@@ -4,7 +4,7 @@ import { AppError } from "../types/errors"
 
 const WRITES = new Set(["POST", "PUT", "PATCH", "DELETE"])
 
-/** A write sent by a browser must come from our own site (on top of SameSite cookies). */
+// validates our cross origin policy, requests must come from our site/web origin. Applied to all write http methods.
 export function verifyRequestOrigin(webOrigin: string): RequestHandler {
     return (req, _res, next) => {
         const origin = req.get("origin")

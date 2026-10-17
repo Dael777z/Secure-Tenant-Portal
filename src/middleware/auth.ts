@@ -6,7 +6,7 @@ import type { Permission, Role, ValidRequest } from "../types/access"
 import { AppError } from "../types/errors"
 
 export const permissionsByRole: Record<Role, readonly Permission[]> = {
-    // Every staff member has full access for now (the schema's Admin.role is only 'admin').
+    // right now privileges are seperated by only admin & tenant, I dont think other roles really get used by them.
     admin: ["ledger:read:property", "ledger:adjust", "maintenance:manage", "users:provision"],
     tenant: ["ledger:read:self", "payment:create:self", "maintenance:create"],
 }
@@ -17,12 +17,10 @@ export interface JwtConfig {
     jwtAudience: string
 }
 
-/**
- * Route guards: `router.get("/path", ...guard.can("ledger:read:property"), handler)`.
- * `authenticate` verifies the access_token cookie, and the rest of the request
- * then runs as that user in the database too (row-level security sees who is asking).
- */
+// creates auth/guard middleware
 export function createAuth(config: JwtConfig) {
+    
+    //jwt middleware
     const authenticate: RequestHandler = (req: ValidRequest, _res, next) => {
         const token = req.cookies?.access_token
         if (typeof token !== "string" || !token) throw new AppError("UNAUTHENTICATED")
@@ -39,15 +37,18 @@ export function createAuth(config: JwtConfig) {
         }
 
         req.user = { id: claims.sub, role }
-        runAs(identityFromClaims(claims.sub, role), next)
+        runAs(identityFromClaims(claims.sub, role), next) // run the following middleware with the async local storage context of being attached to this user
     }
 
+    //rbac middleware, take a valid request (JWT authenticated) and check the attached user object against the permissions given as a parameter
     const allow = (permission: Permission): RequestHandler => (req: ValidRequest, _res, next) => {
         if (!permissionsByRole[req.user!.role].includes(permission)) throw new AppError("FORBIDDEN")
         next()
     }
 
+    // return the auth/guard object instantiated at router creation, contains the can middleware combining the jwt & rbac middleware into one call
     return { authenticate, can: (permission: Permission) => [authenticate, allow(permission)] }
 }
 
+// Auth is the type of the tuple returned by the createAuth type/function, insane tech.
 export type Auth = ReturnType<typeof createAuth>

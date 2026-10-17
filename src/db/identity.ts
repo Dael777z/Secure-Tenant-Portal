@@ -16,6 +16,8 @@ import { parseUserId } from "../utils/user-id"
  *
  * `authenticate` (middleware/auth.ts) sets it for a request; other code uses `runAs`.
  */
+
+
 export type Identity =
     | { type: "admin"; id: number }
     | { type: "tenant"; id: number }
@@ -27,17 +29,19 @@ const ANONYMOUS: Identity = { type: "anonymous" }
 
 const storage = new AsyncLocalStorage<Identity>()
 
+// grabs the current ctx within the store, being the identity type.
 export const currentIdentity = (): Identity => storage.getStore() ?? ANONYMOUS
 
+// pass a function and an identity to the context worker (work sees ctx (identity) )
 export const runAs = <T>(identity: Identity, work: () => T): T => storage.run(identity, work)
 
-/** The identity for a verified token. An id and role that disagree count as nobody. */
+// return an identity from authentication claims
 export function identityFromClaims(userId: string, role: Role): Identity {
     const owner = parseUserId(userId)
     return owner && owner.table === role ? { type: role, id: owner.id } : ANONYMOUS
 }
 
-/** The [user_type, user_id, user_role] settings the schema's policies read. */
+// returns the settings needed for RLS for each identity type, up to 3 user modes.
 export function settingsFor(identity: Identity): [string, string, string] {
     switch (identity.type) {
         case "admin": return ["admin", String(identity.id), "admin"]
