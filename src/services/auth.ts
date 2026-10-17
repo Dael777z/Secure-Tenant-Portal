@@ -1,76 +1,68 @@
 import bcrypt from "bcrypt"
-import crypto from "crypto"
-import { env } from "../config/env"
-import type { AuthStore } from "../types/interfaces"
+import { randomBytes } from "node:crypto"
+
+import type { Role } from "../types/access"
 import { AppError } from "../types/errors"
-import { generateAccessToken, generateRefreshToken, hashToken } from "../utils/tokens"
+import type { AuthStore } from "../types/stores"
+import { generateAccessToken, hashToken, randomToken, type AccessTokenConfig } from "../utils/tokens"
 
-// Sign-up is for tenants the office has already added (agreed 10/1): the
-// tenant row exists with no password, and signing up sets one. An address that
-// was never invited, or has already signed up, gets the same answer either way.
-export async function signup(db: AuthStore, email: string, password_r: string) {
-    const normalizedEmail = email.trim().toLowerCase()
-    if (!normalizedEmail || password_r.length < 8) throw new AppError("VALIDATION_ERROR")
-
-    // Hash first, so the response takes the same time whether or not there is an invitation.
-    const password_h = await bcrypt.hash(password_r, env.bcryptRounds)
-
-    const user = await db.completeSignup(normalizedEmail, password_h)
-    if (!user) throw new AppError("SIGNUP_NOT_ALLOWED")
-    return user
+export interface AuthConfig extends AccessTokenConfig {
+    bcryptRounds: number
+    refreshTtlMilliseconds: number
 }
 
-// A real bcrypt hash of a random value, compared against when the email is
-// unknown, so an unknown address takes as long as a wrong password.
-const DUMMY_HASH = bcrypt.hashSync(crypto.randomBytes(16).toString("hex"), env.bcryptRounds)
+/**
+ * Sign-up, sign-in and sessions. Only invited tenants can sign up: the token
+ * from their link lets them choose a password, and every way a token can be
+ * bad (unknown, used, expired, tenant deactivated) gets the same answer.
+ */
+export class AuthService {
+    /** Compared against when the email is unknown, so that takes as long as a wrong password. */
+    private readonly dummyHash: string
 
-export async function login(db: AuthStore, email: string, password: string) {
-    const user = await db.findUserByEmail(email.trim().toLowerCase())
-    if (!user) {
-        await bcrypt.compare(password, DUMMY_HASH)
-        throw new AppError("INVALID_CREDENTIALS")
-    }
-    
-    const match = await bcrypt.compare(password, user.password_h)
-    if (!match) throw new AppError("INVALID_CREDENTIALS")
-
-    const access_token = generateAccessToken(user.id, user.role)
-    const { token: refresh_token, hash } = generateRefreshToken()
-
-    await db.storeRefreshToken({
-        user_id: user.id,
-        token_h: hash,
-        expiresAt: new Date(Date.now() + env.refreshTtlMilliseconds)
-    })
-
-    return {access_token, refresh_token, user}
-}
-
-export async function logout(db: AuthStore, incoming_token: string) {
-    await db.revokeRefreshToken(hashToken(incoming_token))
-}
-
-export async function refresh(db: AuthStore, incoming_token: string) {
-    const hash = hashToken(incoming_token)
-    const stored = await db.findRefreshTokenByHash(hash)
-
-    if (!stored || stored.revoked || stored.expiresAt.getTime() <= Date.now()) {
-        throw new AppError("INVALID_TOKEN")
+    constructor(private readonly db: AuthStore, private readonly config: AuthConfig) {
+        this.dummyHash = bcrypt.hashSync(randomBytes(16).toString("hex"), config.bcryptRounds)
     }
 
-    await db.revokeRefreshToken(hash)
+    async signup(inviteToken: string, password: string) {
+        if (!inviteToken || inviteToken.length > 300 || password.length < 8) throw new AppError("VALIDATION_ERROR")
 
-    const user = await db.findUserByID(stored.user_id)
-    if (!user) throw new AppError("USER_NOT_FOUND")
-    
-    const access_token = generateAccessToken(user.id, user.role)
-    const {token: refresh_token, hash: new_h} = generateRefreshToken()
+        // Hash first, so the response takes the same time whether or not the invitation is good.
+        const passwordHash = await bcrypt.hash(password, this.config.bcryptRounds)
+        const user = await this.db.completeSignup(hashToken(inviteToken), passwordHash)
+        if (!user) throw new AppError("SIGNUP_NOT_ALLOWED")
+        return user
+    }
 
-    await db.storeRefreshToken({
-        user_id: user.id,
-        token_h: new_h,
-        expiresAt: new Date(Date.now() + env.refreshTtlMilliseconds)
-    })
+    async login(email: string, password: string) {
+        const user = await this.db.findUserByEmail(email.trim().toLowerCase())
+        if (!user) {
+            await bcrypt.compare(password, this.dummyHash)
+            throw new AppError("INVALID_CREDENTIALS")
+        }
 
-    return { access_token, refresh_token}
+        const match = await bcrypt.compare(password, user.passwordHash)
+        if (!match) throw new AppError("INVALID_CREDENTIALS")
+        // The schema has an MFA flag but the app cannot check a code yet: refuse rather than skip it.
+        if (user.mfaEnabled) throw new AppError("MFA_NOT_SUPPORTED")
+
+        return { ...(await this.startSession(user.id, user.role)), user }
+    }
+
+    async logout(refreshToken: string) {
+        await this.db.revokeRefreshToken(hashToken(refreshToken))
+    }
+
+    /** Swap a refresh token for a new pair. Each refresh token works once. */
+    async refresh(refreshToken: string) {
+        const owner = await this.db.consumeRefreshToken(hashToken(refreshToken))
+        if (!owner) throw new AppError("INVALID_TOKEN")
+        return this.startSession(owner.id, owner.role)
+    }
+
+    private async startSession(userId: string, role: Role) {
+        const { token: refreshToken, hash } = randomToken()
+        await this.db.storeRefreshToken({ userId, tokenHash: hash, expiresAt: new Date(Date.now() + this.config.refreshTtlMilliseconds) })
+        return { accessToken: generateAccessToken(this.config, userId, role), refreshToken }
+    }
 }

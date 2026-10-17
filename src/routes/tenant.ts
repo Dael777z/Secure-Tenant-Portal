@@ -1,46 +1,38 @@
 import { Router } from "express"
 
-import { authenticateJWT } from "../middleware/auth"
-import { requirePermission } from "../middleware/rbac"
-import type { TenantStore } from "../services/tenant-store"
-import { AppError } from "../types/errors"
-import type { ValidRequest } from "../types/interfaces"
+import type { Auth } from "../middleware/auth"
+import type { RateLimits } from "../middleware/rate-limit"
+import type { TenantService } from "../services/tenant-service"
+import type { ValidRequest } from "../types/access"
+import { id, money, text } from "./validate"
 
 /**
- * /api/tenant/* — what Juan's tenant pages read and write (Scott's route
- * grouping: auth/, api/, tenant/). Every route acts as the signed-in tenant.
+ * /api/tenant: the tenant pages, always as the signed-in tenant.
+ *
+ *   GET  /tenant/summary       balance, ledger, requests, notices, bank accounts
+ *   POST /tenant/payments      { amount, bankAccountId? }  → { confirmation }
+ *   POST /tenant/maintenance   { title, description? }     → the new request
  */
-export function createTenantRouter(store: TenantStore | null, options: { plaidEnabled: boolean }): Router {
+export function createTenantRouter(deps: { tenant: TenantService; guard: Auth; limits: RateLimits; plaidEnabled: boolean; testPayments: boolean }): Router {
+    const { tenant, guard, limits } = deps
+    const flags = { plaidEnabled: deps.plaidEnabled, testPayments: deps.testPayments }
     const router = Router()
 
-    const need = (): TenantStore => {
-        if (!store) throw new AppError("DATABASE_REQUIRED")
-        return store
-    }
-
-    router.get("/tenant/summary", authenticateJWT, requirePermission("ledger:read:self"), async (req: ValidRequest, res) => {
-        res.json(await need().summary(req.user!.id, options.plaidEnabled))
+    router.get("/tenant/summary", ...guard.can("ledger:read:self"), async (req: ValidRequest, res) => {
+        res.json(await tenant.summary(req.user!.id, flags))
     })
 
-    router.post("/tenant/payments", authenticateJWT, requirePermission("payment:create:self"), async (req: ValidRequest, res) => {
-        const { amount, bankAccountId } = req.body as { amount?: unknown; bankAccountId?: unknown }
-        if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0 || amount > 100_000 || Math.round(amount * 100) !== amount * 100) {
-            throw new AppError("VALIDATION_ERROR")
-        }
-        if (bankAccountId !== undefined && bankAccountId !== null && (typeof bankAccountId !== "string" || !/^\d{1,9}$/.test(bankAccountId))) {
-            throw new AppError("VALIDATION_ERROR")
-        }
-        const result = await need().recordPayment(req.user!.id, { amount, bankAccountId: (bankAccountId as string | null | undefined) ?? null })
-        res.status(201).json(result)
+    router.post("/tenant/payments", limits.sensitive, ...guard.can("payment:create:self"), async (req: ValidRequest, res) => {
+        const body = req.body as Record<string, unknown>
+        const bankAccountId = body.bankAccountId === undefined || body.bankAccountId === null ? null : id(body.bankAccountId)
+        res.status(201).json(await tenant.recordPayment(req.user!.id, { amount: money(body.amount), bankAccountId }, flags))
     })
 
-    router.post("/tenant/maintenance", authenticateJWT, requirePermission("maintenance:create"), async (req: ValidRequest, res) => {
-        const { title, description } = req.body as { title?: unknown; description?: unknown }
-        if (typeof title !== "string" || !title.trim() || title.trim().length > 120) throw new AppError("VALIDATION_ERROR")
-        if (description !== undefined && (typeof description !== "string" || description.length > 4000)) throw new AppError("VALIDATION_ERROR")
-        const request = await need().createMaintenance(req.user!.id, {
-            title: title.trim(),
-            description: typeof description === "string" ? description.trim() : "",
+    router.post("/tenant/maintenance", limits.sensitive, ...guard.can("maintenance:create"), async (req: ValidRequest, res) => {
+        const body = req.body as Record<string, unknown>
+        const request = await tenant.createMaintenance(req.user!.id, {
+            title: text(body.title, 120)!,
+            description: text(body.description, 4000, { optional: true }) ?? "",
         })
         res.status(201).json(request)
     })

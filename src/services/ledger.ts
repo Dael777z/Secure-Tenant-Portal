@@ -1,29 +1,13 @@
+import type { ChargeRecord, PaymentRecord } from "../types/records"
 import type { LedgerEntry } from "../types/tenant"
 
 /**
- * The tenant's ledger, built from Angel's tables as they are: a lease's
- * ammount_owed is read as the monthly rent, charged on the 1st of every month
- * from the lease's first month to this one (and not after end_date), and
- * every Payment row on the lease is a credit. Newest first, each line with the
- * balance after it, the way Juan's Ledger page shows it.
- *
- * When Angel adds a real ledger table this function is what gets replaced; the
- * API's shape stays the same.
+ * The ledger the pages show: Charge rows (owed) and Payment rows (paid or
+ * refunded) as one list, newest first, each line with the balance after it.
+ * Charges are negative, payments positive. The balance is computed the same
+ * way as the schema's `lease_balance` view: charged - paid + refunded,
+ * completed payments only.
  */
-
-export interface LeaseTerms {
-    startDate: string        // YYYY-MM-DD
-    endDate: string | null
-    monthlyRent: number      // dollars
-}
-
-export interface PaymentLine {
-    id: number
-    amount: number           // dollars
-    paidAt: Date
-    method: string | null
-    confirmation: string | null
-}
 
 const cents = (dollars: number) => Math.round(dollars * 100)
 
@@ -31,54 +15,56 @@ export function formatDate(date: Date, timeZone = "America/Denver"): string {
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone })
 }
 
-const monthName = (date: Date) => date.toLocaleDateString("en-US", { month: "long", timeZone: "UTC" })
-
-/** First-of-month charge dates (UTC midnight) from the lease start through `today`. */
-export function rentCharges(lease: LeaseTerms, today: Date): Date[] {
-    const start = new Date(`${lease.startDate}T00:00:00Z`)
-    const end = lease.endDate ? new Date(`${lease.endDate}T00:00:00Z`) : null
-    const out: Date[] = []
-    const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1))
-    while (cursor <= today && (!end || cursor <= end)) {
-        // The first month is charged on the move-in date, not before it.
-        out.push(out.length === 0 ? new Date(start) : new Date(cursor))
-        cursor.setUTCMonth(cursor.getUTCMonth() + 1)
-    }
-    return out
+/** "Today" as YYYY-MM-DD in the portal's time zone (what a DATE column compares against). */
+export function localDate(now: Date, timeZone: string): string {
+    return now.toLocaleDateString("en-CA", { timeZone })
 }
 
-export function buildLedger(lease: LeaseTerms, payments: PaymentLine[], today: Date, timeZone?: string): {
+const CHARGE_LABELS: Record<ChargeRecord["kind"], string> = {
+    rent: "Rent charge",
+    deposit: "Security deposit",
+    late_fee: "Late fee",
+    utility: "Utility charge",
+    proration: "Prorated rent",
+    other: "Charge",
+}
+
+export function buildLedger(charges: ChargeRecord[], payments: PaymentRecord[], timeZone?: string): {
     entries: LedgerEntry[]
     balance: number
 } {
     type Line = { at: Date; order: number; entry: Omit<LedgerEntry, "balanceAfter"> }
     const lines: Line[] = []
 
-    for (const at of rentCharges(lease, today)) {
+    for (const charge of charges) {
+        const at = new Date(`${charge.dueDate}T00:00:00Z`)
         lines.push({
             at,
             order: 0,
             entry: {
-                id: `charge-${at.toISOString().slice(0, 7)}`,
+                id: `charge-${charge.id}`,
                 date: formatDate(at, "UTC"),
-                description: `Rent charge - ${monthName(at)}`,
+                description: charge.description ?? CHARGE_LABELS[charge.kind],
                 method: null,
-                amount: -lease.monthlyRent,
+                amount: -charge.amount,
             },
         })
     }
 
-    for (const payment of payments) {
+    // Only completed payments move the balance (a pending or failed one has not happened).
+    for (const payment of payments.filter((p) => p.status === "completed")) {
+        const refund = payment.direction === "refund"
         lines.push({
             at: payment.paidAt,
             order: 1,
             entry: {
+                // "payment-<id>" is what receipts are keyed by.
                 id: `payment-${payment.id}`,
                 date: formatDate(payment.paidAt, timeZone),
-                description: "Payment received",
+                description: refund ? "Payment reversed" : "Payment received",
                 method: payment.method,
-                amount: payment.amount,
-                ...(payment.confirmation ? { confirmation: payment.confirmation } : {}),
+                amount: refund ? -payment.amount : payment.amount,
+                confirmation: payment.confirmation,
             },
         })
     }

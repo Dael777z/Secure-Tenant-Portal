@@ -1,10 +1,17 @@
 import { useState } from "react";
-import { paymentMethodOptions } from "../data/mockData";
 import { useTenantData } from "../data/tenantData";
 import { messageFor, tenantApi } from "../api/tenant";
 import { PlaidLinkButton } from "../components/PlaidLinkButton";
 import { formatCurrency } from "../components/formatCurrency";
-import type { PaymentMethodKind } from "../types";
+import type { PaymentMethodKind, PaymentMethodOption } from "../types";
+
+// Bank account first and the only one enabled for now (client, 9/27).
+const paymentMethodOptions: PaymentMethodOption[] = [
+  { kind: "bank", label: "Bank Account", sublabel: "Connected via Plaid" },
+  { kind: "card", label: "Credit/Debit Card", sublabel: "Not available yet" },
+  { kind: "wallet", label: "Digital Wallet", sublabel: "Not available yet" },
+  { kind: "other", label: "Other", sublabel: "Pay the leasing office" },
+];
 
 const PROCESSING_FEE = 0; //Bank transfer using Plaid - expecting no fees.
 
@@ -12,17 +19,17 @@ export function PayRentPage() {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethodKind>("bank");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [paidJustNow, setPaidJustNow] = useState(false);
-  const { currentBalance, bankAccounts, plaidEnabled, refresh } = useTenantData();
+  const { currentBalance, bankAccounts, plaidEnabled, testPayments, refresh } = useTenantData();
   const [confirmation, setConfirmation] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const total = currentBalance + PROCESSING_FEE;
-  // Bank transfer only for now (client, 9/27). With Plaid set up, the money
-  // comes from the tenant's linked account; without it the payment is recorded
-  // as a demo transfer.
+  // Bank transfer only for now (client, 9/27): from the tenant's Plaid-linked
+  // account. In development without Plaid keys, the server records a test transfer.
   const bankAccount = bankAccounts[0] ?? null;
   const needsBankLink = selectedMethod === "bank" && plaidEnabled && !bankAccount;
-  const canPay = selectedMethod === "bank" && total > 0 && !needsBankLink;
+  const unavailable = selectedMethod === "bank" && !plaidEnabled && !testPayments;
+  const canPay = selectedMethod === "bank" && total > 0 && !needsBankLink && !unavailable;
 
   function handlePay() {
     setIsSubmitting(true);
@@ -73,8 +80,11 @@ export function PayRentPage() {
           </p>
         )}
         {needsBankLink && <PlaidLinkButton onLinked={() => void refresh()} />}
-        {selectedMethod === "bank" && !plaidEnabled && (
-          <p className="method-note">Demo mode: the payment is recorded, and no money moves.</p>
+        {selectedMethod === "bank" && !plaidEnabled && testPayments && (
+          <p className="method-note">Test mode (Plaid is not connected): the payment is recorded, and no money moves.</p>
+        )}
+        {unavailable && (
+          <p className="method-note">Online payment is not available right now. Please pay the leasing office directly.</p>
         )}
         {selectedMethod !== "bank" && (
           <p className="method-note">For now, rent is paid by bank transfer only.</p>

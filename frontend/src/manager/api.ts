@@ -175,6 +175,8 @@ export const managerApi = {
     id ? send<{ id: number }>("PUT", `/units/${id}`, input) : send<{ id: number }>("POST", "/units", input),
   inviteTenant: (input: NewPerson) => send<{ id: number }>("POST", "/tenants", input),
   updateTenant: (id: number, input: { name: string; phone: string }) => send<{ ok: true }>("PUT", `/tenants/${id}`, input),
+  /** A fresh sign-up link for a tenant who has not signed up (the old link stops working). */
+  newSignUpLink: (id: number) => send<{ inviteLink: string }>("POST", `/tenants/${id}/invite`),
   createLease: (input: {
     unitId: number;
     startDate: string;
@@ -195,7 +197,6 @@ export const managerApi = {
 
   // Deleting: the server refuses anything with history it must keep (see managerMessage).
   deleteTenant: (id: number) => send<{ ok: true }>("DELETE", `/tenants/${id}`),
-  deleteLease: (id: number) => send<{ ok: true }>("DELETE", `/leases/${id}`),
   undoPayment: (leaseId: number, paymentId: number) => send<{ ok: true }>("DELETE", `/leases/${leaseId}/payments/${paymentId}`),
   deleteUnit: (id: number) => send<{ ok: true }>("DELETE", `/units/${id}`),
   deleteProperty: (id: number) => send<{ ok: true }>("DELETE", `/properties/${id}`),
@@ -214,12 +215,13 @@ export function managerMessage(error: unknown): string {
     if (error.code === "EMAIL_IN_USE") return "Someone already uses that email address.";
     if (error.code === "NOT_FOUND") return "That record no longer exists. Refresh and try again.";
     if (error.code === "VALIDATION_ERROR") return "Some details are missing or not valid. Check the form and try again.";
-    if (error.code === "DATABASE_REQUIRED") return "The database is not connected.";
     if (error.code === "TENANT_ON_LEASE") return "This tenant is on a current or upcoming lease. Remove them from the lease, or end it, first.";
-    if (error.code === "LEASE_HAS_PAYMENTS") return "This lease has payments on it, so it stays on record. End the lease instead.";
     if (error.code === "NOT_OFFICE_PAYMENT") return "Only payments the office recorded can be undone. A tenant's own payment stays on record.";
-    if (error.code === "UNIT_HAS_LEASES") return "This unit has lease history, so it stays on record.";
-    if (error.code === "PROPERTY_HAS_LEASES") return "This property has units with lease history, so it stays on record.";
+    if (error.code === "UNIT_HAS_LEASES") return "This unit has a current or upcoming lease. End it first.";
+    if (error.code === "PROPERTY_HAS_LEASES") return "A unit in this property has a current or upcoming lease. End it first.";
+    if (error.code === "UNIT_INACTIVE") return "That unit has been removed. Pick another unit.";
+    if (error.code === "TENANT_ALREADY_SIGNED_UP") return "This tenant has already signed up; they can sign in.";
+    if (error.code === "PAYMENT_ALREADY_REVERSED") return "That payment was already undone.";
     if (error.code === "RECEIPT_INVALID") return "The receipt must be a JPEG, PNG or WebP photo, or a PDF, of at most 4 MB.";
   }
   return "We could not reach the server. Check your connection and try again.";

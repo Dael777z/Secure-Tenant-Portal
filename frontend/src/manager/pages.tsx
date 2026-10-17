@@ -3,7 +3,7 @@
 // views (manager-dashboard, -portfolio, -rentroll, -directory, -maintenance,
 // -exceptions), cut down to what the team's schema stores.
 import { useMemo, useState } from "react";
-import { managerApi, receiptUrl, type RequestStatus, type UnitRow, type UpdateRow } from "./api";
+import { managerApi, receiptUrl, type RequestStatus, type TenantRow, type UnitRow, type UpdateRow } from "./api";
 import type { LedgerEntry } from "../types";
 import { Empty, Kpi, Loading, PageHeader, StatusPill, isoDate, money, percent, timeAgo, useLoad, useManager } from "./ui";
 
@@ -394,7 +394,18 @@ export function RentRollPage({ filter }: { filter?: "owing" | "current" | "vacan
  * ------------------------------------------------------------------ */
 
 export function TenantsPage() {
-  const { go, open, can } = useManager();
+  const { go, open, can, changed } = useManager();
+
+  // Tenants sign up from a link the office sends them. A new link replaces the old one.
+  async function copySignUpLink(t: TenantRow) {
+    try {
+      const { inviteLink } = await managerApi.newSignUpLink(t.id);
+      await navigator.clipboard.writeText(inviteLink);
+      changed(`Sign-up link for ${t.name} copied. Send it to ${t.email}; any earlier link stops working.`);
+    } catch {
+      changed(`Could not copy a sign-up link for ${t.name}. Try again.`);
+    }
+  }
   const { data, error } = useLoad(() => managerApi.tenants());
   const [search, setSearch] = useState("");
   const q = search.trim().toLowerCase();
@@ -452,6 +463,11 @@ export function TenantsPage() {
                             Lease
                           </button>
                         )}
+                        {can("users:provision") && !t.signedUp && (
+                          <button type="button" className="mgr-btn mgr-btn--secondary mgr-btn--small" onClick={() => void copySignUpLink(t)}>
+                            Copy sign-up link
+                          </button>
+                        )}
                         {can("users:provision") && (
                           <button type="button" className="mgr-btn mgr-btn--ghost mgr-btn--small" onClick={() => open({ kind: "editTenant", id: t.id, name: t.name, phone: t.phone })}>
                             Edit
@@ -465,7 +481,7 @@ export function TenantsPage() {
                               open({
                                 kind: "confirm",
                                 title: "Delete tenant",
-                                body: `Delete ${t.name} (${t.email})? Their account and sign-in go. Payments and requests from past leases stay on record without their name.`,
+                                body: `Delete ${t.name} (${t.email})? Their sign-in stops working; their payments and requests stay on record.`,
                                 confirmLabel: "Delete tenant",
                                 run: () => managerApi.deleteTenant(t.id),
                                 done: `${t.name} deleted.`,
@@ -545,7 +561,6 @@ export function LeasePage({ id }: { id: number }) {
 
   if (!data) return <Loading error={error} />;
   const label = `Unit ${data.unitNum} - ${data.propertyName}`;
-  const hasPayments = data.ledger.some((e) => e.id.startsWith("payment-"));
   const ended = data.endDate !== null && data.endDate < new Date().toISOString().slice(0, 10);
 
   async function remove(tenantId: number) {
@@ -589,25 +604,6 @@ export function LeasePage({ id }: { id: number }) {
                   End lease
                 </button>
               </>
-            )}
-            {can("users:provision") && !hasPayments && (
-              <button
-                type="button"
-                className="mgr-btn mgr-btn--danger-ghost"
-                onClick={() =>
-                  open({
-                    kind: "confirm",
-                    title: "Delete lease",
-                    body: `Delete this lease on ${label}? Use this for a lease entered by mistake: it has no payments yet. Its residents stay in Tenants.`,
-                    confirmLabel: "Delete lease",
-                    run: () => managerApi.deleteLease(id),
-                    done: "Lease deleted. The unit is vacant again.",
-                    after: { name: "rent-roll" },
-                  })
-                }
-              >
-                Delete lease
-              </button>
             )}
           </>
         }

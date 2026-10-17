@@ -1,0 +1,96 @@
+import type { Receipt } from "./records"
+
+/** What the database layer accepts (the counterpart of records.ts). */
+
+/** A sign-up invitation as stored: only the token's SHA-256 hash, never the token in the link. */
+export interface InviteToken {
+    tokenHash: string
+    expiresAt: Date
+}
+
+export interface NewRefreshToken {
+    userId: string
+    tokenHash: string
+    expiresAt: Date
+}
+
+export interface NewTenant {
+    name: string
+    email: string
+    phone?: string | null
+    invite: InviteToken
+}
+
+export interface TenantChanges {
+    name: string
+    phone: string | null
+}
+
+export interface PropertyInput {
+    name: string
+    address: string
+}
+
+export interface UnitInput {
+    propertyId: number
+    unitNum: string
+}
+
+export interface NewLease {
+    unitId: number
+    startDate: string
+    endDate: string | null
+    monthlyRent: number
+    tenantIds: number[]
+    newTenants: Array<{ name: string; email: string; phone: string | null; invite: InviteToken }>
+}
+
+/** What a created lease gives back: its id, and the ids of the tenants it added (same order as `newTenants`). */
+export interface CreatedLease {
+    leaseId: number
+    newTenantIds: number[]
+}
+
+export interface LeaseChanges {
+    monthlyRent?: number
+    /** `null` clears the end date (open-ended); leave out to keep it. */
+    endDate?: string | null
+}
+
+export interface LeaseTenantInput {
+    tenantId?: number
+    newTenant?: { name: string; email: string; phone: string | null; invite: InviteToken }
+}
+
+export interface NewPayment {
+    leaseId: number
+    amount: number
+    /** Who paid. Null for an offline payment the office could not attribute. */
+    tenantId: number | null
+    /** Already formatted and trimmed to the column width by the caller. */
+    method: string
+    /** Becomes the payment's transaction_id (unique). */
+    confirmation: string
+    /** Office payments only. */
+    receipt?: Receipt | null
+}
+
+export interface NewMaintenance {
+    unitId: number
+    /** Null when the office files it. */
+    tenantId: number | null
+    title: string
+    description: string
+}
+
+export interface BankItem {
+    itemId: string
+    accessTokenEnc: string
+}
+
+export interface BankAccountInput {
+    accountId: string
+    name: string
+    mask: string | null
+    subtype: string | null
+}

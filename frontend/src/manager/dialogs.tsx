@@ -120,7 +120,7 @@ function NewLeaseDialog({ unitId, onClose }: Props<"lease">) {
   const createdId = useRef(0);
   const { busy, error, run } = useSubmit(() => {
     onClose();
-    changed("Lease created.");
+    changed("Lease created. Send new residents their sign-up link from Tenants.");
     if (createdId.current) go({ name: "lease", id: createdId.current });
   });
 
@@ -430,7 +430,7 @@ function InviteTenantDialog({ onClose }: Props<"tenant">) {
   const [person, setPerson] = useState<NewPerson>({ name: "", email: "", phone: "" });
   const { busy, error, run } = useSubmit(() => {
     onClose();
-    changed(`${person.name.trim()} invited. Add them to a lease from New lease.`);
+    changed(`${person.name.trim()} invited. Copy their sign-up link from Tenants, and add them to a lease from New lease.`);
   });
   return (
     <Modal title="Invite tenant" onClose={onClose}>
@@ -448,7 +448,7 @@ function InviteTenantDialog({ onClose }: Props<"tenant">) {
         <Field label="Full name">
           <input value={person.name} onChange={(e) => setPerson({ ...person, name: e.target.value })} required maxLength={255} />
         </Field>
-        <Field label="Email" hint="They sign up with this address and choose their own password.">
+        <Field label="Email" hint="They sign in with this address. Send them the sign-up link from Tenants to choose a password.">
           <input type="email" value={person.email} onChange={(e) => setPerson({ ...person, email: e.target.value })} required maxLength={255} />
         </Field>
         <Field label="Phone (optional)">

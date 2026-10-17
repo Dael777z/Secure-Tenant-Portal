@@ -1,10 +1,6 @@
 import { Configuration, CountryCode, PlaidApi, PlaidEnvironments, Products } from "plaid"
 
-/**
- * The two Plaid calls Dael's prototype makes (feature/plaid-connector,
- * server/index.ts), behind an interface so the routes can be tested without
- * reaching Plaid.
- */
+/** The two Plaid calls the bank-link flow needs, behind an interface so routes can be tested without Plaid. */
 export interface PlaidAccount {
     accountId: string
     name: string

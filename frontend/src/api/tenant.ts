@@ -19,6 +19,8 @@ export interface TenantSummary {
   notices: Notice[];
   bankAccounts: LinkedBankAccount[];
   plaidEnabled: boolean;
+  /** Development only: paying without a linked bank records a test transfer. */
+  testPayments: boolean;
 }
 
 export class ApiError extends Error {
