@@ -38,8 +38,12 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export const tenantApi = {
   summary: () => call<TenantSummary>("/tenant/summary"),
-  pay: (amount: number, bankAccountId: string | null) =>
-    call<{ confirmation: string }>("/tenant/payments", { method: "POST", body: JSON.stringify({ amount, bankAccountId }) }),
+  /** `checkoutKey`: one per checkout, so a double click or a retry is recorded once. */
+  pay: (amount: number, bankAccountId: string | null, checkoutKey: string) =>
+    call<{ confirmation: string }>("/tenant/payments", {
+      method: "POST",
+      body: JSON.stringify({ amount, bankAccountId, idempotencyKey: checkoutKey }),
+    }),
   newMaintenanceRequest: (title: string, description: string) =>
     call<MaintenanceRequest>("/tenant/maintenance", { method: "POST", body: JSON.stringify({ title, description }) }),
   // Dael's two Plaid calls, same paths as his prototype.

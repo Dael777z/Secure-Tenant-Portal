@@ -72,6 +72,7 @@ export type Dialog =
   | { kind: "endLease"; leaseId: number; label: string }
   | { kind: "addResident"; leaseId: number }
   | { kind: "attachReceipt"; leaseId: number; paymentId: number; label: string }
+  | { kind: "charge"; leaseId: number; label: string }
   | {
       kind: "confirm";
       title: string;

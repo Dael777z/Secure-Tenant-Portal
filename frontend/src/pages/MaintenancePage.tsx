@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MaintenanceRequest, MaintenanceStatus } from "../types";
 import { useTenantData } from "../data/tenantData";
 import { messageFor, tenantApi } from "../api/tenant";
@@ -9,16 +9,18 @@ const statusLabel: Record<MaintenanceStatus, string> = {
   resolved: "Resolved",
 };
 
+type DetailView = "detail" | "form" | "text";
+
 export function MaintenancePage() {
   const { maintenanceRequests, refresh } = useTenantData();
   const [requests, setRequests] = useState<MaintenanceRequest[]>(maintenanceRequests);
   const [selectedId, setSelectedId] = useState<string | null>(requests[0]?.id ?? null);
-  const [showForm, setShowForm] = useState(false);
+  const [view, setView] = useState<DetailView>("detail");
 
   const selected = requests.find((r) => r.id === selectedId) ?? null;
 
   function handleSelect(id: string) {
-    setShowForm(false);
+    setView("detail");
     setSelectedId(id);
   }
 
@@ -29,7 +31,7 @@ export function MaintenancePage() {
       .then((request) => {
         setRequests((prev) => [request, ...prev]);
         setSelectedId(request.id);
-        setShowForm(false);
+        setView("detail");
         void refresh();
       })
       .catch((caught) => window.alert(messageFor(caught)));
@@ -38,10 +40,10 @@ export function MaintenancePage() {
   return (
     <div className="maintenance-grid">
       <div className="maintenance-list">
-        <button type="button" className="maintenance-action" onClick={() => setShowForm(true)}>
+        <button type="button" className="maintenance-action" aria-pressed={view === "form"} onClick={() => setView("form")}>
           + New Request
         </button>
-        <button type="button" className="maintenance-action maintenance-action--secondary">
+        <button type="button" className="maintenance-action maintenance-action--secondary" aria-pressed={view === "text"} onClick={() => setView("text")}>
           Text Property Management
         </button>
 
@@ -50,7 +52,7 @@ export function MaintenancePage() {
             key={req.id}
             type="button"
             className="maintenance-item"
-            aria-current={selectedId === req.id && !showForm}
+            aria-current={selectedId === req.id && view === "detail"}
             onClick={() => handleSelect(req.id)}
           >
             <div className="maintenance-item-top">
@@ -65,8 +67,10 @@ export function MaintenancePage() {
       </div>
 
       <div className="maintenance-detail">
-        {showForm ? (
-          <NewRequestForm onSubmit={handleNewRequest} onCancel={() => setShowForm(false)} />
+        {view === "form" ? (
+          <NewRequestForm onSubmit={handleNewRequest} onCancel={() => setView("detail")} />
+        ) : view === "text" ? (
+          <TextManagementPanel onClose={() => setView("detail")} />
         ) : selected ? (
           <>
             <h2>{selected.title}</h2>
@@ -178,3 +182,99 @@ function NewRequestForm({ onSubmit, onCancel }: NewRequestFormProps) {
     </form>
   );
 }
+
+// Juan's "Text Property Management" screen (tenant-side-ui f2e3beb). The thread
+// lives in this page only for now: nothing is sent to the office or saved yet.
+interface TextMessage {
+  id: string;
+  from: "tenant" | "office";
+  body: string;
+  time: string;
+}
+
+interface TextManagement {
+  onClose: () => void;
+}
+
+function TextManagementPanel({ onClose }: TextManagement) {
+  const [messages, setMessages] = useState<TextMessage[]>([
+    {
+      id: "m_welcome",
+      from: "office",
+      body: "Hi. Message the property office here about a repair or any questions.",
+      time: "",
+    },
+  ]);
+  const [draft, setDraft] = useState("");
+  const threadRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const thread = threadRef.current;
+    if (thread) thread.scrollTop = thread.scrollHeight;
+  }, [messages]);
+
+  function handleSend() {
+    const body = draft.trim();
+    if (!body) return;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `m_${Date.now()}`,
+        from: "tenant",
+        body,
+        time: new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+      },
+    ]);
+    setDraft("");
+    }
+
+    function handleSubmit(event: React.FormEvent) {
+      event.preventDefault();
+      handleSend();
+    }
+
+    function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        handleSend();
+      }
+    }
+
+    return (
+      <div className="text-panel">
+        <div className="text-panel-header">
+          <h2>Property Management</h2>
+          <button type="button" className="btn btn--outline" onClick={onClose}>
+            Close
+          </button>
+        </div>
+
+        <div className="text-thread" ref={threadRef} role="log" aria-live="polite" aria-label="messages">
+          {messages.map((message) => (
+            <div key={message.id} className={`text-bubble text-bubble--${message.from}`}>
+              <div>{message.body}</div>
+              {message.time && <div className="text-bubble-time">{message.time}</div>}
+            </div>
+          ))}
+        </div>
+
+        <form className="text-composer" onSubmit={handleSubmit}>
+          <label className="sr-only" htmlFor="text-draft">
+            Message to Property Management
+          </label>
+          <textarea
+            id="text-draft"
+            className="field-textarea text-composer-input"
+            placeholder="Type a message"
+            rows={3}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={handleKeyDown}
+          />
+          <button type="submit" className="btn btn--primary" disabled={!draft.trim()}>
+            Send
+          </button>
+        </form>
+      </div>
+    );
+  }

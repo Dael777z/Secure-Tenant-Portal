@@ -20,6 +20,7 @@ import { ManagerContext, initials, parseRoute, routeHash, type Dialog, type Mana
 import "./manager.css";
 
 const ROLE_LABELS: Record<string, string> = {
+  admin: "Property Manager",
   property_manager: "Property Manager",
   maintenance_staff: "Maintenance",
   platform_admin: "Administrator",

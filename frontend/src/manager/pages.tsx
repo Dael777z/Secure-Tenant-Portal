@@ -5,7 +5,7 @@
 import { useMemo, useState } from "react";
 import { managerApi, receiptUrl, type RequestStatus, type TenantRow, type UnitRow, type UpdateRow } from "./api";
 import type { LedgerEntry } from "../types";
-import { Empty, Kpi, Loading, PageHeader, StatusPill, isoDate, money, percent, timeAgo, useLoad, useManager } from "./ui";
+import { Empty, Kpi, Loading, LocalError, PageHeader, StatusPill, isoDate, money, percent, timeAgo, useLoad, useManager } from "./ui";
 
 /* ------------------------------------------------------------------ *
  * Quick actions — the common jobs, one click from any screen
@@ -406,6 +406,26 @@ export function TenantsPage() {
       changed(`Could not copy a sign-up link for ${t.name}. Try again.`);
     }
   }
+
+  // A signed-up tenant who cannot sign in. Their password stops working once this runs.
+  function resetSignIn(t: TenantRow) {
+    open({
+      kind: "confirm",
+      title: "Reset sign-in",
+      body: `Reset ${t.name}'s sign-in? Their current password stops working and they are signed out everywhere. You get a link to send them so they can choose a new password.`,
+      confirmLabel: "Reset and copy link",
+      run: async () => {
+        const { inviteLink } = await managerApi.resetSignIn(t.id);
+        try {
+          await navigator.clipboard.writeText(inviteLink);
+        } catch {
+          // The reset is done; keep the dialog open with the link so it can be copied by hand.
+          throw new LocalError(`Sign-in reset, but the link could not be copied. Send ${t.email} this link: ${inviteLink}`);
+        }
+      },
+      done: `Sign-in reset for ${t.name}. The link is copied; send it to ${t.email}.`,
+    });
+  }
   const { data, error } = useLoad(() => managerApi.tenants());
   const [search, setSearch] = useState("");
   const q = search.trim().toLowerCase();
@@ -466,6 +486,11 @@ export function TenantsPage() {
                         {can("users:provision") && !t.signedUp && (
                           <button type="button" className="mgr-btn mgr-btn--secondary mgr-btn--small" onClick={() => void copySignUpLink(t)}>
                             Copy sign-up link
+                          </button>
+                        )}
+                        {can("users:provision") && t.signedUp && (
+                          <button type="button" className="mgr-btn mgr-btn--ghost mgr-btn--small" onClick={() => resetSignIn(t)}>
+                            Reset sign-in
                           </button>
                         )}
                         {can("users:provision") && (
@@ -591,9 +616,14 @@ export function LeasePage({ id }: { id: number }) {
         actions={
           <>
             {can("ledger:adjust") && (
-              <button type="button" className="mgr-btn mgr-btn--primary" onClick={() => open({ kind: "payment", leaseId: id })}>
-                Record a payment
-              </button>
+              <>
+                <button type="button" className="mgr-btn mgr-btn--primary" onClick={() => open({ kind: "payment", leaseId: id })}>
+                  Record a payment
+                </button>
+                <button type="button" className="mgr-btn mgr-btn--secondary" onClick={() => open({ kind: "charge", leaseId: id, label })}>
+                  Add a charge
+                </button>
+              </>
             )}
             {can("users:provision") && !ended && (
               <>
