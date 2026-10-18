@@ -110,6 +110,30 @@ The hosted site is public: the portal's own login is the only gate. Give it a
 login with `npm run cloudflare:prod db admin ...`, or sample data with
 `npm run cloudflare:prod db seed` (see "Production data").
 
+## Plaid
+
+Bank linking turns on when `PLAID_CLIENT_ID` and `PLAID_SECRET` are set (in `.env`, or
+`.env.prod` for production). `PLAID_ENV` is `sandbox` unless set to `production`.
+
+Banks that sign in on their own website send the tenant back to `<WEB_ORIGIN>/plaid-oauth`,
+and Plaid only allows return addresses listed in its dashboard (Developers > API > Allowed
+redirect URIs). Add the one for each way you run it:
+
+| Run | Redirect URI |
+| --- | --- |
+| `npm run dev` | `http://localhost:5173/plaid-oauth` |
+| `npm run docker:dev` | `http://localhost:3000/plaid-oauth` |
+| `npm run prod`, `npm run docker:prod` | `http://localhost:8080/plaid-oauth` |
+| `cloudflare:dev`, `cloudflare:prod` | `https://<your hostname>/plaid-oauth` |
+
+Plain `http://` works only for localhost and only in sandbox. `PLAID_REDIRECT_URI` overrides
+the address if you need a different one.
+
+To test in sandbox, sign in as a tenant, open Pay rent, choose **Connect bank account**,
+pick any bank and sign in with `user_good` / `pass_good` (code `1234` if asked). When a
+Plaid call fails, the server logs `plaid.request_failed` with Plaid's error type, code,
+message and request id, and the page shows Plaid's code.
+
 ## Layout
 
 ```

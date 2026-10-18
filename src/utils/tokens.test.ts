@@ -28,8 +28,8 @@ describe("random tokens", () => {
     })
 
     it("an invitation keeps only the hash, and expires in a week", () => {
-        const { token, invite } = newInvite()
-        expect(invite.tokenHash).toBe(hashToken(token))
-        expect(invite.expiresAt.getTime() - Date.now()).toBeGreaterThan(6.9 * 24 * 3600 * 1000)
+        const { token, hash } = newInvite()
+        expect(hash.tokenHash).toBe(hashToken(token))
+        expect(hash.expiresAt.getTime() - Date.now()).toBeGreaterThan(6.9 * 24 * 3600 * 1000)
     })
 })

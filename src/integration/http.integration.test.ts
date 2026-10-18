@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { loadConfig } from "../config"
+import { AppError } from "../types/errors"
 import { createApp } from "../create-app"
 import { createContainer, type Container } from "../container"
 import { seed } from "../db/seed"
@@ -168,6 +169,32 @@ describe.skipIf(!hasDatabase)("HTTP API on a seeded database", () => {
         // Leases are not deleted.
         const del = await admin.delete(`/manager/leases/${lease.body.id}`)
         expect(del.status).toBe(404)
+    })
+
+    it("passes plaid's error code and request id through to the browser, and lets Plaid Link load in production", async () => {
+        const failing = {
+            createLinkToken: async () => { throw new AppError("PLAID_ERROR", { operation: "link_token_create", plaidCode: "INVALID_API_KEYS", requestId: "req1", message: "invalid client_id or secret provided" }) },
+            exchangeAndGetAuth: async () => { throw new Error("not called") },
+        }
+        const production = loadConfig({ NODE_ENV: "production", JWT_ACCESS_SECRET: "p".repeat(32), WEB_ORIGIN: ORIGIN })
+        const prodServer = createApp(createContainer({ config: production, db: t.db, plaid: failing })).listen(0)
+        await new Promise((resolve) => prodServer.once("listening", resolve))
+        try {
+            const base = `http://127.0.0.1:${(prodServer.address() as AddressInfo).port}`
+            const csp = (await fetch(`${base}/health/live`)).headers.get("content-security-policy") ?? ""
+            const page = (await fetch(`${base}/api/nope`)).headers.get("content-security-policy") ?? ""
+            expect(csp + page).toMatch(/script-src[^;]*https:\/\/cdn\.plaid\.com/)
+            expect(csp + page).toMatch(/frame-src[^;]*https:\/\/cdn\.plaid\.com/)
+
+            const tenant = new Client(`${base}/api`)
+            expect((await tenant.post("/auth/login", TENANT)).status).toBe(200)
+            expect(await tenant.post("/create_link_token")).toMatchObject({
+                status: 502,
+                body: { error: "PLAID_ERROR", details: { plaidCode: "INVALID_API_KEYS", requestId: "req1" } },
+            })
+        } finally {
+            await new Promise((resolve) => prodServer.close(resolve))
+        }
     })
 
     it("production records no test transfers: without Plaid, a tenant cannot pay online", async () => {

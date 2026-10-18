@@ -38,7 +38,7 @@ describe.skipIf(!hasDatabase)("PostgresDatabase on the Summit schema", () => {
         })
 
         it("a tenant sees only their own lease, person row and bank accounts", async () => {
-            await asAdmin(() => t.db.inviteTenant({ name: "Other Person", email: "other@example.com", invite: invite().invite }))
+            await asAdmin(() => t.db.inviteTenant({ name: "Other Person", email: "other@example.com", invite: invite().hash }))
             const people = await asTenant(tenantTid, () => t.db.listPeople())
             expect(people.map((p) => p.email)).toEqual(["tenant@example.com"])
             expect(await asTenant(tenantTid, () => t.db.listLeases())).toHaveLength(1)
@@ -63,7 +63,7 @@ describe.skipIf(!hasDatabase)("PostgresDatabase on the Summit schema", () => {
         })
 
         it("an invite token signs the tenant up once, by its hash", async () => {
-            const { token, invite: inv } = invite()
+            const { token, hash: inv } = invite()
             await asAdmin(() => t.db.inviteTenant({ name: "New Tenant", email: "New.Tenant@Example.com", invite: inv }))
             expect(await t.db.completeSignup(hashToken("wrong"), "hash")).toBeNull()
             const user = await t.db.completeSignup(hashToken(token), "bcrypt-hash-here")
@@ -74,17 +74,17 @@ describe.skipIf(!hasDatabase)("PostgresDatabase on the Summit schema", () => {
 
         it("an expired invite no longer works until the office sends a new one", async () => {
             const first = invite()
-            const person = await asAdmin(() => t.db.inviteTenant({ name: "Late Tenant", email: "late@example.com", invite: { ...first.invite, expiresAt: new Date(Date.now() - 1000) } }))
+            const person = await asAdmin(() => t.db.inviteTenant({ name: "Late Tenant", email: "late@example.com", invite: { ...first.hash, expiresAt: new Date(Date.now() - 1000) } }))
             expect(await t.db.completeSignup(hashToken(first.token), "x")).toBeNull()
             const second = invite()
-            await asAdmin(() => t.db.reissueInvite(Number(person.id.split(":")[1]), second.invite))
+            await asAdmin(() => t.db.reissueInvite(Number(person.id.split(":")[1]), second.hash))
             expect(await t.db.completeSignup(hashToken(first.token), "x")).toBeNull()   // the old link stays dead
             expect(await t.db.completeSignup(hashToken(second.token), "x")).not.toBeNull()
         })
 
         it("a duplicate email is EMAIL_IN_USE, including an email that belongs to staff", async () => {
-            await expect(asAdmin(() => t.db.inviteTenant({ name: "Dup", email: "tenant@example.com", invite: invite().invite }))).rejects.toMatchObject({ code: "EMAIL_IN_USE" })
-            await expect(asAdmin(() => t.db.inviteTenant({ name: "Dup", email: "manager@example.com", invite: invite().invite }))).rejects.toMatchObject({ code: "EMAIL_IN_USE" })
+            await expect(asAdmin(() => t.db.inviteTenant({ name: "Dup", email: "tenant@example.com", invite: invite().hash }))).rejects.toMatchObject({ code: "EMAIL_IN_USE" })
+            await expect(asAdmin(() => t.db.inviteTenant({ name: "Dup", email: "manager@example.com", invite: invite().hash }))).rejects.toMatchObject({ code: "EMAIL_IN_USE" })
         })
 
         it("a refresh token is used up once, and a deactivated account's token is dead", async () => {
@@ -110,7 +110,7 @@ describe.skipIf(!hasDatabase)("PostgresDatabase on the Summit schema", () => {
         it("a new lease bills the months already due, and the balance comes from the view", async () => {
             const created = await asAdmin(() => t.db.createLease({
                 unitId: unit102, startDate: "2026-08-15", endDate: null, monthlyRent: 900,
-                tenantIds: [], newTenants: [{ name: "Roommate A", email: "a@example.com", phone: null, invite: invite().invite }],
+                tenantIds: [], newTenants: [{ name: "Roommate A", email: "a@example.com", phone: null, invite: invite().hash }],
             }, TODAY_TEXT))
             expect(created.newTenantIds).toHaveLength(1)
 
@@ -160,7 +160,7 @@ describe.skipIf(!hasDatabase)("PostgresDatabase on the Summit schema", () => {
             const unit103 = (await t.owner.query("SELECT uID FROM Units WHERE UnitNum = '103'")).rows[0].uid
             const created = await asAdmin(() => t.db.createLease({
                 unitId: unit103,
-                startDate: "2026-01-01", endDate: "2026-03-31", monthlyRent: 500, tenantIds: [], newTenants: [{ name: "Past Tenant", email: "past@example.com", phone: null, invite: invite().invite }],
+                startDate: "2026-01-01", endDate: "2026-03-31", monthlyRent: 500, tenantIds: [], newTenants: [{ name: "Past Tenant", email: "past@example.com", phone: null, invite: invite().hash }],
             }, TODAY_TEXT))
             await asAdmin(() => t.db.deactivateTenant(created.newTenantIds[0]!, TODAY_TEXT))
             expect((await asAdmin(() => t.db.listPeople())).map((p) => p.email)).not.toContain("past@example.com")

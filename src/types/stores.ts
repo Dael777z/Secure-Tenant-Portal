@@ -1,5 +1,5 @@
 import type {
-    BankAccountInput, BankItem, CreatedLease, InviteToken, LeaseChanges, LeaseTenantInput, NewLease,
+    BankAccountInput, BankItem, CreatedLease, HashExpiry, LeaseChanges, LeaseTenantInput, NewLease,
     NewMaintenance, NewPayment, NewRefreshToken, NewTenant, PropertyInput, TenantChanges, UnitInput,
 } from "./inputs"
 import type {
@@ -57,7 +57,7 @@ export interface PeopleStore {
     /** A tenant with an invitation and no password yet. EMAIL_IN_USE on a duplicate. */
     inviteTenant(data: NewTenant): Promise<InvitedTenant>
     /** Replace the invitation of a tenant who has not signed up. */
-    reissueInvite(tID: number, invite: InviteToken): Promise<void>
+    reissueInvite(tID: number, invite: HashExpiry): Promise<void>
     updateTenant(tID: number, changes: TenantChanges): Promise<void>
     /** Also signs them out everywhere. TENANT_ON_LEASE while on a current or future lease. */
     deactivateTenant(tID: number, today: string): Promise<void>

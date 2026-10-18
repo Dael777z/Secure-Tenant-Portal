@@ -35,7 +35,8 @@ export const ERROR_STATUS = {
 export type AppErrorCode = keyof typeof ERROR_STATUS
 
 export class AppError extends Error {
-    constructor(public readonly code: AppErrorCode) {
+    /** `details` is sent to the client beside the code (keep secrets out of it). */
+    constructor(public readonly code: AppErrorCode, public readonly details?: Record<string, unknown>) {
         super(code)
         this.name = "AppError"
     }

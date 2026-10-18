@@ -57,6 +57,7 @@ export function loadConfig(vars: NodeJS.ProcessEnv = process.env, { server = tru
         ownerPassword: get("POSTGRES_PASSWORD") || (production ? "" : DEV_DB.owner),
         appPassword: get("APP_DB_PASSWORD") || (production ? "" : DEV_DB.app),
     }
+    const webOrigin = get("WEB_ORIGIN") || "http://localhost:5173"
     const url = (user: string, password: string) =>
         password ? `postgres://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${db.host}:${db.port}/${encodeURIComponent(db.name)}` : ""
 
@@ -65,7 +66,7 @@ export function loadConfig(vars: NodeJS.ProcessEnv = process.env, { server = tru
         mode,
         production,
         port: Number(get("PORT") || 3000),
-        webOrigin: get("WEB_ORIGIN") || "http://localhost:5173",
+        webOrigin,
         secureCookies: production,
         trustProxyHops: Number(get("TRUST_PROXY_HOPS") || 0),
         accessSecret: get("JWT_ACCESS_SECRET") || (production ? "" : DEV_ONLY_SECRET),
@@ -81,6 +82,8 @@ export function loadConfig(vars: NodeJS.ProcessEnv = process.env, { server = tru
         plaidClientId: get("PLAID_CLIENT_ID"),
         plaidSecret: get("PLAID_SECRET"),
         plaidEnv: (get("PLAID_ENV") || "sandbox") as "sandbox" | "production",
+        /** Where a bank's own sign-in page sends the tenant back to Link. Must be in the Plaid dashboard's allowed redirect URIs. */
+        plaidRedirectUri: get("PLAID_REDIRECT_URI") || `${webOrigin.replace(/\/$/, "")}/plaid-oauth`,
         /** Encrypts Plaid access tokens at rest. */
         tokenEncryptionKey: get("TOKEN_ENCRYPTION_KEY") || (production ? "" : DEV_ONLY_SECRET),
     }
@@ -93,6 +96,15 @@ export function loadConfig(vars: NodeJS.ProcessEnv = process.env, { server = tru
         // http is fine only on this machine (browsers treat localhost as secure, so cookies still work).
         if (!/^https:\/\/|^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(config.webOrigin)) problems.push("WEB_ORIGIN must be an https:// address (or http://localhost)")
         if (config.plaidClientId && !config.tokenEncryptionKey) problems.push("TOKEN_ENCRYPTION_KEY must be set when Plaid is on")
+    }
+    if (server && config.plaidClientId) {
+        if (config.plaidEnv !== "sandbox" && config.plaidEnv !== "production") problems.push("PLAID_ENV must be sandbox or production")
+        // plaid's rules: https, no query or fragment; http only for localhost, and only in sandbox
+        const redirect = config.plaidRedirectUri
+        const localHttp = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(redirect) && config.plaidEnv === "sandbox"
+        if (/[?#]/.test(redirect) || !(redirect.startsWith("https://") || localHttp)) {
+            problems.push("PLAID_REDIRECT_URI must be https:// (http://localhost only in sandbox), with no ? or #")
+        }
     }
     if (problems.length) throw new Error(`Configuration problems:\n  - ${problems.join("\n  - ")}`)
     return config

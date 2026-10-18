@@ -7,7 +7,7 @@ import { AppError, ERROR_STATUS } from "../types/errors"
 export function errorHandler(logger: LogService): ErrorRequestHandler {
     return (error, _req, res, _next) => {
         if (error instanceof AppError) {
-            res.status(ERROR_STATUS[error.code]).json({ error: error.code })
+            res.status(ERROR_STATUS[error.code]).json(error.details ? { error: error.code, details: error.details } : { error: error.code })
             return
         }
 

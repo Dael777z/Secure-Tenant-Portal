@@ -67,10 +67,11 @@ async function main(command = "help", ...flags: string[]) {
 
 async function printStatus(pool: Pool) {
     const s = await migrationStatus(pool)
-    console.log(`applied: ${s.applied.join(", ") || "none"}`)
-    console.log(`pending: ${s.pending.map((m) => m.name).join(", ") || "none"}`)
-    if (s.changed.length || s.unknown.length) console.log(`out of step: ${[...s.changed, ...s.unknown].join(", ")} (npm run db reset)`)
-    if (s.applied.length) {
+    const names = (files: Array<{ name: string }>) => files.map((file) => file.name).join(", ") || "none"
+    console.log(`applied: ${names(s.applied)}`)
+    console.log(`pending: ${names(s.pending)}`)
+    if (s.changed.length) console.log(`edited since applied: ${names(s.changed)} (npm run db reset)`)
+    if (s.applied.length || s.changed.length) {
         const staff = (await pool.query("SELECT count(*)::int AS n FROM Admin")).rows[0].n
         console.log(staff ? `data: ${staff} staff account(s)` : "data: empty (npm run db seed)")
     }

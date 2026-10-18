@@ -29,4 +29,14 @@ describe("loadConfig", () => {
         expect(config.secureCookies).toBe(true)
         expect(config.databaseUrl).toBe("")   // no APP_DB_PASSWORD: the server refuses to start
     })
+
+    it("plaid's redirect uri follows the site address and plaid's rules", () => {
+        const keys = { PLAID_CLIENT_ID: "id", PLAID_SECRET: "secret" }
+        expect(loadConfig(keys).plaidRedirectUri).toBe("http://localhost:5173/plaid-oauth")
+        expect(loadConfig({ ...keys, WEB_ORIGIN: "https://portal.example.com/" }).plaidRedirectUri).toBe("https://portal.example.com/plaid-oauth")
+        expect(() => loadConfig({ ...keys, PLAID_REDIRECT_URI: "http://portal.example.com/plaid-oauth" })).toThrow("PLAID_REDIRECT_URI")
+        expect(() => loadConfig({ ...keys, PLAID_ENV: "production" })).toThrow("PLAID_REDIRECT_URI")   // http localhost is sandbox only
+        expect(() => loadConfig({ ...keys, PLAID_REDIRECT_URI: "https://portal.example.com/plaid-oauth?x=1" })).toThrow("PLAID_REDIRECT_URI")
+        expect(() => loadConfig({ ...keys, PLAID_ENV: "development" })).toThrow("PLAID_ENV")
+    })
 })

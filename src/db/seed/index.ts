@@ -94,7 +94,7 @@ async function write(
                 let tenantId = tenants.get(t.email)
                 if (tenantId === undefined) {
                     if (t.invited) {
-                        const { token, invite } = newInvite()
+                        const { token, hash: invite } = newInvite()
                         tenantId = (await one(
                             "INSERT INTO Tenants (Name, Phone, Email, signup_token_hash, signup_token_expires_at) VALUES ($1, $2, $3, $4, $5) RETURNING tID AS id",
                             [t.name, t.phone ?? null, t.email, invite.tokenHash, invite.expiresAt],

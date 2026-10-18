@@ -18,7 +18,7 @@ describe.skipIf(!hasDatabase)("database setup: migrate, seed, reset, startup che
     it("is fully migrated, and the app's login passes the startup check", async () => {
         const status = await migrationStatus(t.owner)
         expect(status.pending).toEqual([])
-        expect(status.applied).toEqual(["001_schema.sql", "002_portal.sql"])
+        expect(status.applied.map((file) => file.name)).toEqual(["001_schema.sql", "002_portal.sql"])
         await expect(checkDatabase(t.app)).resolves.toBeUndefined()
         expect(await migrate(t.owner)).toEqual([])   // nothing left to do
     })
@@ -76,8 +76,8 @@ describe.skipIf(!hasDatabase)("database setup: migrate, seed, reset, startup che
         await expect(createStaffAccount(t.owner, { email: "x@example.com", name: "Short", password: "short", bcryptRounds: 4 })).rejects.toThrow("at least 8")
     })
 
-    it("refuses to run the app as the schema owner, which would skip row-level security", async () => {
-        await expect(checkDatabase(t.owner)).rejects.toThrow("skips row-level security")
+    it("refuses to run the app as anyone but summit_app (the owner would skip row-level security)", async () => {
+        await expect(checkDatabase(t.owner)).rejects.toThrow("must use summit_app")
     })
 
     it("a wrong app password gets a message that says what to do", async () => {

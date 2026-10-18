@@ -40,7 +40,14 @@ export function createContainer(overrides: { config?: AppConfig; db?: DatabaseIn
     }
 
     const plaid = overrides.plaid !== undefined ? overrides.plaid
-        : config.plaidClientId && config.plaidSecret ? createPlaidGateway({ clientId: config.plaidClientId, secret: config.plaidSecret, env: config.plaidEnv })
+        : config.plaidClientId && config.plaidSecret ? createPlaidGateway({
+            clientId: config.plaidClientId,
+            secret: config.plaidSecret,
+            env: config.plaidEnv,
+            redirectUri: config.plaidRedirectUri,
+            logger,
+            verboseErrors: !config.production,
+        })
         : null
     const rentCharges = new RentChargeService(db, config.timeZone, logger)
 

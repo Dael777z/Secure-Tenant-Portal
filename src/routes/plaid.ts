@@ -34,12 +34,8 @@ export function createPlaidRouter(deps: {
 
     // create link token by client user id
     router.post("/create_link_token", limits.sensitive, ...guard.can("payment:create:self"), async (req: ValidRequest, res) => {
-        const plaid = gateway()
-        try {
-            res.json({ link_token: await plaid.createLinkToken(req.user!.id) })
-        } catch {
-            throw new AppError("PLAID_ERROR")
-        }
+        // plaid failures arrive as PLAID_ERROR with plaid's code and request id (services/plaid.ts)
+        res.json({ link_token: await gateway().createLinkToken(req.user!.id) })
     })
 
     // exchange public link token and return the plaid auth service/account data
@@ -48,12 +44,7 @@ export function createPlaidRouter(deps: {
         const { public_token } = req.body as { public_token?: unknown }
         if (typeof public_token !== "string" || !public_token || public_token.length > 300) throw new AppError("VALIDATION_ERROR")
 
-        let linked
-        try {
-            linked = await plaid.exchangeAndGetAuth(public_token)
-        } catch {
-            throw new AppError("PLAID_ERROR")
-        }
+        const linked = await plaid.exchangeAndGetAuth(public_token)
 
         // save bank account information with mask for obfuscation
         const bankAccounts = await tenant.saveBankAccounts(

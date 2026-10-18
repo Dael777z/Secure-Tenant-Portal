@@ -18,7 +18,7 @@ function readMigrations(dir: string) {
     })
 }
 
-// returns an object with 3 lists of file names detailing whether the migration is applied, changed, or pending.
+// returns an object with 3 lists of file names detailing whether that migration is applied, changed, or pending.
 export async function migrationStatus(pool: Pool, dir = MIGRATIONS_DIR) {
 
     const files = readMigrations(dir) // read .sql schema files in order
@@ -49,7 +49,7 @@ export async function migrate(pool: Pool, dir = MIGRATIONS_DIR, log: (line: stri
 
     if (changed.length) {
         throw new Error(
-            `The database does not match db/migrations (${[...changed.map((n) => `${n} was edited`)].join(", ")}).\n` +
+            `The database does not match db/migrations (${changed.map((file) => `${file.name} was edited`).join(", ")}).\n` +
             "`npm run db reset` starts over.")
     }
 
