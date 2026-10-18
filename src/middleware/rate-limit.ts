@@ -3,6 +3,7 @@ import type { RequestHandler } from "express"
 
 import type { AppConfig } from "../config"
 
+// outlines the different rate limitters
 export interface RateLimits {
     login: RequestHandler
     signup: RequestHandler
@@ -11,8 +12,10 @@ export interface RateLimits {
     sensitive: RequestHandler
 }
 
-/** One limiter per kind of request, per app (so tests never share counters). Limits are in config.ts. */
+// translates the rateLimits of AppConfig into a RateLimits tuple
 export function createRateLimits(config: Pick<AppConfig, "rateLimits">): RateLimits {
+
+    // lambda to create a rateLimit handler from a request number limit
     const limiter = (limit: number) => rateLimit({
         windowMs: 15 * 60 * 1000,
         limit,
@@ -20,6 +23,10 @@ export function createRateLimits(config: Pick<AppConfig, "rateLimits">): RateLim
         legacyHeaders: false,
         message: { error: "RATE_LIMITED" },
     })
+
+    // unpacks the configs rate limits
     const { login, signup, refresh, sensitive } = config.rateLimits
+
+    // invokes the lambda for every type specified for the rate limiter object
     return { login: limiter(login), signup: limiter(signup), refresh: limiter(refresh), sensitive: limiter(sensitive) }
 }

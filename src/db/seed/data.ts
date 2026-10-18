@@ -12,12 +12,14 @@
  * prints their sign-up link.
  */
 
-/** Every seeded login uses one of these. Development data only. */
+
+// Passwords for seed accounts
 export const PASSWORDS = {
     staff: "manager-demo-password",
     tenant: "tenant-demo-password",
 }
 
+// Seeded tenant
 export interface SeedTenant {
     name: string
     email: string
@@ -26,6 +28,7 @@ export interface SeedTenant {
     invited?: boolean
 }
 
+// Seeded lease 
 export interface SeedLease {
     rent: number
     /** Move-in date, YYYY-MM-DD. The first month is due on this date, later months on the 1st. */
@@ -39,6 +42,7 @@ export interface SeedLease {
     partial?: number
 }
 
+// Seeded maintenance request
 export interface SeedRequest {
     unit: string
     /** Email of the tenant who filed it; leave out for one the office filed. */
@@ -49,6 +53,7 @@ export interface SeedRequest {
     filed: string
 }
 
+// Seeded property
 export interface SeedProperty {
     name: string
     address: string
@@ -57,6 +62,7 @@ export interface SeedProperty {
     maintenance?: SeedRequest[]
 }
 
+// Seeded staff & properties struct
 export interface SeedData {
     /** `maintenance`: a maintenance staff login (the queue only) instead of a property manager. */
     staff: Array<{ name: string; email: string; maintenance?: boolean }>
@@ -65,18 +71,20 @@ export interface SeedData {
 
 export const VACANT = null
 
-/** Date helpers handed to the data below; `today` is the day of seeding. */
+
+// Find how many days or months ago a given day is from today as a string.
 export interface Dates {
-    /** The `day` of the month, `n` months back (0 = this month). */
+    
+    // month code, day of the month (of date to check)
     monthsAgo(n: number, day?: number): string
-    /** `n` days back, at `hour` local-ish (UTC) time. */
+    // day of the month and hour (of date to check)
     daysAgo(n: number, hour?: number): string
 }
 
-/** The tenant most testing signs in as. */
+// Test tenant to control
 const TEST_TENANT: SeedTenant = { name: "Test Tenant", email: "tenant@example.com", phone: "(575) 555-0101" }
 
-/** The full sample portfolio: two properties, 18 units, 14 leases, requests in every status. */
+// Sample portfolio: two properties, 18 units, 14 leases, requests in every status.
 export const sample = ({ monthsAgo, daysAgo }: Dates): SeedData => ({
     staff: [
         { name: "Dana Whitfield", email: "manager@example.com" },
@@ -131,7 +139,8 @@ export const sample = ({ monthsAgo, daysAgo }: Dates): SeedData => ({
     ],
 })
 
-/** A clean start (for presenting, or a fresh hosted copy): the manager, maintenance staff, one tenant on Unit 101 owing this month, three empty units. */
+
+// Clean alternative far smaller footprint: the manager, maintenance staff, one tenant on Unit 101 owing this month, three empty units.
 export const clean = ({ monthsAgo }: Dates): SeedData => ({
     staff: [
         { name: "Dana Whitfield", email: "manager@example.com" },

@@ -18,32 +18,30 @@ import { PostgresDatabase } from "../db/postgres-db"
 export const TEST_ADMIN_URL = process.env.TEST_DATABASE_URL?.trim() || ""
 export const hasDatabase = TEST_ADMIN_URL !== ""
 
-/**
- * summit_app is one role for the whole Postgres server. Reuse the password in
- * the app's own settings, so running the tests never locks the dev server
- * out of the same Postgres.
- */
 function appRolePassword(): string {
     try {
         const url = new URL(loadConfig().databaseUrl)
+
         if (url.username === "summit_app" && url.password) return decodeURIComponent(url.password)
-    } catch { /* no app login configured */ }
+
+    } catch { /* no database login configured */}
     return "summit-app-test-only"
 }
 const APP_ROLE_PASSWORD = appRolePassword()
 
 export interface TestDatabase {
-    /** Connected as the schema's owner: sets up data, and reads back what the app wrote. Bypasses RLS. */
+    //  Connected as the schema's owner: Bypasses RLS. 
     owner: Pool
-    /** Connected as `summit_app`, like the real app: RLS applies. */
+    // Connected as `summit_app`: Has RLS
     app: Pool
-    /** The app's database layer, on `app`. */
+    // Database Dependency
     db: PostgresDatabase
-    /** The connection string behind `app`. */
+    // Database connection URL
     appUrl: string
     drop(): Promise<void>
 }
 
+// Generates the database connection URL for a given user & password
 function urlFor(base: string, database: string, login?: { user: string; password: string }): string {
     const url = new URL(base)
     url.pathname = `/${database}`
@@ -54,28 +52,34 @@ function urlFor(base: string, database: string, login?: { user: string; password
     return url.toString()
 }
 
+// drop database and reapply the schema (migrations) for tests database
 export async function freshDatabase(name: string): Promise<TestDatabase> {
+    // if database name is garbled, throw error
     if (!/^[a-z_][a-z0-9_]*$/.test(name)) throw new Error(`bad database name: ${name}`)
+    
+    // attempt admin connection
     const admin = new Pool({ connectionString: TEST_ADMIN_URL, max: 1 })
     try {
-        await admin.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`)
-        await admin.query(`CREATE DATABASE ${name}`)
+        await admin.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`) // drop entire database
+        await admin.query(`CREATE DATABASE ${name}`) // recreate database
     } finally {
-        await admin.end()
+        await admin.end() // end pool session
     }
 
-    const owner = new Pool({ connectionString: urlFor(TEST_ADMIN_URL, name), max: 3 })
+    //  setup app login for tests
+    const owner = new Pool({ connectionString: urlFor(TEST_ADMIN_URL, name), max: 3 }) 
     await migrate(owner, MIGRATIONS_DIR)
     const appUrl = urlFor(TEST_ADMIN_URL, name, { user: "summit_app", password: APP_ROLE_PASSWORD })
     await setAppLogin(owner, appUrl)
     const app = new Pool({ connectionString: appUrl, max: 5 })
 
+    // return test database object
     return {
         owner,
         app,
         appUrl,
         db: new PostgresDatabase(app),
-        async drop() {
+        async drop() { //drop helper function during tests
             await app.end()
             await owner.end()
             const cleanup = new Pool({ connectionString: TEST_ADMIN_URL, max: 1 })

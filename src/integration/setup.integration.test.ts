@@ -77,7 +77,7 @@ describe.skipIf(!hasDatabase)("database setup: migrate, seed, reset, startup che
     })
 
     it("refuses to run the app as the schema owner, which would skip row-level security", async () => {
-        await expect(checkDatabase(t.owner)).rejects.toThrow("skips row-level security")
+        await expect(checkDatabase(t.owner)).rejects.toThrow("must use summit_app")
     })
 
     it("a wrong app password gets a message that says what to do", async () => {
