@@ -3,12 +3,7 @@ import { runAs, SYSTEM } from "../db/identity"
 import type { LedgerStore } from "../types/stores"
 import { localDate } from "./ledger"
 
-/**
- * Bills monthly rent: nothing in the database adds next month's charge by
- * itself. Runs at startup (catching up after downtime) and every six hours, as
- * 'system'. Safe to repeat and to run from several instances: the database
- * allows one rent charge per lease per due date.
- */
+// long term persistent service that attempts to generate rent charges on the database every 6 hours
 export class RentChargeService {
     private timer: NodeJS.Timeout | null = null
 

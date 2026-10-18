@@ -9,6 +9,14 @@ import type { LedgerEntry } from "../types/tenant"
  * completed payments only.
  */
 
+/*
+
+Generates all the ledger data the frontend needs to display, takes in a list of charge & payment records for balance.
+
+
+*/
+
+
 const cents = (dollars: number) => Math.round(dollars * 100)
 
 export function formatDate(date: Date, timeZone = "America/Denver"): string {
@@ -51,7 +59,7 @@ export function buildLedger(charges: ChargeRecord[], payments: PaymentRecord[], 
         })
     }
 
-    // Only completed payments move the balance (a pending or failed one has not happened).
+    // Only completed payments move the balance
     for (const payment of payments.filter((p) => p.status === "completed")) {
         const refund = payment.direction === "refund"
         lines.push({

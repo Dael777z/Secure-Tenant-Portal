@@ -1,7 +1,7 @@
 import { types, type Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg"
 
 import type {
-    BankAccountInput, BankItem, CreatedLease, InviteToken, LeaseChanges, LeaseTenantInput, NewLease,
+    BankAccountInput, BankItem, CreatedLease, HashExpiry, LeaseChanges, LeaseTenantInput, NewLease,
     NewMaintenance, NewPayment, NewRefreshToken, NewTenant, PropertyInput, TenantChanges, UnitInput,
 } from "../types/inputs"
 import type {
@@ -14,6 +14,7 @@ import { AppError } from "../types/errors"
 import { OFFICE_PAYMENT_PREFIX, reversalConfirmation } from "../utils/confirmations"
 import { adminId, parseUserId, tenantId } from "../utils/user-id"
 import { currentIdentity, SYSTEM, settingsFor, type Identity } from "./identity"
+import { Hash } from "node:crypto"
 
 /**
  * Every SQL statement the app runs. Columns are aliased to the record field
@@ -230,7 +231,7 @@ export class PostgresDatabase implements DatabaseInterface {
         })
     }
 
-    /** One invited tenant (no password yet), inside the caller's transaction. */
+    // insert new tenant into database
     private async insertTenant(client: PoolClient, data: NewTenant) {
         try {
             const { rows } = await client.query<{ tid: number; name: string; email: string; phone: string | null }>(
@@ -246,7 +247,8 @@ export class PostgresDatabase implements DatabaseInterface {
         }
     }
 
-    async reissueInvite(tID: number, invite: InviteToken): Promise<void> {
+    // reissued invite token, update hash and expiry 
+    async reissueInvite(tID: number, invite: HashExpiry): Promise<void> {
         await this.tx(async (client) => {
             const { rows } = await client.query<{ signup_completed: boolean }>(
                 "SELECT signup_completed FROM Tenants WHERE tID = $1 AND deactivated_at IS NULL FOR UPDATE",
@@ -488,6 +490,8 @@ export class PostgresDatabase implements DatabaseInterface {
         await this.tx(write, SYSTEM)
     }
 
+
+    // TODO is this necessary? What do office payments entail? Do they need to be treated and tracked differently? How is this invoked?
     async reverseOfficePayment(leaseId: number, payId: number): Promise<void> {
         await this.tx(async (client) => {
             const { rows } = await client.query<{ direction: string; amount: string; transaction_id: string }>(

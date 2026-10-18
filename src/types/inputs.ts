@@ -3,7 +3,7 @@ import type { Receipt } from "./records"
 /** What the database layer accepts (the counterpart of records.ts). */
 
 /** A sign-up invitation as stored: only the token's SHA-256 hash, never the token in the link. */
-export interface InviteToken {
+export interface HashExpiry {
     tokenHash: string
     expiresAt: Date
 }
@@ -18,7 +18,7 @@ export interface NewTenant {
     name: string
     email: string
     phone?: string | null
-    invite: InviteToken
+    invite: HashExpiry
 }
 
 export interface TenantChanges {
@@ -42,7 +42,7 @@ export interface NewLease {
     endDate: string | null
     monthlyRent: number
     tenantIds: number[]
-    newTenants: Array<{ name: string; email: string; phone: string | null; invite: InviteToken }>
+    newTenants: Array<{ name: string; email: string; phone: string | null; invite: HashExpiry }>
 }
 
 /** What a created lease gives back: its id, and the ids of the tenants it added (same order as `newTenants`). */
@@ -59,7 +59,7 @@ export interface LeaseChanges {
 
 export interface LeaseTenantInput {
     tenantId?: number
-    newTenant?: { name: string; email: string; phone: string | null; invite: InviteToken }
+    newTenant?: { name: string; email: string; phone: string | null; invite: HashExpiry }
 }
 
 export interface NewPayment {

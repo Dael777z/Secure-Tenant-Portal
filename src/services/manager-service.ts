@@ -1,26 +1,23 @@
 import { AppError } from "../types/errors"
-import type { InviteToken, LeaseChanges, NewLease, PropertyInput, TenantChanges, UnitInput } from "../types/inputs"
+import type { HashExpiry, LeaseChanges, NewLease, PropertyInput, TenantChanges, UnitInput } from "../types/inputs"
 import type { CreatedLeaseResult, DashboardData, InviteResult, LeaseDetail, MaintenanceRow, PropertySummary, TenantRow, UnitRow, UpdateRow } from "../types/manager"
 import type { LeaseRecord, MaintenanceState, Receipt } from "../types/records"
 import type { ManagerStore } from "../types/stores"
 import { officeConfirmation } from "../utils/confirmations"
-import { newInvite } from "../utils/tokens"
+import { newInvite, randomToken } from "../utils/tokens"
 import { parseUserId } from "../utils/user-id"
 import { buildLedger, formatDate, localDate } from "./ledger"
 
-/**
- * The office side: the rent roll, tenants, leases, payments and the dashboard,
- * worked out from store records. Balances come from the `lease_balance` view.
- * Every manager sees every property, so nothing is filtered by assignment.
- */
-
+// active lease object, relates calculated current balance to a lease record
 type ActiveLease = { lease: LeaseRecord; balance: number }
 
+// checks if a lease is active by checking now is between start & end date
 const isActive = (lease: LeaseRecord, today: string) =>
     lease.startDate <= today && (lease.endDate === null || lease.endDate >= today)
 
-const inviteResult = (tenantId: number, email: string, { token, invite }: { token: string; invite: InviteToken }): InviteResult =>
-    ({ tenantId, email, inviteToken: token, expiresAt: invite.expiresAt.toISOString() })
+// creates an invite result tuple by tenant id, email, token & invite link.
+const inviteResult = (tenantId: number, email: string, { token, hash }: { token: string; hash: HashExpiry }): InviteResult =>
+    ({ tenantId, email, inviteToken: token, expiresAt: hash.expiresAt.toISOString() })
 
 export class ManagerService {
     constructor(
@@ -36,18 +33,22 @@ export class ManagerService {
 
     // ---- Balances (one query for every lease, shared by every screen)
 
+
+    // returns a dictionairy of all active leases & their current balance
     private async activeLeases(): Promise<Map<number, ActiveLease>> {
         const today = this.today()
         const [allLeases, balances] = await Promise.all([this.db.listLeases(), this.db.listLeaseBalances()])
         const balanceOf = new Map(balances.map((b) => [b.leaseId, b.balance]))
 
+        // populates a dictionary of active leases key'd by lease id with a value of an active lease object
         const out = new Map<number, ActiveLease>()
-        for (const lease of allLeases.filter((l) => isActive(l, today))) {
+        for (const lease of allLeases.filter((lease) => isActive(lease, today))) {
             out.set(lease.id, { lease, balance: balanceOf.get(lease.id) ?? 0 })
         }
         return out
     }
 
+    // returns lists of tenant names & ids. key'd by lease id
     private async leaseTenants(): Promise<Map<number, Array<{ id: number; name: string }>>> {
         const out = new Map<number, Array<{ id: number; name: string }>>()
         for (const r of await this.db.listLeaseResidents()) {
@@ -58,6 +59,7 @@ export class ManagerService {
 
     // ---- Units (the rent roll) and properties
 
+    // returns an list of units, row data
     async units(propertyId?: number): Promise<UnitRow[]> {
         const [active, people, units, open] = await Promise.all([
             this.activeLeases(),
@@ -92,6 +94,7 @@ export class ManagerService {
         })
     }
 
+    // returns a list of property summaries, data about properties 
     async properties(): Promise<PropertySummary[]> {
         const [props, units] = await Promise.all([this.db.listProperties(), this.units()])
         return props.map((p) => {
@@ -108,16 +111,19 @@ export class ManagerService {
         })
     }
 
+    // save property into database, takes property input tuple (tuple of data needed for a property entry)
     saveProperty(id: number | null, input: PropertyInput): Promise<number> {
         return this.db.saveProperty(id, input)
     }
 
+    // same as save property
     saveUnit(id: number | null, input: UnitInput): Promise<number> {
         return this.db.saveUnit(id, input)
     }
 
     // ---- Tenants
 
+    // returns a list of tenant data for all tenants
     async tenants(): Promise<TenantRow[]> {
         const [people, active, links, units] = await Promise.all([
             this.db.listPeople(),
@@ -141,28 +147,30 @@ export class ManagerService {
         })
     }
 
-    /** The office adds a tenant; they sign up later from the invitation link. */
+    // creates an invite token and inserts the new tenant into the tneant table
     async inviteTenant(input: { name: string; email: string; phone: string | null }): Promise<InviteResult> {
-        const fresh = newInvite()
-        const invited = await this.db.inviteTenant({ ...input, invite: fresh.invite })
-        return inviteResult(parseUserId(invited.id)!.id, invited.email, fresh)
+        const fresh_invite = newInvite()
+        const invited = await this.db.inviteTenant({ ...input, invite: fresh_invite.hash})
+        return inviteResult(parseUserId(invited.id)!.id, invited.email, fresh_invite)
     }
 
-    /** A new link for a tenant who has not signed up; the old one stops working. */
+    // update the hash on the database for a tenant who exists but has not completed signup
     async reissueInvite(tID: number): Promise<InviteResult> {
         const person = await this.db.findPerson(tID)
         if (!person) throw new AppError("NOT_FOUND")
-        const fresh = newInvite()
-        await this.db.reissueInvite(tID, fresh.invite)
-        return inviteResult(tID, person.email, fresh)
+        const invite = newInvite()
+        await this.db.reissueInvite(tID, invite.hash)
+        return inviteResult(tID, person.email, invite)
     }
 
+    // update the atributes of a tenant by tenant id
     updateTenant(tID: number, input: TenantChanges): Promise<void> {
         return this.db.updateTenant(tID, input)
     }
 
     // ---- Leases
 
+    
     async lease(leaseId: number): Promise<LeaseDetail> {
         const lease = await this.db.findLease(leaseId)
         if (!lease) throw new AppError("NOT_FOUND")
@@ -176,7 +184,7 @@ export class ManagerService {
         return { ...lease, tenants: people, balance, ledger: entries, receiptPaymentIds }
     }
 
-    /** A lease with existing tenants and/or new ones, who are invited. Returns one invitation per new tenant. */
+    // create a new lease, creating a list of new tenants if applicable and attaching invite tokens for each of them.
     async createLease(input: {
         unitId: number; startDate: string; endDate: string | null; monthlyRent: number
         tenantIds: number[]; newTenants: Array<{ name: string; email: string; phone: string | null }>
@@ -185,36 +193,39 @@ export class ManagerService {
         if (input.endDate && input.endDate < input.startDate) throw new AppError("VALIDATION_ERROR")
 
         const invites = input.newTenants.map((person) => ({ person, ...newInvite() }))
-        const request: NewLease = { ...input, newTenants: invites.map(({ person, invite }) => ({ ...person, invite })) }
+        const request: NewLease = { ...input, newTenants: invites.map(({ person, hash }) => ({...person, invite: hash})) }
         const created = await this.db.createLease(request, this.today())
         return {
             id: created.leaseId,
-            invites: invites.map((fresh, i) => inviteResult(created.newTenantIds[i]!, fresh.person.email.trim().toLowerCase(), fresh)),
+            invites: invites.map((fresh_tenant, i) => inviteResult(created.newTenantIds[i]!, fresh_tenant.person.email.trim().toLowerCase(), fresh_tenant)),
         }
     }
 
+    // update a leases attributes by lease id
     async updateLease(leaseId: number, input: LeaseChanges): Promise<void> {
         await this.db.updateLease(leaseId, input)
-        // A longer lease can mean months that now need billing.
+        
+        // regenerate month charges from today onward
         await this.db.generateRentCharges(this.today(), leaseId)
     }
 
-    /** An existing tenant, or a new one (returned with their invitation). */
+    // attach an existing tenant to a lease or create a new tenant and attach an invite token to them
     async addTenantToLease(leaseId: number, input: { tenantId?: number; newTenant?: { name: string; email: string; phone: string | null } }): Promise<InviteResult | null> {
         if (!input.newTenant) {
             await this.db.addTenantToLease(leaseId, { tenantId: input.tenantId })
             return null
         }
-        const fresh = newInvite()
-        const tenantId = await this.db.addTenantToLease(leaseId, { newTenant: { ...input.newTenant, invite: fresh.invite } })
-        return inviteResult(tenantId, input.newTenant.email.trim().toLowerCase(), fresh)
+        const fresh_invite = newInvite()
+        const tenantId = await this.db.addTenantToLease(leaseId, { newTenant: { ...input.newTenant, invite: fresh_invite.hash } })
+        return inviteResult(tenantId, input.newTenant.email.trim().toLowerCase(), fresh_invite)
     }
 
+    // remove tenant from lease by lease id and tenant id
     removeTenantFromLease(leaseId: number, tID: number): Promise<void> {
         return this.db.removeTenantFromLease(leaseId, tID)
     }
 
-    /** A payment the office received (check, cash, money order). Returns the confirmation number. */
+   // record payment for manager side, constructs a payment input for the database and a confirmation message detailing the office made the payment
     async recordPayment(
         leaseId: number,
         input: { amount: number; method: string; tenantId: number | null; receipt?: Receipt | null },
@@ -233,10 +244,12 @@ export class ManagerService {
 
     // ---- Receipts
 
+    // attach a receipt to an existing lease (a receipt image)
     attachReceipt(leaseId: number, payId: number, receipt: Receipt): Promise<void> {
         return this.db.attachReceipt(leaseId, payId, receipt)
     }
 
+    // find a receipt (a receipt image) by lease id and payment id
     async receipt(leaseId: number, payId: number): Promise<Receipt> {
         const found = await this.db.findReceipt(leaseId, payId)
         if (!found) throw new AppError("NOT_FOUND")
@@ -245,16 +258,19 @@ export class ManagerService {
 
     // ---- Maintenance
 
+    // return a list of maintenance ticket data
     async maintenance(): Promise<MaintenanceRow[]> {
         const rows = await this.db.listMaintenance()
         return rows.map(({ createdAt, ...r }) => ({ ...r, submittedDate: formatDate(createdAt, this.timeZone) }))
     }
 
+    // create a new maintenace ticket attached to no tenant, but attached to a unit
     async createMaintenance(input: { unitId: number; title: string; description: string }): Promise<number> {
         const created = await this.db.createMaintenance({ ...input, tenantId: null })
         return created.id
     }
 
+    // change the status of a maintenance ticket
     setMaintenanceStatus(id: number, status: MaintenanceState): Promise<void> {
         return this.db.setMaintenanceStatus(id, status)
     }
@@ -265,7 +281,7 @@ export class ManagerService {
         return this.db.deactivateTenant(tID, this.today())
     }
 
-    /** Undo an office payment with a matching refund. (A lease is ended with updateLease, never deleted.) */
+    //  reverse an office payment by creating its matching refund record, for use with office refunds
     reverseOfficePayment(leaseId: number, payId: number): Promise<void> {
         return this.db.reverseOfficePayment(leaseId, payId)
     }
@@ -282,7 +298,7 @@ export class ManagerService {
         return this.db.deactivateMaintenance(mID)
     }
 
-    /** The signed-in staff member, for the sidebar. */
+    // Returns manager/admin/staff user data
     async staffProfile(userId: string): Promise<{ name: string; email: string; role: string }> {
         const owner = parseUserId(userId)
         if (!owner || owner.table !== "admin") throw new AppError("NOT_FOUND")
@@ -293,6 +309,7 @@ export class ManagerService {
 
     // ---- Dashboard and Updates
 
+    // returns a list of updates regarding units, maintenance, and tenant status.
     async updates(): Promise<UpdateRow[]> {
         const [units, maintenance, tenants] = await Promise.all([this.units(), this.maintenance(), this.tenants()])
         const out: UpdateRow[] = []
@@ -333,6 +350,7 @@ export class ManagerService {
         return out.sort((a, b) => b.severity - a.severity || (b.amount ?? 0) - (a.amount ?? 0))
     }
 
+    // returns a list of data the front end dashboard displays for staff
     async dashboard(): Promise<DashboardData> {
         const [units, propertyCount, updates, maintenance, payments] = await Promise.all([
             this.units(),

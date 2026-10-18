@@ -1,6 +1,6 @@
 import { Configuration, CountryCode, PlaidApi, PlaidEnvironments, Products } from "plaid"
 
-/** The two Plaid calls the bank-link flow needs, behind an interface so routes can be tested without Plaid. */
+// interface for plaid account data useful for mocking plaid bank linking flow
 export interface PlaidAccount {
     accountId: string
     name: string
@@ -15,7 +15,10 @@ export interface PlaidGateway {
     exchangeAndGetAuth(publicToken: string): Promise<{ itemId: string; accessToken: string; accounts: PlaidAccount[] }>
 }
 
+// create plaid gateway
 export function createPlaidGateway(options: { clientId: string; secret: string; env: "sandbox" | "production" }): PlaidGateway {
+
+    // create plaid api with configuration options specified
     const plaid = new PlaidApi(
         new Configuration({
             basePath: PlaidEnvironments[options.env],
@@ -29,6 +32,8 @@ export function createPlaidGateway(options: { clientId: string; secret: string; 
     )
 
     return {
+
+        // create plaid api link token
         async createLinkToken(clientUserId) {
             const response = await plaid.linkTokenCreate({
                 user: { client_user_id: clientUserId },
@@ -40,6 +45,7 @@ export function createPlaidGateway(options: { clientId: string; secret: string; 
             return response.data.link_token
         },
 
+        // exchange link token for a limited plaid api access token, return accounts and access token
         async exchangeAndGetAuth(publicToken) {
             const exchange = await plaid.itemPublicTokenExchange({ public_token: publicToken })
             const auth = await plaid.authGet({ access_token: exchange.data.access_token })

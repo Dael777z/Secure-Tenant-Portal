@@ -18,16 +18,19 @@ export function createTenantRouter(deps: { tenant: TenantService; guard: Auth; l
     const flags = { plaidEnabled: deps.plaidEnabled, testPayments: deps.testPayments }
     const router = Router()
 
+    // return a summary of all the pertinent information related to the tenant
     router.get("/tenant/summary", ...guard.can("ledger:read:self"), async (req: ValidRequest, res) => {
         res.json(await tenant.summary(req.user!.id, flags))
     })
 
+    // add a payment by tenant id and associate it with a bank account
     router.post("/tenant/payments", limits.sensitive, ...guard.can("payment:create:self"), async (req: ValidRequest, res) => {
         const body = req.body as Record<string, unknown>
         const bankAccountId = body.bankAccountId === undefined || body.bankAccountId === null ? null : id(body.bankAccountId)
         res.status(201).json(await tenant.recordPayment(req.user!.id, { amount: money(body.amount), bankAccountId }, flags))
     })
 
+    // create a maintenace request by tenant id
     router.post("/tenant/maintenance", limits.sensitive, ...guard.can("maintenance:create"), async (req: ValidRequest, res) => {
         const body = req.body as Record<string, unknown>
         const request = await tenant.createMaintenance(req.user!.id, {
