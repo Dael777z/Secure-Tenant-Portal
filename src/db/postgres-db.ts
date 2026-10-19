@@ -1,15 +1,16 @@
 import { types, type Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg"
 
 import type {
-    BankAccountInput, BankItem, CreatedLease, HashExpiry, LeaseChanges, LeaseTenantInput, NewLease,
+    BankAccountInput, BankItem, CreatedLease, HashExpiry, NewCharge, LeaseChanges, LeaseTenantInput, NewLease,
     NewMaintenance, NewPayment, NewRefreshToken, NewTenant, PropertyInput, TenantChanges, UnitInput,
 } from "../types/inputs"
 import type {
     BankAccountRecord, ChargeRecord, InvitedTenant, LeaseBalance, LeaseRecord, LeaseResident, LeaseWithUnit,
-    MaintenanceRecord, MaintenanceState, OpenRequestCount, PaymentRecord, PersonRecord, PropertyRecord,
-    Receipt, RecentPaymentRecord, SessionUser, StaffProfile, TenantMaintenanceRecord, UnitRecord, UserRecord,
+    MaintenanceRecord, MaintenanceState, MessageRecord, OpenRequestCount, PaymentRecord, PersonRecord, PropertyRecord,
+    Receipt, RecentPaymentRecord, SessionUser, StaffProfile, TenantMaintenanceRecord, ThreadRecord, UnitRecord, UserRecord,
 } from "../types/records"
 import type { DatabaseInterface } from "../types/stores"
+import { isStaffRole, type Role } from "../types/access"
 import { AppError } from "../types/errors"
 import { OFFICE_PAYMENT_PREFIX, reversalConfirmation } from "../utils/confirmations"
 import { adminId, parseUserId, tenantId } from "../utils/user-id"
@@ -39,6 +40,22 @@ const CHARGE = `c.chargeID AS id, c.LeaseID AS "leaseId", c.kind, c.amount, c.du
 const PAYMENT = `p.payID AS id, p.LeaseID AS "leaseId", p.direction, p.status, p.amount, p."timestamp" AS "paidAt",
     d.method, p.transaction_id AS confirmation, d.tID AS "payerId"`
 const BANK = `bID AS id, name, mask, subtype`
+const MESSAGE = `m.msgID::int AS id, m.tID AS "tenantId", (m.sender_admin_id IS NOT NULL) AS "fromOffice", m.sender_name AS "senderName",
+    m.body, m.created_at AS "sentAt", m.read_at AS "readAt"`
+/** A conversation in the inbox: its tenant, last message, unread count, and the tenant's current lease ($1 = today), or latest. */
+const THREAD = `SELECT th.tID AS "tenantId", t.Name AS "tenantName", th.last_message_at AS "lastMessageAt", (th.archived_at IS NOT NULL) AS archived,
+        last.body AS "lastBody", (last.sender_admin_id IS NOT NULL) AS "lastFromOffice",
+        (SELECT count(*)::int FROM Messages m WHERE m.tID = th.tID AND m.sender_admin_id IS NULL AND m.read_at IS NULL) AS unread,
+        cur.lease_id AS "leaseId", cur.unit_num AS "unitNum", cur.property_name AS "propertyName"
+    FROM Message_Threads th
+    JOIN Tenants t ON t.tID = th.tID
+    CROSS JOIN LATERAL (SELECT m.body, m.sender_admin_id FROM Messages m WHERE m.tID = th.tID ORDER BY m.created_at DESC, m.msgID DESC LIMIT 1) last
+    LEFT JOIN LATERAL (
+        SELECT l.LeaseID AS lease_id, u.UnitNum AS unit_num, p.Name AS property_name
+        FROM Lease_Tenants lt JOIN Lease l ON l.LeaseID = lt.LeaseID JOIN Units u ON u.uID = l.uID JOIN Property p ON p.pID = u.pID
+        WHERE lt.tID = th.tID
+        ORDER BY (l.start_date <= $1::date AND (l.end_date IS NULL OR l.end_date >= $1::date)) DESC, l.start_date DESC
+        LIMIT 1) cur ON true`
 
 /** The lease is in effect on $2. */
 const ACTIVE_ON = "l.start_date <= $2::date AND (l.end_date IS NULL OR l.end_date >= $2::date)"
@@ -50,6 +67,12 @@ const hasCode = (error: unknown, ...codes: string[]) => codes.includes((error as
 
 type UserType = "tenant" | "admin"
 const userIdOf = (type: UserType, id: number) => (type === "tenant" ? tenantId(id) : adminId(id))
+/** The app's role for an account row: tenants are 'tenant'; staff take Admin.role ('admin' or 'maintenance_staff'). */
+const roleOf = (type: UserType, adminRole: string | null): Role => {
+    if (type === "tenant") return "tenant"
+    if (adminRole && isStaffRole(adminRole)) return adminRole
+    throw new Error(`unknown staff role: ${adminRole}`)
+}
 
 export class PostgresDatabase implements DatabaseInterface {
     constructor(private readonly pool: Pool) {}
@@ -88,14 +111,14 @@ export class PostgresDatabase implements DatabaseInterface {
     // ---- Accounts and sessions (through the schema's SECURITY DEFINER auth_* functions)
 
     async findUserByEmail(email: string): Promise<UserRecord | null> {
-        const { rows } = await this.query<{ user_type: UserType; user_id: number; password_hash: string | null; signup_completed: boolean; mfa_enabled: boolean }>(
-            "SELECT user_type, user_id, password_hash, signup_completed, mfa_enabled FROM auth_lookup_user($1)",
+        const { rows } = await this.query<{ user_type: UserType; user_id: number; password_hash: string | null; signup_completed: boolean; role: string | null; mfa_enabled: boolean }>(
+            "SELECT user_type, user_id, password_hash, signup_completed, role, mfa_enabled FROM auth_lookup_user($1)",
             [email],
         )
         // An invited tenant has no password yet and cannot sign in.
         const row = rows.find((r) => r.signup_completed && r.password_hash)
         if (!row) return null
-        return { id: userIdOf(row.user_type, row.user_id), email, passwordHash: row.password_hash!, role: row.user_type, mfaEnabled: row.mfa_enabled }
+        return { id: userIdOf(row.user_type, row.user_id), email, passwordHash: row.password_hash!, role: roleOf(row.user_type, row.role), mfaEnabled: row.mfa_enabled }
     }
 
     async completeSignup(tokenHash: string, passwordHash: string): Promise<UserRecord | null> {
@@ -119,12 +142,12 @@ export class PostgresDatabase implements DatabaseInterface {
     }
 
     async consumeRefreshToken(tokenHash: string): Promise<SessionUser | null> {
-        const { rows } = await this.query<{ user_type: UserType; user_id: number; email: string }>(
-            "SELECT user_type, user_id, email FROM auth_consume_refresh_token($1)",
+        const { rows } = await this.query<{ user_type: UserType; user_id: number; email: string; role: string | null }>(
+            "SELECT user_type, user_id, email, role FROM auth_consume_refresh_token($1)",
             [tokenHash],
         )
         const row = rows[0]
-        return row ? { id: userIdOf(row.user_type, row.user_id), email: row.email, role: row.user_type } : null
+        return row ? { id: userIdOf(row.user_type, row.user_id), email: row.email, role: roleOf(row.user_type, row.role) } : null
     }
 
     async revokeRefreshToken(tokenHash: string): Promise<void> {
@@ -257,6 +280,24 @@ export class PostgresDatabase implements DatabaseInterface {
             if (!rows[0]) throw new AppError("NOT_FOUND")
             if (rows[0].signup_completed) throw new AppError("TENANT_ALREADY_SIGNED_UP")
             await client.query("UPDATE Tenants SET signup_token_hash = $2, signup_token_expires_at = $3 WHERE tID = $1", [tID, invite.tokenHash, invite.expiresAt])
+        })
+    }
+
+    async resetSignIn(tID: number, invite: HashExpiry): Promise<void> {
+        await this.tx(async (client) => {
+            const { rows } = await client.query<{ signup_completed: boolean }>(
+                "SELECT signup_completed FROM Tenants WHERE tID = $1 AND deactivated_at IS NULL FOR UPDATE",
+                [tID],
+            )
+            if (!rows[0]) throw new AppError("NOT_FOUND")
+            if (!rows[0].signup_completed) throw new AppError("TENANT_NOT_SIGNED_UP")
+            // Back to "invited": 001's signup_password_consistency needs both columns to change together.
+            await client.query(
+                `UPDATE Tenants SET password_hash = NULL, signup_completed = false, signup_token_hash = $2, signup_token_expires_at = $3
+                 WHERE tID = $1`,
+                [tID, invite.tokenHash, invite.expiresAt],
+            )
+            await client.query("SELECT auth_revoke_all_tokens('tenant', $1)", [tID])
         })
     }
 
@@ -426,6 +467,23 @@ export class PostgresDatabase implements DatabaseInterface {
         return rows[0]?.n ?? 0
     }
 
+    async addCharge(input: NewCharge): Promise<number> {
+        return this.tx(async (client) => {
+            const lease = await client.query("SELECT 1 FROM Lease WHERE LeaseID = $1", [input.leaseId])
+            if (!lease.rowCount) throw new AppError("NOT_FOUND")
+            try {
+                const { rows } = await client.query<{ id: number }>(
+                    "INSERT INTO Charge (LeaseID, kind, amount, due_date, description) VALUES ($1, $2, $3, $4, $5) RETURNING chargeID AS id",
+                    [input.leaseId, input.kind, input.amount.toFixed(2), input.dueDate, input.description],
+                )
+                return rows[0]!.id
+            } catch (error) {
+                if (hasCode(error, PG.check)) throw new AppError("VALIDATION_ERROR")
+                throw error
+            }
+        })
+    }
+
     // ---- Payments and receipts
 
     async listPaymentsForLease(leaseId: number): Promise<PaymentRecord[]> {
@@ -460,7 +518,17 @@ export class PostgresDatabase implements DatabaseInterface {
         return rows.map((r) => r.id)
     }
 
-    async recordPayment(input: NewPayment): Promise<void> {
+    async recordPayment(input: NewPayment): Promise<{ confirmation: string }> {
+        const key = input.idempotencyKey ?? null
+        // The payment already recorded under this key on this lease, if any.
+        const earlier = async (client: PoolClient) => {
+            if (key === null) return null
+            const { rows } = await client.query<{ confirmation: string }>(
+                "SELECT transaction_id AS confirmation FROM Payment WHERE idempotency_key = $1 AND LeaseID = $2",
+                [key, input.leaseId],
+            )
+            return rows[0] ?? null
+        }
         // As the caller: the lease exists and the payer is on it. RLS lets a tenant see only their own lease.
         const check = async (client: PoolClient) => {
             const lease = await client.query("SELECT 1 FROM Lease WHERE LeaseID = $1", [input.leaseId])
@@ -469,25 +537,38 @@ export class PostgresDatabase implements DatabaseInterface {
                 const onLease = await client.query("SELECT 1 FROM Lease_Tenants WHERE LeaseID = $1 AND tID = $2", [input.leaseId, input.tenantId])
                 if (!onLease.rowCount) throw new AppError("VALIDATION_ERROR")
             }
+            return earlier(client)
         }
+        // Null when another request with the same key got there first.
         const write = async (client: PoolClient) => {
             const { rows } = await client.query<{ id: number }>(
-                `INSERT INTO Payment (LeaseID, direction, amount, status, transaction_id) VALUES ($1, 'charge', $2, 'completed', $3) RETURNING payID AS id`,
-                [input.leaseId, input.amount.toFixed(2), input.confirmation],
+                `INSERT INTO Payment (LeaseID, direction, amount, status, transaction_id, idempotency_key)
+                 VALUES ($1, 'charge', $2, 'completed', $3, $4)
+                 ON CONFLICT (idempotency_key) DO NOTHING
+                 RETURNING payID AS id`,
+                [input.leaseId, input.amount.toFixed(2), input.confirmation, key],
             )
-            const payId = rows[0]!.id
+            const payId = rows[0]?.id
+            if (payId === undefined) return null
             await client.query("INSERT INTO Payment_Details (payID, tID, method) VALUES ($1, $2, $3)", [payId, input.tenantId, input.method])
             if (input.receipt) await this.saveReceipt(client, payId, input.receipt)
+            return { confirmation: input.confirmation }
+        }
+        const lost = async (): Promise<{ confirmation: string }> => {
+            const first = await this.tx(earlier)
+            if (!first) throw new AppError("VALIDATION_ERROR")   // the key belongs to another lease
+            return first
         }
 
-        if (currentIdentity().type === "admin") {
-            await this.tx(async (client) => { await check(client); await write(client) })
-            return
+        if (currentIdentity().type === "admin") {   // staff (RLS refuses maintenance staff: no admin_all on Payment)
+            const result = await this.tx(async (client) => (await check(client)) ?? (await write(client)))
+            return result ?? lost()
         }
         // Tenants never write to the ledger themselves (schema rule): check as the tenant, then write as 'system'.
         if (input.receipt) throw new AppError("FORBIDDEN")
-        await this.tx(check)
-        await this.tx(write, SYSTEM)
+        const already = await this.tx(check)
+        if (already) return already
+        return (await this.tx(write, SYSTEM)) ?? lost()
     }
 
 
@@ -603,6 +684,65 @@ export class PostgresDatabase implements DatabaseInterface {
     async deactivateMaintenance(mID: number): Promise<void> {
         const result = await this.query("UPDATE Maintenance_T SET deactivated_at = now() WHERE mID = $1 AND deactivated_at IS NULL", [mID])
         if (!result.rowCount) throw new AppError("NOT_FOUND")
+    }
+
+    // ---- Messages (004)
+
+    async listThreads(archived: boolean, today: string): Promise<ThreadRecord[]> {
+        const { rows } = await this.query<ThreadRecord>(
+            `${THREAD} WHERE (th.archived_at IS NOT NULL) = $2 ORDER BY th.last_message_at DESC, th.tID`,
+            [today, archived],
+        )
+        return rows
+    }
+
+    async findThread(tID: number, today: string): Promise<ThreadRecord | null> {
+        const { rows } = await this.query<ThreadRecord>(`${THREAD} WHERE th.tID = $2`, [today, tID])
+        return rows[0] ?? null
+    }
+
+    async listMessages(tID: number): Promise<MessageRecord[]> {
+        const { rows } = await this.query<MessageRecord>(`SELECT ${MESSAGE} FROM Messages m WHERE m.tID = $1 ORDER BY m.created_at, m.msgID`, [tID])
+        return rows
+    }
+
+    async sendMessage(input: { tenantId: number; adminId: number | null; body: string }): Promise<MessageRecord> {
+        try {
+            const { rows } = await this.query<MessageRecord>(
+                `INSERT INTO Messages AS m (tID, sender_admin_id, body) VALUES ($1, $2, $3) RETURNING ${MESSAGE}`,
+                [input.tenantId, input.adminId, input.body],
+            )
+            return rows[0]!
+        } catch (error) {
+            // RLS: a tenant writes only to their own conversation, a manager only as themselves.
+            if (hasCode(error, PG.privilege)) throw new AppError("FORBIDDEN")
+            throw error
+        }
+    }
+
+    async markMessagesRead(tID: number, writtenBy: "tenant" | "office"): Promise<number> {
+        const result = await this.query(
+            `UPDATE Messages SET read_at = now()
+             WHERE tID = $1 AND read_at IS NULL AND (sender_admin_id IS NOT NULL) = $2`,
+            [tID, writtenBy === "office"],
+        )
+        return result.rowCount ?? 0
+    }
+
+    async setThreadArchived(tID: number, archived: boolean): Promise<void> {
+        const result = await this.query(
+            "UPDATE Message_Threads SET archived_at = CASE WHEN $2 THEN COALESCE(archived_at, now()) END WHERE tID = $1",
+            [tID, archived],
+        )
+        if (!result.rowCount) throw new AppError("NOT_FOUND")
+    }
+
+    async countUnreadThreads(): Promise<number> {
+        const { rows } = await this.query<{ n: number }>(
+            `SELECT count(DISTINCT m.tID)::int AS n FROM Messages m JOIN Message_Threads th ON th.tID = m.tID
+             WHERE th.archived_at IS NULL AND m.sender_admin_id IS NULL AND m.read_at IS NULL`,
+        )
+        return rows[0]?.n ?? 0
     }
 
     // ---- Bank accounts

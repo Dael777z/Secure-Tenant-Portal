@@ -9,7 +9,7 @@ import { freshDatabase, hasDatabase, type TestDatabase } from "./helpers"
 
 const TODAY = new Date("2026-10-16T18:00:00Z")
 const TODAY_TEXT = "2026-10-16"
-const admin: Identity = { type: "admin", id: 1 }
+const admin: Identity = { type: "admin", id: 1, role: "admin" }
 const invite = newInvite
 
 describe.skipIf(!hasDatabase)("PostgresDatabase on the Summit schema", () => {

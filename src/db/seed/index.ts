@@ -65,7 +65,7 @@ async function write(
 
     // Insert all sample staff data
     for (const s of data.staff) {
-        await client.query("INSERT INTO Admin (name, email, password_hash, role) VALUES ($1, $2, $3, 'admin')", [s.name, s.email, ctx.staffHash])
+        await client.query("INSERT INTO Admin (name, email, password_hash, role) VALUES ($1, $2, $3, $4)", [s.name, s.email, ctx.staffHash, s.maintenance ? "maintenance_staff" : "admin"])
     }
 
     // Insert all sample property data

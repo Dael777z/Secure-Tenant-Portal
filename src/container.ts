@@ -8,6 +8,7 @@ import { PostgresDatabase } from "./db/postgres-db"
 import { createLogger } from "./logging"
 import { AuthService } from "./services/auth"
 import { ManagerService } from "./services/manager-service"
+import { MessageService } from "./services/message-service"
 import { createPlaidGateway, type PlaidGateway } from "./services/plaid"
 import { RentChargeService } from "./services/rent-charges"
 import { TenantService } from "./services/tenant-service"
@@ -16,7 +17,7 @@ import type { DatabaseInterface } from "./types/stores"
 /**
  * Builds the real dependencies; the one place that decides how the backend is wired:
  *
- *   config → pool → PostgresDatabase → AuthService, ManagerService, TenantService, RentChargeService
+ *   config → pool → PostgresDatabase → AuthService, ManagerService, TenantService, MessageService, RentChargeService
  *
  * Tests pass their own `config`, a `db` on a test database, or `plaid: null`.
  */
@@ -58,6 +59,7 @@ export function createContainer(overrides: { config?: AppConfig; db?: DatabaseIn
         auth: new AuthService(db, config),
         manager: new ManagerService(db, config.timeZone),
         tenant: new TenantService(db, config.timeZone),
+        messages: new MessageService(db, config.timeZone),
         plaid,
         distRoot: overrides.distRoot,
         rentCharges,

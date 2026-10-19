@@ -176,3 +176,34 @@ export interface BankAccountRecord {
     mask: string | null
     subtype: string | null
 }
+
+// Messages (004)
+
+export interface MessageRecord {
+    id: number
+    tenantId: number
+    /** True when a property manager wrote it; false for the tenant. */
+    fromOffice: boolean
+    /** The manager's name when sent; null for the tenant's messages. */
+    senderName: string | null
+    body: string
+    sentAt: Date
+    /** When the other side opened the conversation; null until then. */
+    readAt: Date | null
+}
+
+/** One tenant's conversation in the office inbox. */
+export interface ThreadRecord {
+    tenantId: number
+    tenantName: string
+    lastMessageAt: Date
+    archived: boolean
+    lastBody: string
+    lastFromOffice: boolean
+    /** The tenant's messages the office has not opened. */
+    unread: number
+    /** The tenant's current lease (or latest one), if any. */
+    leaseId: number | null
+    unitNum: string | null
+    propertyName: string | null
+}

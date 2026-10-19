@@ -16,6 +16,7 @@ import { freshDatabase, hasDatabase, type TestDatabase } from "./helpers"
  */
 const ADMIN = { email: "manager@example.com", password: PASSWORDS.staff }
 const TENANT = { email: "tenant@example.com", password: PASSWORDS.tenant }
+const MAINTENANCE = { email: "maintenance@example.com", password: PASSWORDS.staff }
 const config = loadConfig({ NODE_ENV: "test" })
 const ORIGIN = config.webOrigin
 
@@ -99,6 +100,45 @@ describe.skipIf(!hasDatabase)("HTTP API on a seeded database", () => {
         expect((await tenant.get("/manager/tenants")).status).toBe(403)
         const admin = await signedIn(ADMIN)
         expect((await admin.get("/tenant/summary")).status).toBe(403)
+    })
+
+    it("lets maintenance staff work the queue and nothing else", async () => {
+        const staff = await signedIn(MAINTENANCE)
+        const me = await staff.get("/auth/me")
+        expect(me.body.user).toMatchObject({ role: "maintenance_staff", permissions: ["maintenance:manage"] })
+        expect((await staff.get("/manager/me")).body).toMatchObject({ role: "maintenance_staff" })
+
+        const queue = await staff.get("/manager/maintenance")
+        expect(queue.status).toBe(200)
+        const filed = await staff.post("/manager/maintenance", { unitId: queue.body.units[0].id, title: "Gate sticks" })
+        expect(filed.status).toBe(201)
+        expect((await staff.put(`/manager/maintenance/${filed.body.id}`, { status: "in_progress" })).status).toBe(200)
+
+        expect((await staff.get("/manager/dashboard")).status).toBe(403)
+        expect((await staff.get("/manager/tenants")).status).toBe(403)
+        expect((await staff.post("/manager/leases/1/payments", { amount: 5, method: "Cash" })).status).toBe(403)
+        // A session refresh keeps the narrower role.
+        expect((await staff.post("/auth/refresh")).status).toBe(200)
+        expect((await staff.get("/auth/me")).body.user.role).toBe("maintenance_staff")
+    })
+
+    it("adds a late fee to a lease, and refuses rent or a bad kind", async () => {
+        const admin = await signedIn(ADMIN)
+        const lease = (await admin.get("/manager/tenants")).body.tenants?.find?.((x: { leaseId: number | null }) => x.leaseId)?.leaseId ?? 1
+        const added = await admin.post(`/manager/leases/${lease}/charges`, { kind: "late_fee", amount: 25, dueDate: "2026-10-16", description: "Late fee" })
+        expect(added.status).toBe(201)
+        expect(JSON.stringify((await admin.get(`/manager/leases/${lease}`)).body)).toContain("Late fee")
+        expect((await admin.post(`/manager/leases/${lease}/charges`, { kind: "rent", amount: 25, dueDate: "2026-10-16" })).status).toBe(400)
+        expect((await admin.post(`/manager/leases/${lease}/charges`, { kind: "late_fee", amount: -1, dueDate: "2026-10-16" })).status).toBe(400)
+    })
+
+    it("records a tenant checkout once, however many times it is sent", async () => {
+        const tenant = await signedIn(TENANT)
+        const first = await tenant.post("/tenant/payments", { amount: 12, idempotencyKey: "checkout-1234-abcd" })
+        const again = await tenant.post("/tenant/payments", { amount: 12, idempotencyKey: "checkout-1234-abcd" })
+        expect(first.status).toBe(201)
+        expect(again.body.confirmation).toBe(first.body.confirmation)
+        expect((await tenant.post("/tenant/payments", { amount: 12, idempotencyKey: "no spaces allowed" })).status).toBe(400)
     })
 
     it("shows a tenant their own summary, and lets them pay and file a request", async () => {

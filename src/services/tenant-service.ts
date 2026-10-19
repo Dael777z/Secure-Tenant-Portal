@@ -119,7 +119,7 @@ export class TenantService {
      */
     async recordPayment(
         userId: string,
-        input: { amount: number; bankAccountId: number | null },
+        input: { amount: number; bankAccountId: number | null; idempotencyKey?: string | null },
         flags: { plaidEnabled: boolean; testPayments: boolean },
     ): Promise<{ confirmation: string }> {
         // Without a linked account, only development records a test transfer.
@@ -137,15 +137,15 @@ export class TenantService {
             method = `${account.name}${account.mask ? ` ${account.mask}` : ""}`
         }
 
-        const confirmation = tenantConfirmation()
-        await this.db.recordPayment({
+        return this.db.recordPayment({
             leaseId: lease.id,
             amount: input.amount,
             tenantId: tID,
             method: method.slice(0, 60),
-            confirmation,
+            confirmation: tenantConfirmation(),
+            // Scoped to the tenant, so one tenant's key can never match another's payment.
+            idempotencyKey: input.idempotencyKey ? `tenant:${tID}:${input.idempotencyKey}` : null,
         })
-        return { confirmation }
     }
 
     /** Notices built from what is on record (there is no notices table): rent due, payments, repair updates. */

@@ -72,3 +72,10 @@ export const receipt = (value: unknown): Receipt => {
     const filename = name.replace(/[^A-Za-z0-9._ -]/g, "_").slice(0, 120).trim() || "receipt"
     return { filename, contentType: kind.type, data }
 }
+
+/** An optional client-made id for one checkout (a UUID or similar): 8 to 64 letters, digits, - or _. */
+export const idempotencyKey = (value: unknown): string | null => {
+    if (value === undefined || value === null || value === "") return null
+    if (typeof value !== "string" || !/^[A-Za-z0-9_-]{8,64}$/.test(value)) throw new AppError("VALIDATION_ERROR")
+    return value
+}
