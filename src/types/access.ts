@@ -20,6 +20,8 @@ export type Permission =
     | "maintenance:create"
     | "maintenance:manage"
     | "users:provision"
+    | "messages:manage"
+    | "messages:self"
 
 /** A request after `authenticate`. `user.id` is "tenant:5" or "admin:3" (utils/user-id.ts). */
 export interface ValidRequest extends Request {

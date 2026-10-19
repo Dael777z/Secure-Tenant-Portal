@@ -11,10 +11,12 @@ import { requestLog } from "./middleware/request-log"
 import { privateApiCache, securityHeaders } from "./middleware/security"
 import { createAuthRouter } from "./routes/auth"
 import { createManagerRouter } from "./routes/manager"
+import { createMessageRouter } from "./routes/messages"
 import { createPlaidRouter } from "./routes/plaid"
 import { createTenantRouter } from "./routes/tenant"
 import type { AuthService } from "./services/auth"
 import type { ManagerService } from "./services/manager-service"
+import type { MessageService } from "./services/message-service"
 import type { PlaidGateway } from "./services/plaid"
 import type { TenantService } from "./services/tenant-service"
 import type { HealthStore } from "./types/stores"
@@ -28,6 +30,8 @@ export interface AppDependencies {
     auth: AuthService
     manager: ManagerService
     tenant: TenantService
+    /** Tenant ↔ office messages (004). */
+    messages: MessageService
     /** Null when Plaid is not configured: the bank-link routes answer 503. */
     plaid: PlaidGateway | null
     /** The built frontend (index.html and assets). Leave out when Vite serves it (development, tests). */
@@ -73,6 +77,7 @@ export function createApp(deps: AppDependencies): Application {
     app.use("/api", createPlaidRouter({ plaid: deps.plaid, tenant: deps.tenant, guard, limits, tokenEncryptionKey: config.tokenEncryptionKey }))
     app.use("/api", createTenantRouter({ tenant: deps.tenant, guard, limits, plaidEnabled: deps.plaid !== null, testPayments: !config.production }))
     app.use("/api", createManagerRouter({ manager: deps.manager, guard, limits, webOrigin: config.webOrigin }))
+    app.use("/api", createMessageRouter({ messages: deps.messages, guard, limits }))
 
     // Unknown API paths are a JSON 404; with a built frontend, any other GET is the single-page app.
     app.use("/api", (_req, res) => {

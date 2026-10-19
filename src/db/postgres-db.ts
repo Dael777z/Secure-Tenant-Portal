@@ -6,8 +6,8 @@ import type {
 } from "../types/inputs"
 import type {
     BankAccountRecord, ChargeRecord, InvitedTenant, LeaseBalance, LeaseRecord, LeaseResident, LeaseWithUnit,
-    MaintenanceRecord, MaintenanceState, OpenRequestCount, PaymentRecord, PersonRecord, PropertyRecord,
-    Receipt, RecentPaymentRecord, SessionUser, StaffProfile, TenantMaintenanceRecord, UnitRecord, UserRecord,
+    MaintenanceRecord, MaintenanceState, MessageRecord, OpenRequestCount, PaymentRecord, PersonRecord, PropertyRecord,
+    Receipt, RecentPaymentRecord, SessionUser, StaffProfile, TenantMaintenanceRecord, ThreadRecord, UnitRecord, UserRecord,
 } from "../types/records"
 import type { DatabaseInterface } from "../types/stores"
 import { isStaffRole, type Role } from "../types/access"
@@ -39,6 +39,22 @@ const CHARGE = `c.chargeID AS id, c.LeaseID AS "leaseId", c.kind, c.amount, c.du
 const PAYMENT = `p.payID AS id, p.LeaseID AS "leaseId", p.direction, p.status, p.amount, p."timestamp" AS "paidAt",
     d.method, p.transaction_id AS confirmation, d.tID AS "payerId"`
 const BANK = `bID AS id, name, mask, subtype`
+const MESSAGE = `m.msgID::int AS id, m.tID AS "tenantId", (m.sender_admin_id IS NOT NULL) AS "fromOffice", m.sender_name AS "senderName",
+    m.body, m.created_at AS "sentAt", m.read_at AS "readAt"`
+/** A conversation in the inbox: its tenant, last message, unread count, and the tenant's current lease ($1 = today), or latest. */
+const THREAD = `SELECT th.tID AS "tenantId", t.Name AS "tenantName", th.last_message_at AS "lastMessageAt", (th.archived_at IS NOT NULL) AS archived,
+        last.body AS "lastBody", (last.sender_admin_id IS NOT NULL) AS "lastFromOffice",
+        (SELECT count(*)::int FROM Messages m WHERE m.tID = th.tID AND m.sender_admin_id IS NULL AND m.read_at IS NULL) AS unread,
+        cur.lease_id AS "leaseId", cur.unit_num AS "unitNum", cur.property_name AS "propertyName"
+    FROM Message_Threads th
+    JOIN Tenants t ON t.tID = th.tID
+    CROSS JOIN LATERAL (SELECT m.body, m.sender_admin_id FROM Messages m WHERE m.tID = th.tID ORDER BY m.created_at DESC, m.msgID DESC LIMIT 1) last
+    LEFT JOIN LATERAL (
+        SELECT l.LeaseID AS lease_id, u.UnitNum AS unit_num, p.Name AS property_name
+        FROM Lease_Tenants lt JOIN Lease l ON l.LeaseID = lt.LeaseID JOIN Units u ON u.uID = l.uID JOIN Property p ON p.pID = u.pID
+        WHERE lt.tID = th.tID
+        ORDER BY (l.start_date <= $1::date AND (l.end_date IS NULL OR l.end_date >= $1::date)) DESC, l.start_date DESC
+        LIMIT 1) cur ON true`
 
 /** The lease is in effect on $2. */
 const ACTIVE_ON = "l.start_date <= $2::date AND (l.end_date IS NULL OR l.end_date >= $2::date)"
@@ -664,6 +680,65 @@ export class PostgresDatabase implements DatabaseInterface {
     async deactivateMaintenance(mID: number): Promise<void> {
         const result = await this.query("UPDATE Maintenance_T SET deactivated_at = now() WHERE mID = $1 AND deactivated_at IS NULL", [mID])
         if (!result.rowCount) throw new AppError("NOT_FOUND")
+    }
+
+    // ---- Messages (004)
+
+    async listThreads(archived: boolean, today: string): Promise<ThreadRecord[]> {
+        const { rows } = await this.query<ThreadRecord>(
+            `${THREAD} WHERE (th.archived_at IS NOT NULL) = $2 ORDER BY th.last_message_at DESC, th.tID`,
+            [today, archived],
+        )
+        return rows
+    }
+
+    async findThread(tID: number, today: string): Promise<ThreadRecord | null> {
+        const { rows } = await this.query<ThreadRecord>(`${THREAD} WHERE th.tID = $2`, [today, tID])
+        return rows[0] ?? null
+    }
+
+    async listMessages(tID: number): Promise<MessageRecord[]> {
+        const { rows } = await this.query<MessageRecord>(`SELECT ${MESSAGE} FROM Messages m WHERE m.tID = $1 ORDER BY m.created_at, m.msgID`, [tID])
+        return rows
+    }
+
+    async sendMessage(input: { tenantId: number; adminId: number | null; body: string }): Promise<MessageRecord> {
+        try {
+            const { rows } = await this.query<MessageRecord>(
+                `INSERT INTO Messages AS m (tID, sender_admin_id, body) VALUES ($1, $2, $3) RETURNING ${MESSAGE}`,
+                [input.tenantId, input.adminId, input.body],
+            )
+            return rows[0]!
+        } catch (error) {
+            // RLS: a tenant writes only to their own conversation, a manager only as themselves.
+            if (hasCode(error, PG.privilege)) throw new AppError("FORBIDDEN")
+            throw error
+        }
+    }
+
+    async markMessagesRead(tID: number, writtenBy: "tenant" | "office"): Promise<number> {
+        const result = await this.query(
+            `UPDATE Messages SET read_at = now()
+             WHERE tID = $1 AND read_at IS NULL AND (sender_admin_id IS NOT NULL) = $2`,
+            [tID, writtenBy === "office"],
+        )
+        return result.rowCount ?? 0
+    }
+
+    async setThreadArchived(tID: number, archived: boolean): Promise<void> {
+        const result = await this.query(
+            "UPDATE Message_Threads SET archived_at = CASE WHEN $2 THEN COALESCE(archived_at, now()) END WHERE tID = $1",
+            [tID, archived],
+        )
+        if (!result.rowCount) throw new AppError("NOT_FOUND")
+    }
+
+    async countUnreadThreads(): Promise<number> {
+        const { rows } = await this.query<{ n: number }>(
+            `SELECT count(DISTINCT m.tID)::int AS n FROM Messages m JOIN Message_Threads th ON th.tID = m.tID
+             WHERE th.archived_at IS NULL AND m.sender_admin_id IS NULL AND m.read_at IS NULL`,
+        )
+        return rows[0]?.n ?? 0
     }
 
     // ---- Bank accounts

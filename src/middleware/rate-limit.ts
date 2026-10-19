@@ -10,6 +10,8 @@ export interface RateLimits {
     refresh: RequestHandler
     /** Payments, receipts, invites, bank links. */
     sensitive: RequestHandler
+    /** Sending a message: a conversation needs more room than `sensitive`. */
+    messages: RequestHandler
 }
 
 // translates the rateLimits of AppConfig into a RateLimits tuple
@@ -25,8 +27,8 @@ export function createRateLimits(config: Pick<AppConfig, "rateLimits">): RateLim
     })
 
     // unpacks the configs rate limits
-    const { login, signup, refresh, sensitive } = config.rateLimits
+    const { login, signup, refresh, sensitive, messages } = config.rateLimits
 
     // invokes the lambda for every type specified for the rate limiter object
-    return { login: limiter(login), signup: limiter(signup), refresh: limiter(refresh), sensitive: limiter(sensitive) }
+    return { login: limiter(login), signup: limiter(signup), refresh: limiter(refresh), sensitive: limiter(sensitive), messages: limiter(messages) }
 }

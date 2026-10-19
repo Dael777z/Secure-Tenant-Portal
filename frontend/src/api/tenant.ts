@@ -23,6 +23,20 @@ export interface TenantSummary {
   testPayments: boolean;
 }
 
+/** A message between the tenant and the office (src/routes/messages.ts). Times are ISO strings. */
+export interface OfficeMessage {
+  id: number;
+  from: "tenant" | "office";
+  /** The manager who wrote it; null for the tenant's own messages. */
+  senderName: string | null;
+  body: string;
+  sentAt: string;
+  /** The receipt: when the other side opened the conversation. */
+  readAt: string | null;
+}
+
+export const MESSAGE_MAX_LENGTH = 2000;
+
 export class ApiError extends Error {
   constructor(public readonly code: string, public readonly status: number) {
     super(code);
@@ -46,6 +60,11 @@ export const tenantApi = {
     }),
   newMaintenanceRequest: (title: string, description: string) =>
     call<MaintenanceRequest>("/tenant/maintenance", { method: "POST", body: JSON.stringify({ title, description }) }),
+  /** The conversation with the office; `unread` counts the office's messages not opened yet. */
+  messages: () => call<{ messages: OfficeMessage[]; unread: number }>("/tenant/messages"),
+  sendMessage: (body: string) => call<OfficeMessage>("/tenant/messages", { method: "POST", body: JSON.stringify({ body }) }),
+  /** The receipt: the office sees its messages were read. */
+  markMessagesRead: () => call<{ marked: number }>("/tenant/messages/read", { method: "POST" }),
   // Dael's two Plaid calls, same paths as his prototype.
   createLinkToken: () => call<{ link_token: string }>("/create_link_token", { method: "POST" }),
   exchangeAndGetAuth: (publicToken: string) =>
@@ -59,6 +78,7 @@ export function messageFor(error: unknown): string {
     if (error.code === "PLAID_NOT_CONFIGURED") return "Bank linking is not set up on this server yet.";
     if (error.code === "PLAID_ERROR") return "Plaid could not complete that. Please try again.";
     if (error.code === "VALIDATION_ERROR") return "Check what you entered and try again.";
+    if (error.code === "RATE_LIMITED") return "Too many messages at once. Wait a few minutes and try again.";
   }
   return "Something went wrong. Please try again.";
 }

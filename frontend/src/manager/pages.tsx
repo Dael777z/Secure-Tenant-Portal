@@ -483,6 +483,11 @@ export function TenantsPage() {
                             Lease
                           </button>
                         )}
+                        {can("messages:manage") && (
+                          <button type="button" className="mgr-btn mgr-btn--secondary mgr-btn--small" onClick={() => go({ name: "messages", tenantId: t.id })}>
+                            Message
+                          </button>
+                        )}
                         {can("users:provision") && !t.signedUp && (
                           <button type="button" className="mgr-btn mgr-btn--secondary mgr-btn--small" onClick={() => void copySignUpLink(t)}>
                             Copy sign-up link

@@ -4,8 +4,8 @@ import type {
 } from "./inputs"
 import type {
     BankAccountRecord, ChargeRecord, InvitedTenant, LeaseBalance, LeaseRecord, LeaseResident, LeaseWithUnit,
-    MaintenanceRecord, MaintenanceState, OpenRequestCount, PaymentRecord, PersonRecord, PropertyRecord, Receipt,
-    RecentPaymentRecord, SessionUser, StaffProfile, TenantMaintenanceRecord, UnitRecord, UserRecord,
+    MaintenanceRecord, MaintenanceState, MessageRecord, OpenRequestCount, PaymentRecord, PersonRecord, PropertyRecord, Receipt,
+    RecentPaymentRecord, SessionUser, StaffProfile, TenantMaintenanceRecord, ThreadRecord, UnitRecord, UserRecord,
 } from "./records"
 
 /**
@@ -130,6 +130,23 @@ export interface BankStore {
     saveBankAccounts(tID: number, item: BankItem, accounts: BankAccountInput[]): Promise<void>
 }
 
+export interface MessageStore {
+    /** The office inbox (or the archived conversations), most recent first. */
+    listThreads(archived: boolean, today: string): Promise<ThreadRecord[]>
+    /** Null when the tenant has no conversation yet. */
+    findThread(tID: number, today: string): Promise<ThreadRecord | null>
+    /** Oldest first. */
+    listMessages(tID: number): Promise<MessageRecord[]>
+    /** `adminId` null: the tenant is writing. The conversation is made on its first message. */
+    sendMessage(input: { tenantId: number; adminId: number | null; body: string }): Promise<MessageRecord>
+    /** The receipt: mark what `writtenBy` sent and the other side has not opened. Returns how many. */
+    markMessagesRead(tID: number, writtenBy: "tenant" | "office"): Promise<number>
+    /** NOT_FOUND when the tenant has no conversation. */
+    setThreadArchived(tID: number, archived: boolean): Promise<void>
+    /** Conversations in the inbox with a tenant message the office has not opened. */
+    countUnreadThreads(): Promise<number>
+}
+
 export type AuthStore = AccountStore & SessionStore
 
 export type TenantStore =
@@ -144,7 +161,9 @@ export type ManagerStore =
     & PropertyStore & PeopleStore & LeaseStore & LedgerStore & PaymentStore & MaintenanceStore
     & Pick<AccountStore, "findStaffProfile">
 
+export type MessagingStore = MessageStore & Pick<PeopleStore, "findPerson"> & Pick<LeaseStore, "findCurrentLease">
+
 /** The whole database. */
 export type DatabaseInterface =
     & HealthStore & AccountStore & SessionStore & PropertyStore & PeopleStore
-    & LeaseStore & LedgerStore & PaymentStore & MaintenanceStore & BankStore
+    & LeaseStore & LedgerStore & PaymentStore & MaintenanceStore & BankStore & MessageStore
