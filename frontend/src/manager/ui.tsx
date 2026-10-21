@@ -2,6 +2,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { SessionUser } from "../api/auth";
 import { managerMessage } from "./api";
+import type { FinancePeriod } from "./finance-api";
 
 /* ------------------------------------------------------------------ *
  * Routes (kept in the URL hash so Back and reload work)
@@ -16,7 +17,18 @@ export type Route =
   | { name: "lease"; id: number }
   | { name: "maintenance" }
   | { name: "messages"; tenantId?: number }
-  | { name: "updates" };
+  | { name: "updates" }
+  | { name: "finance"; period: FinancePeriod }
+  | { name: "pnl"; period: FinancePeriod }
+  | { name: "performance" }
+  | { name: "renewals"; days: number }
+  | { name: "setup" };
+
+const PERIOD_KEYS: FinancePeriod[] = ["this-month", "30d", "90d", "ytd", "12m"];
+const periodFrom = (query: string, fallback: FinancePeriod): FinancePeriod => {
+  const p = new URLSearchParams(query).get("period");
+  return PERIOD_KEYS.includes(p as FinancePeriod) ? (p as FinancePeriod) : fallback;
+};
 
 export function parseRoute(hash: string): Route | null {
   const [path = "", query = ""] = hash.replace(/^#\/?/, "").split("?");
@@ -41,6 +53,18 @@ export function parseRoute(hash: string): Route | null {
       return { name: "updates" };
     case "messages":
       return Number.isInteger(n) && n > 0 ? { name: "messages", tenantId: n } : { name: "messages" };
+    case "finance":
+      return { name: "finance", period: periodFrom(query, "this-month") };
+    case "profit-and-loss":
+      return { name: "pnl", period: periodFrom(query, "ytd") };
+    case "performance":
+      return { name: "performance" };
+    case "renewals": {
+      const d = Number(new URLSearchParams(query).get("days"));
+      return { name: "renewals", days: [30, 60, 90, 180].includes(d) ? d : 90 };
+    }
+    case "setup":
+      return { name: "setup" };
     default:
       return null;
   }
@@ -56,6 +80,12 @@ export function routeHash(route: Route): string {
       return route.filter ? `#/rent-roll?status=${route.filter}` : "#/rent-roll";
     case "messages":
       return route.tenantId ? `#/messages/${route.tenantId}` : "#/messages";
+    case "finance":
+      return `#/finance?period=${route.period}`;
+    case "pnl":
+      return `#/profit-and-loss?period=${route.period}`;
+    case "renewals":
+      return `#/renewals?days=${route.days}`;
     default:
       return `#/${route.name}`;
   }
@@ -78,6 +108,8 @@ export type Dialog =
   | { kind: "addResident"; leaseId: number }
   | { kind: "attachReceipt"; leaseId: number; paymentId: number; label: string }
   | { kind: "charge"; leaseId: number; label: string }
+  | { kind: "expense"; propertyId?: number }
+  | { kind: "renewal"; leaseId: number; label: string; residents: string[] }
   | {
       kind: "confirm";
       title: string;

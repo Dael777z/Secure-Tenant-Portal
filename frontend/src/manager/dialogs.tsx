@@ -2,6 +2,7 @@
 // actions bar or from a screen. Each one closes and refreshes on success.
 import { useRef, useState, type FormEvent } from "react";
 import { CHARGE_KINDS, managerApi, PAYMENT_METHODS, type ChargeKind, RECEIPT_ACCEPT, readReceipt, type NewPerson, type ReceiptUpload, type UnitRow } from "./api";
+import { ExpenseDialog, RenewalDialog } from "./finance";
 import { Field, LocalError, Modal, money, todayIso, useLoad, useManager, useSubmit, type Dialog } from "./ui";
 
 type Props<K extends Dialog["kind"]> = Extract<Dialog, { kind: K }> & { onClose: () => void };
@@ -32,6 +33,10 @@ export function DialogHost({ dialog, onClose }: { dialog: Dialog; onClose: () =>
       return <AttachReceiptDialog {...dialog} onClose={onClose} />;
     case "charge":
       return <ChargeDialog {...dialog} onClose={onClose} />;
+    case "expense":
+      return <ExpenseDialog {...dialog} onClose={onClose} />;
+    case "renewal":
+      return <RenewalDialog {...dialog} onClose={onClose} />;
     case "confirm":
       return <ConfirmDialog {...dialog} onClose={onClose} />;
   }

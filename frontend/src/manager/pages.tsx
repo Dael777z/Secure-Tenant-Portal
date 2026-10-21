@@ -5,6 +5,9 @@
 import { useMemo, useState } from "react";
 import { managerApi, receiptUrl, type RequestStatus, type TenantRow, type UnitRow, type UpdateRow } from "./api";
 import type { LedgerEntry } from "../types";
+import { financeApi } from "./finance-api";
+import { GettingStarted } from "./onboarding";
+import { SortTh, useSort } from "./sort";
 import { Empty, Kpi, Loading, LocalError, PageHeader, StatusPill, isoDate, money, percent, timeAgo, useLoad, useManager } from "./ui";
 
 /* ------------------------------------------------------------------ *
@@ -12,12 +15,14 @@ import { Empty, Kpi, Loading, LocalError, PageHeader, StatusPill, isoDate, money
  * ------------------------------------------------------------------ */
 
 export function QuickActions() {
-  const { open, can } = useManager();
+  const { open, can, go } = useManager();
   const actions: Array<[string, () => void, boolean]> = [
     ["+ New lease", () => open({ kind: "lease" }), can("users:provision")],
+    ["Set up a property", () => go({ name: "setup" }), can("users:provision")],
     ["+ Add property", () => open({ kind: "property" }), can("users:provision")],
     ["+ Add unit", () => open({ kind: "unit" }), can("users:provision")],
     ["Record a payment", () => open({ kind: "payment" }), can("ledger:adjust")],
+    ["+ Add expense", () => open({ kind: "expense" }), can("ledger:adjust")],
     ["+ Invite tenant", () => open({ kind: "tenant" }), can("users:provision")],
     ["Maintenance request", () => open({ kind: "maintenance" }), can("maintenance:manage")],
   ];
@@ -52,6 +57,7 @@ export function DashboardPage({ name }: { name: string }) {
         <Loading error={error} />
       ) : (
         <>
+          <GettingStarted data={data} />
           <div className="mgr-kpis">
             <Kpi label="Total Properties" value={String(data.properties)} note="Across your portfolio" onClick={() => go({ name: "properties" })} />
             <Kpi label="Total Units" value={String(data.units)} note="All residential units" onClick={() => go({ name: "rent-roll" })} />
@@ -234,24 +240,34 @@ export function PropertyPage({ id }: { id: number }) {
 
 function UnitTable({ units, showProperty }: { units: UnitRow[]; showProperty: boolean }) {
   const { go, open, can } = useManager();
+  const STATUS_ORDER = { owing: 0, current: 1, vacant: 2 } as const;
+  const sorter = useSort(showProperty ? "rent-roll" : "property-units", units, {
+    unit: (u) => u.unitNum,
+    property: (u) => u.propertyName,
+    residents: (u) => u.tenants[0]?.name ?? null,
+    rent: (u) => u.monthlyRent,
+    balance: (u) => (u.leaseId === null ? null : u.balance),
+    status: (u) => STATUS_ORDER[u.status],
+    ends: (u) => u.endDate,
+  }, { key: showProperty ? "property" : "unit", dir: "asc" });
   if (units.length === 0) return <Empty>No units match.</Empty>;
   return (
     <div className="mgr-table-wrap">
       <table className="mgr-table">
         <thead>
           <tr>
-            <th scope="col">Unit</th>
-            {showProperty && <th scope="col">Property</th>}
-            <th scope="col">Residents</th>
-            <th scope="col" className="mgr-num">Rent</th>
-            <th scope="col" className="mgr-num">Balance</th>
-            <th scope="col">Status</th>
-            <th scope="col">Lease</th>
+            <SortTh sorter={sorter} k="unit">Unit</SortTh>
+            {showProperty && <SortTh sorter={sorter} k="property">Property</SortTh>}
+            <SortTh sorter={sorter} k="residents">Residents</SortTh>
+            <SortTh sorter={sorter} k="rent" num>Rent</SortTh>
+            <SortTh sorter={sorter} k="balance" num>Balance</SortTh>
+            <SortTh sorter={sorter} k="status">Status</SortTh>
+            <SortTh sorter={sorter} k="ends">Lease</SortTh>
             <th scope="col"><span className="mgr-sr">Actions</span></th>
           </tr>
         </thead>
         <tbody>
-          {units.map((u) => (
+          {sorter.rows.map((u) => (
             <tr key={u.id}>
               <th scope="row">
                 {u.unitNum}
@@ -322,6 +338,7 @@ export function RentRollPage({ filter }: { filter?: "owing" | "current" | "vacan
   const { go } = useManager();
   const units = useLoad(() => managerApi.units());
   const properties = useLoad(() => managerApi.properties());
+  const expiring = useLoad(() => financeApi.expiring(90));
   const [property, setProperty] = useState("");
   const [search, setSearch] = useState("");
 
@@ -348,6 +365,14 @@ export function RentRollPage({ filter }: { filter?: "owing" | "current" | "vacan
     <>
       <PageHeader title="Rent Roll" subtitle="Every unit, who lives there, and where each account stands today." />
       <QuickActions />
+      {units.data && (
+        <div className="mgr-kpis">
+          <Kpi label="Total units" value={String(units.data.length)} note={`Across ${new Set(units.data.map((u) => u.propertyId)).size} propert${new Set(units.data.map((u) => u.propertyId)).size === 1 ? "y" : "ies"}`} onClick={() => go({ name: "rent-roll" })} />
+          <Kpi label="Rented" value={String(units.data.length - (counts.vacant ?? 0))} note={`${percent(units.data.length - (counts.vacant ?? 0), units.data.length)} occupancy`} tone="good" />
+          <Kpi label="Expiring soon" value={expiring.data ? String(expiring.data.length) : "…"} note="Leases ending in 90 days" tone={expiring.data?.length ? "warn" : undefined} onClick={() => go({ name: "renewals", days: 90 })} />
+          <Kpi label="Vacant" value={String(counts.vacant ?? 0)} note="Ready to lease" onClick={() => go({ name: "rent-roll", filter: "vacant" })} />
+        </div>
+      )}
       <div className="mgr-toolbar">
         <div className="mgr-tabs" role="tablist" aria-label="Filter by status">
           {tabs.map(([label, value, count]) => (
@@ -429,7 +454,14 @@ export function TenantsPage() {
   const { data, error } = useLoad(() => managerApi.tenants());
   const [search, setSearch] = useState("");
   const q = search.trim().toLowerCase();
-  const rows = (data ?? []).filter((t) => !q || t.name.toLowerCase().includes(q) || t.email.includes(q) || (t.unitLabel ?? "").toLowerCase().includes(q));
+  const rows = useMemo(() => (data ?? []).filter((t) => !q || t.name.toLowerCase().includes(q) || t.email.includes(q) || (t.unitLabel ?? "").toLowerCase().includes(q)), [data, q]);
+  const sorter = useSort("tenants", rows, {
+    name: (t) => t.name,
+    contact: (t) => t.email,
+    unit: (t) => t.unitLabel,
+    balance: (t) => (t.leaseId === null ? null : t.balance),
+    account: (t) => (t.signedUp ? 1 : 0),
+  }, { key: "name", dir: "asc" });
 
   return (
     <>
@@ -458,16 +490,16 @@ export function TenantsPage() {
               <table className="mgr-table">
                 <thead>
                   <tr>
-                    <th scope="col">Name</th>
-                    <th scope="col">Contact</th>
-                    <th scope="col">Unit</th>
-                    <th scope="col" className="mgr-num">Balance</th>
-                    <th scope="col">Account</th>
+                    <SortTh sorter={sorter} k="name">Name</SortTh>
+                    <SortTh sorter={sorter} k="contact">Contact</SortTh>
+                    <SortTh sorter={sorter} k="unit">Unit</SortTh>
+                    <SortTh sorter={sorter} k="balance" num>Balance</SortTh>
+                    <SortTh sorter={sorter} k="account">Account</SortTh>
                     <th scope="col"><span className="mgr-sr">Actions</span></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((t) => (
+                  {sorter.rows.map((t) => (
                     <tr key={t.id}>
                       <th scope="row">{t.name}</th>
                       <td>

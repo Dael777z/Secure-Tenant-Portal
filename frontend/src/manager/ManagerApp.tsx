@@ -2,11 +2,13 @@
 // after signing in. Same sign-in and session as the resident portal; the
 // backend decides what each role may do (Scott's RBAC permissions), and this
 // only hides what the role cannot use.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import type { SessionUser } from "../api/auth";
 import { managerApi, type StaffProfile } from "./api";
 import { DialogHost } from "./dialogs";
+import { FinancePage, PerformancePage, ProfitLossPage, RenewalsPage } from "./finance";
 import { MessagesPage } from "./messages";
+import { SetupPage } from "./onboarding";
 import {
   DashboardPage,
   LeasePage,
@@ -29,6 +31,8 @@ const ROLE_LABELS: Record<string, string> = {
 
 interface NavItem {
   label: string;
+  /** Starts a group in the sidebar. */
+  section?: string;
   route: Route;
   matches: Route["name"][];
   permission: string;
@@ -36,10 +40,14 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { label: "Dashboard", route: { name: "dashboard" }, matches: ["dashboard"], permission: "ledger:read:property" },
-  { label: "Properties", route: { name: "properties" }, matches: ["properties", "property"], permission: "ledger:read:property" },
+  { label: "Properties", route: { name: "properties" }, matches: ["properties", "property", "setup"], permission: "ledger:read:property" },
   { label: "Rent Roll", route: { name: "rent-roll" }, matches: ["rent-roll", "lease"], permission: "ledger:read:property" },
   { label: "Tenants", route: { name: "tenants" }, matches: ["tenants"], permission: "ledger:read:property" },
-  { label: "Messages", route: { name: "messages" }, matches: ["messages"], permission: "messages:manage" },
+  { label: "Lease renewals", route: { name: "renewals", days: 90 }, matches: ["renewals"], permission: "ledger:read:property" },
+  { section: "Money", label: "Finance", route: { name: "finance", period: "this-month" }, matches: ["finance"], permission: "ledger:read:property" },
+  { label: "Profit & Loss", route: { name: "pnl", period: "ytd" }, matches: ["pnl"], permission: "ledger:read:property" },
+  { label: "Performance", route: { name: "performance" }, matches: ["performance"], permission: "ledger:read:property" },
+  { section: "Day to day", label: "Messages", route: { name: "messages" }, matches: ["messages"], permission: "messages:manage" },
   { label: "Maintenance", route: { name: "maintenance" }, matches: ["maintenance"], permission: "maintenance:manage" },
   { label: "Updates", route: { name: "updates" }, matches: ["updates"], permission: "ledger:read:property" },
 ];
@@ -139,8 +147,9 @@ export function ManagerApp({ user, onLogout }: { user: SessionUser; onLogout: ()
             {nav.map((n) => {
               const active = n.matches.includes(route.name);
               return (
+                <Fragment key={n.label}>
+                {n.section && <span className="mgr-nav__section">{n.section}</span>}
                 <a
-                  key={n.label}
                   href={routeHash(n.route)}
                   className={`mgr-nav__item${active ? " mgr-nav__item--active" : ""}`}
                   aria-current={active ? "page" : undefined}
@@ -157,6 +166,7 @@ export function ManagerApp({ user, onLogout }: { user: SessionUser; onLogout: ()
                     </span>
                   )}
                 </a>
+                </Fragment>
               );
             })}
           </nav>
@@ -189,6 +199,11 @@ export function ManagerApp({ user, onLogout }: { user: SessionUser; onLogout: ()
             {route.name === "maintenance" && <MaintenancePage />}
             {route.name === "messages" && <MessagesPage tenantId={route.tenantId} onUnreadChange={refreshUnread} />}
             {route.name === "updates" && <UpdatesPage />}
+            {route.name === "finance" && <FinancePage period={route.period} />}
+            {route.name === "pnl" && <ProfitLossPage period={route.period} />}
+            {route.name === "performance" && <PerformancePage />}
+            {route.name === "renewals" && <RenewalsPage days={route.days} />}
+            {route.name === "setup" && <SetupPage />}
           </main>
         </div>
         {dialog && <DialogHost dialog={dialog} onClose={() => setDialog(null)} />}
