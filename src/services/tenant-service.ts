@@ -139,7 +139,7 @@ export class TenantService {
 
     private async pay(
         userId: string,
-        input: { amount: number; bankAccountId: number | null },
+        input: { amount: number; bankAccountId: number | null; idempotencyKey?: string | null },
         flags: { plaidEnabled: boolean; testPayments: boolean },
         facts: { leaseId?: number },
     ): Promise<{ confirmation: string }> {
