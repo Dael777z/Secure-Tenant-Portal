@@ -6,6 +6,7 @@ import { loadConfig } from "../config"
 import { AppError } from "../types/errors"
 import { createApp } from "../create-app"
 import { createContainer, type Container } from "../container"
+import { createLogger } from "../logging"
 import { seed } from "../db/seed"
 import { PASSWORDS } from "../db/seed/data"
 import { freshDatabase, hasDatabase, type TestDatabase } from "./helpers"
@@ -56,11 +57,14 @@ describe.skipIf(!hasDatabase)("HTTP API on a seeded database", () => {
     let container: Container
     let server: Server
     let base: string
+    /** Every line the app logs, at info and up (tests normally log warnings only). */
+    const logged: Array<{ event: string; request_id?: string; metadata?: Record<string, unknown> }> = []
+    const logger = createLogger({ ...config, mode: "development" }, { write: (line: string) => { logged.push(JSON.parse(line)) } })
 
     beforeAll(async () => {
         t = await freshDatabase("portal_http_test")
         await seed(t.owner, { dataset: "clean", webOrigin: ORIGIN, bcryptRounds: 4 })
-        container = createContainer({ config, db: t.db, plaid: null })
+        container = createContainer({ config, db: t.db, plaid: null, logger })
         server = createApp(container).listen(0)
         await new Promise((resolve) => server.once("listening", resolve))
         base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`
@@ -209,6 +213,21 @@ describe.skipIf(!hasDatabase)("HTTP API on a seeded database", () => {
         // Leases are not deleted.
         const del = await admin.delete(`/manager/leases/${lease.body.id}`)
         expect(del.status).toBe(404)
+
+        // Each step is in the log, tied to its request, with who did it and no email addresses.
+        const event = (name: string) => logged.find((l) => l.event === name)
+        const leased = event("office.lease.create.succeeded")!
+        expect(leased.metadata).toMatchObject({ by: expect.stringMatching(/^admin:\d+$/), unitId: unit.body.id, leaseId: lease.body.id, invited: [invite.tenantId] })
+        expect(event("auth.signup.succeeded")!.metadata).toMatchObject({ userId: `tenant:${invite.tenantId}` })
+        expect(event("payment.office.succeeded")!.metadata).toMatchObject({ leaseId: lease.body.id, amount: 300, confirmation: paid.body.confirmation })
+        expect(event("office.lease.create.failed")!.metadata).toMatchObject({ code: "UNIT_OCCUPIED" })
+        const completed = logged.find((l) => l.event === "request.completed" && l.request_id === leased.request_id)!
+        expect(completed.metadata).toMatchObject({ method: "POST", path: "/api/manager/leases", statusCode: 201 })
+        expect(logged.find((l) => l.event === "request.completed" && l.metadata?.error === "UNIT_OCCUPIED")).toBeDefined()
+        expect(logged.find((l) => l.event === "auth.login.failed" && l.metadata?.reason === "unknown email")).toBeDefined()
+        const signupLine = logged.find((l) => l.event === "request.completed" && l.metadata?.path === "/api/auth/signup")!
+        expect(JSON.stringify(signupLine)).not.toContain(invite.inviteToken)
+        expect(JSON.stringify(logged)).not.toContain("@example.com")
     })
 
     it("passes plaid's error code and request id through to the browser, and lets Plaid Link load in production", async () => {

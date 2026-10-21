@@ -5,7 +5,7 @@ import type { AppDependencies } from "./create-app"
 import { checkDatabase } from "./db/migrate"
 import { createPool } from "./db/pool"
 import { PostgresDatabase } from "./db/postgres-db"
-import { createLogger } from "./logging"
+import { createLogger, type LogService } from "./logging"
 import { AuthService } from "./services/auth"
 import { ManagerService } from "./services/manager-service"
 import { MessageService } from "./services/message-service"
@@ -19,7 +19,7 @@ import type { DatabaseInterface } from "./types/stores"
  *
  *   config → pool → PostgresDatabase → AuthService, ManagerService, TenantService, MessageService, RentChargeService
  *
- * Tests pass their own `config`, a `db` on a test database, or `plaid: null`.
+ * Tests pass their own `config`, a `db` on a test database, `plaid: null`, or a `logger` they read.
  */
 export interface Container extends AppDependencies {
     rentCharges: RentChargeService
@@ -28,9 +28,9 @@ export interface Container extends AppDependencies {
     close(): Promise<void>
 }
 
-export function createContainer(overrides: { config?: AppConfig; db?: DatabaseInterface; plaid?: PlaidGateway | null; distRoot?: string } = {}): Container {
+export function createContainer(overrides: { config?: AppConfig; db?: DatabaseInterface; plaid?: PlaidGateway | null; distRoot?: string; logger?: LogService } = {}): Container {
     const config = overrides.config ?? configFromEnvironment()
-    const logger = createLogger(config)
+    const logger = overrides.logger ?? createLogger(config)
 
     let pool: Pool | undefined
     let db = overrides.db
@@ -56,9 +56,9 @@ export function createContainer(overrides: { config?: AppConfig; db?: DatabaseIn
         config,
         logger,
         health: db,
-        auth: new AuthService(db, config),
-        manager: new ManagerService(db, config.timeZone),
-        tenant: new TenantService(db, config.timeZone),
+        auth: new AuthService(db, config, logger),
+        manager: new ManagerService(db, config.timeZone, logger),
+        tenant: new TenantService(db, config.timeZone, logger),
         messages: new MessageService(db, config.timeZone),
         plaid,
         distRoot: overrides.distRoot,

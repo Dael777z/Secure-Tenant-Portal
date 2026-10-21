@@ -29,8 +29,7 @@ services:
       retries: 20
     restart: unless-stopped
 
-  # Runs once and exits: applies migrations as the schema owner (development: and loads
-  # the sample data). The only container with the owner's password.
+  # creates database & attempts to run migration using the cli interface
   migrate:
     <<: *app
     command: ["node", "dist/server/cli.js", "migrate"]

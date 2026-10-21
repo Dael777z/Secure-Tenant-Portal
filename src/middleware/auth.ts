@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken"
 
 import { identityFromClaims, runAs } from "../db/identity"
 import type { Permission, Role, ValidRequest } from "../types/access"
+import type { LogService } from "../logging"
 import { AppError } from "../types/errors"
 
 export const permissionsByRole: Record<Role, readonly Permission[]> = {
@@ -20,7 +21,7 @@ export interface JwtConfig {
 }
 
 // creates auth/guard middleware
-export function createAuth(config: JwtConfig) {
+export function createAuth(config: JwtConfig, logger?: LogService) {
     
     //jwt middleware
     const authenticate: RequestHandler = (req: ValidRequest, _res, next) => {
@@ -30,11 +31,15 @@ export function createAuth(config: JwtConfig) {
         let claims: jwt.JwtPayload | string
         try {
             claims = jwt.verify(token, config.accessSecret, { algorithms: ["HS256"], audience: config.jwtAudience, issuer: config.jwtIssuer })
-        } catch {
+        } catch (error) {
+            // an expired token is routine (the page refreshes it); anything else is worth a look
+            const reason = (error as Error).name === "TokenExpiredError" ? "expired" : (error as Error).message
+            if (reason !== "expired") logger?.warn("auth.token.rejected", { reason })
             throw new AppError("INVALID_TOKEN")
         }
         const role = typeof claims === "object" ? (claims.role as Role) : undefined
         if (typeof claims !== "object" || typeof claims.sub !== "string" || !role || !(role in permissionsByRole)) {
+            logger?.warn("auth.token.rejected", { reason: "unexpected claims" })
             throw new AppError("INVALID_TOKEN")
         }
 
@@ -44,7 +49,10 @@ export function createAuth(config: JwtConfig) {
 
     //rbac middleware, take a valid request (JWT authenticated) and check the attached user object against the permissions given as a parameter
     const allow = (permission: Permission): RequestHandler => (req: ValidRequest, _res, next) => {
-        if (!permissionsByRole[req.user!.role].includes(permission)) throw new AppError("FORBIDDEN")
+        if (!permissionsByRole[req.user!.role].includes(permission)) {
+            logger?.warn("auth.forbidden", { userId: req.user!.id, role: req.user!.role, permission, path: req.originalUrl.split("?")[0] })
+            throw new AppError("FORBIDDEN")
+        }
         next()
     }
 

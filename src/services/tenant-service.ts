@@ -1,3 +1,4 @@
+import { silentLogger, type LogService } from "../logging"
 import { AppError } from "../types/errors"
 import type { BankAccountInput, BankItem } from "../types/inputs"
 import type { TenantStore } from "../types/stores"
@@ -21,6 +22,7 @@ export class TenantService {
     constructor(
         private readonly db: TenantStore,
         private readonly timeZone: string,
+        private readonly log: LogService = silentLogger,
     ) {}
 
 
@@ -88,7 +90,11 @@ export class TenantService {
         }))
     }
 
-    async createMaintenance(userId: string, input: { title: string; description: string }): Promise<MaintenanceRequest> {
+    createMaintenance(userId: string, input: { title: string; description: string }): Promise<MaintenanceRequest> {
+        return this.log.flow("maintenance.create", { userId }, () => this.fileMaintenance(userId, input), (request) => ({ requestId: request.id }))
+    }
+
+    private async fileMaintenance(userId: string, input: { title: string; description: string }): Promise<MaintenanceRequest> {
         const tID = tenantIdOf(userId)
         const lease = await this.currentLease(tID)
         if (!lease) throw new AppError("NO_ACTIVE_LEASE")
@@ -107,20 +113,35 @@ export class TenantService {
         return rows.map((row) => ({ id: String(row.id), name: row.name, mask: row.mask, subtype: row.subtype }))
     }
 
-    async saveBankAccounts(userId: string, item: BankItem, accounts: BankAccountInput[]): Promise<LinkedBankAccount[]> {
-        const tID = tenantIdOf(userId)
-        await this.db.saveBankAccounts(tID, item, accounts)
-        return this.bankAccounts(tID)
+    // logs plaid.accounts_saved: which plaid item, how many accounts came with it and how many the tenant now has
+    saveBankAccounts(userId: string, item: BankItem, accounts: BankAccountInput[]): Promise<LinkedBankAccount[]> {
+        return this.log.flow("plaid.accounts_saved", { userId, itemId: item.itemId, linked: accounts.length }, async () => {
+            const tID = tenantIdOf(userId)
+            await this.db.saveBankAccounts(tID, item, accounts)
+            return this.bankAccounts(tID)
+        }, (saved) => ({ total: saved.length }))
     }
 
     /**
      * Record a payment on the tenant's current lease, from a linked bank account.
      * No money moves yet: the transfer itself (Plaid Transfer or a processor) is still to come.
      */
-    async recordPayment(
+    // logs payment.tenant.succeeded { userId, amount, method, leaseId, confirmation } or payment.tenant.failed { code }
+    recordPayment(
         userId: string,
         input: { amount: number; bankAccountId: number | null; idempotencyKey?: string | null },
         flags: { plaidEnabled: boolean; testPayments: boolean },
+    ): Promise<{ confirmation: string }> {
+        const facts: { leaseId?: number } = {}
+        return this.log.flow("payment.tenant", { userId, amount: input.amount, method: input.bankAccountId === null ? "test transfer" : "bank account" },
+            () => this.pay(userId, input, flags, facts), (result) => ({ ...facts, confirmation: result.confirmation }))
+    }
+
+    private async pay(
+        userId: string,
+        input: { amount: number; bankAccountId: number | null; idempotencyKey?: string | null },
+        flags: { plaidEnabled: boolean; testPayments: boolean },
+        facts: { leaseId?: number },
     ): Promise<{ confirmation: string }> {
         // Without a linked account, only development records a test transfer.
         if (input.bankAccountId === null && !flags.testPayments) {
@@ -129,6 +150,7 @@ export class TenantService {
         const tID = tenantIdOf(userId)
         const lease = await this.currentLease(tID)
         if (!lease) throw new AppError("NO_ACTIVE_LEASE")
+        facts.leaseId = lease.id
 
         let method = "Test transfer (no bank linked)"
         if (input.bankAccountId !== null) {

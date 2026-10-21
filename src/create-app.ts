@@ -45,7 +45,7 @@ export interface AppDependencies {
  */
 export function createApp(deps: AppDependencies): Application {
     const { config, logger, health, distRoot } = deps
-    const guard = createAuth(config)
+    const guard = createAuth(config, logger)
     const limits = createRateLimits(config)
     const app: Application = express()
 

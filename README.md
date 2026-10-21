@@ -131,9 +131,12 @@ login with `npm run cloudflare:prod db admin ...`, or sample data with
 Bank linking turns on when `PLAID_CLIENT_ID` and `PLAID_SECRET` are set (in `.env`, or
 `.env.prod` for production). `PLAID_ENV` is `sandbox` unless set to `production`.
 
-Banks that sign in on their own website send the tenant back to `<WEB_ORIGIN>/plaid-oauth`,
-and Plaid only allows return addresses listed in its dashboard (Developers > API > Allowed
-redirect URIs). Add the one for each way you run it:
+No redirect address is needed to test in a browser: when a bank signs in on its own
+website, Link opens it in a pop-up. A redirect address only matters inside a mobile
+app's embedded browser. To turn it on, have whoever runs the Plaid dashboard add the
+addresses below to its allowed redirect URIs, then set `PLAID_REDIRECT_URI=/plaid-oauth`
+(joined to each target's address). Until they are added, leave it unset: Plaid refuses
+to create a link session that names an address it has not allowed.
 
 | Run | Redirect URI |
 | --- | --- |
@@ -142,13 +145,42 @@ redirect URIs). Add the one for each way you run it:
 | `npm run prod`, `npm run docker:prod` | `http://localhost:8080/plaid-oauth` |
 | `cloudflare:dev`, `cloudflare:prod` | `https://<your hostname>/plaid-oauth` |
 
-Plain `http://` works only for localhost and only in sandbox. `PLAID_REDIRECT_URI` overrides
-the address if you need a different one.
+Plain `http://` works only for localhost and only in sandbox. A full address in
+`PLAID_REDIRECT_URI` is used as given.
 
 To test in sandbox, sign in as a tenant, open Pay rent, choose **Connect bank account**,
 pick any bank and sign in with `user_good` / `pass_good` (code `1234` if asked). When a
-Plaid call fails, the server logs `plaid.request_failed` with Plaid's error type, code,
+Plaid call fails, the server logs `plaid.request.failed` with Plaid's error type, code,
 message and request id, and the page shows Plaid's code.
+
+## Logs
+
+One JSON line per event, on the console (and in `LOG_FILE` when set). Every line written
+while handling a request carries that request's `request_id`, also sent back as the
+`x-request-id` header, so one id finds everything a click did. Lines carry ids and
+amounts, never emails, names, passwords or tokens.
+
+A flow step logs `<event>.succeeded` (info) or `<event>.failed`, which is a warning with the
+app's error `code` when the app refused, and an error with the cause when something broke.
+Both have `durationMs`. Office changes add `by`, the staff member (`admin:3`).
+
+| Event | Metadata |
+| --- | --- |
+| `request.completed` | method, path (no query string), statusCode, error code, durationMs |
+| `auth.login.succeeded` / `.failed` | userId, role / reason (`unknown email`, `wrong password`, `mfa required`) |
+| `auth.signup.*`, `auth.refresh.*`, `auth.logout` | userId |
+| `auth.token.rejected`, `auth.forbidden` | reason / userId, role, permission, path |
+| `payment.tenant.*` | userId, amount, method, leaseId, confirmation |
+| `payment.office.*`, `payment.reversed.*`, `payment.receipt_attached.*` | by, leaseId, amount, paymentId, confirmation |
+| `office.lease.create.*` / `.update.*` / `.add_tenant.*` / `.remove_tenant.*` | by, leaseId, unitId, tenantIds, invited |
+| `office.tenant.invite.*` / `.reinvite.*` / `.update.*` / `.deactivate.*` | by, tenantId, changed fields |
+| `office.property.*`, `office.unit.*` (create, update, deactivate) | by, propertyId / unitId |
+| `maintenance.create.*` / `.status.*` / `.deactivate.*` | userId or by, requestId, status |
+| `plaid.request.succeeded` / `.failed` | operation, env, Plaid's requestId, itemId, account counts / Plaid's code and message |
+| `plaid.accounts_saved.*` | userId, itemId, linked, total |
+| `rent.charges.*` | today, added |
+
+To follow one request in Docker: `docker compose logs app | grep <request id>`.
 
 ## Layout
 
