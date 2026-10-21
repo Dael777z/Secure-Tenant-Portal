@@ -10,6 +10,7 @@ import { createRateLimits } from "./middleware/rate-limit"
 import { requestLog } from "./middleware/request-log"
 import { privateApiCache, securityHeaders } from "./middleware/security"
 import { createAuthRouter } from "./routes/auth"
+import { createFinanceRouter } from "./routes/finance"
 import { createManagerRouter } from "./routes/manager"
 import { createMessageRouter } from "./routes/messages"
 import { createPlaidRouter } from "./routes/plaid"
@@ -17,6 +18,7 @@ import { createTenantRouter } from "./routes/tenant"
 import type { AuthService } from "./services/auth"
 import type { ManagerService } from "./services/manager-service"
 import type { MessageService } from "./services/message-service"
+import type { FinanceService } from "./services/finance-service"
 import type { PlaidGateway } from "./services/plaid"
 import type { TenantService } from "./services/tenant-service"
 import type { HealthStore } from "./types/stores"
@@ -32,6 +34,8 @@ export interface AppDependencies {
     tenant: TenantService
     /** Tenant ↔ office messages (004). */
     messages: MessageService
+    /** Collections, P&L, performance, expenses, leases ending soon (005). */
+    finance: FinanceService
     /** Null when Plaid is not configured: the bank-link routes answer 503. */
     plaid: PlaidGateway | null
     /** The built frontend (index.html and assets). Leave out when Vite serves it (development, tests). */
@@ -76,6 +80,8 @@ export function createApp(deps: AppDependencies): Application {
     app.use("/api", createAuthRouter({ auth: deps.auth, guard, limits, config }))
     app.use("/api", createPlaidRouter({ plaid: deps.plaid, tenant: deps.tenant, guard, limits, tokenEncryptionKey: config.tokenEncryptionKey }))
     app.use("/api", createTenantRouter({ tenant: deps.tenant, guard, limits, plaidEnabled: deps.plaid !== null, testPayments: !config.production }))
+    // Before the manager router, so /manager/leases/expiring is not read as a lease id.
+    app.use("/api", createFinanceRouter({ finance: deps.finance, guard, limits }))
     app.use("/api", createManagerRouter({ manager: deps.manager, guard, limits, webOrigin: config.webOrigin }))
     app.use("/api", createMessageRouter({ messages: deps.messages, guard, limits }))
 

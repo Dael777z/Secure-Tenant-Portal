@@ -9,6 +9,7 @@ import type {
     MaintenanceRecord, MaintenanceState, MessageRecord, OpenRequestCount, PaymentRecord, PersonRecord, PropertyRecord,
     Receipt, RecentPaymentRecord, SessionUser, StaffProfile, TenantMaintenanceRecord, ThreadRecord, UnitRecord, UserRecord,
 } from "../types/records"
+import type { ExpenseRecord, LeaseLocation, MaintenanceTiming, NewExpense, RenewalNoticeRecord } from "../types/finance"
 import type { DatabaseInterface } from "../types/stores"
 import { isStaffRole, type Role } from "../types/access"
 import { AppError } from "../types/errors"
@@ -770,4 +771,92 @@ export class PostgresDatabase implements DatabaseInterface {
             }
         })
     }
+
+    // ---- Finance, collections and performance (005; staff only, by RLS)
+
+    async listAllCharges(): Promise<ChargeRecord[]> {
+        return (await this.query<ChargeRecord>(`SELECT ${CHARGE} FROM Charge c ORDER BY c.due_date, c.chargeID`)).rows
+    }
+
+    async listAllPayments(): Promise<PaymentRecord[]> {
+        const { rows } = await this.query<PaymentRecord>(
+            `SELECT ${PAYMENT} FROM Payment p LEFT JOIN Payment_Details d ON d.payID = p.payID ORDER BY p."timestamp", p.payID`,
+        )
+        return rows
+    }
+
+    async listLeaseLocations(): Promise<LeaseLocation[]> {
+        const { rows } = await this.query<LeaseLocation>(
+            `SELECT l.LeaseID AS "leaseId", u.uID AS "unitId", u.UnitNum AS "unitNum", p.pID AS "propertyId", p.Name AS "propertyName"
+             FROM Lease l JOIN Units u ON u.uID = l.uID JOIN Property p ON p.pID = u.pID`,
+        )
+        return rows
+    }
+
+    async listExpenses(): Promise<ExpenseRecord[]> {
+        const { rows } = await this.query<ExpenseRecord>(
+            `SELECT e.expID AS id, e.pID AS "propertyId", p.Name AS "propertyName", e.uID AS "unitId", u.UnitNum AS "unitNum",
+                    e.category, e.amount, e.spent_on AS "spentOn", e.vendor, e.description, a.name AS "createdBy"
+             FROM Expenses e
+             LEFT JOIN Property p ON p.pID = e.pID
+             LEFT JOIN Units u ON u.uID = e.uID
+             LEFT JOIN Admin a ON a.admin_id = e.created_by
+             WHERE e.voided_at IS NULL
+             ORDER BY e.spent_on DESC, e.expID DESC`,
+        )
+        return rows
+    }
+
+    async addExpense(input: NewExpense): Promise<number> {
+        const who = currentIdentity()
+        try {
+            const { rows } = await this.query<{ id: number }>(
+                `INSERT INTO Expenses (pID, uID, category, amount, spent_on, vendor, description, created_by)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING expID AS id`,
+                [input.propertyId, input.unitId, input.category, input.amount.toFixed(2), input.spentOn, input.vendor, input.description, who.type === "admin" ? who.id : null],
+            )
+            return rows[0]!.id
+        } catch (error) {
+            if (hasCode(error, PG.check, "23503")) throw new AppError("VALIDATION_ERROR")   // bad category/amount, unit not in property, unknown property
+            throw error
+        }
+    }
+
+    async voidExpense(expId: number): Promise<void> {
+        const result = await this.query("UPDATE Expenses SET voided_at = now() WHERE expID = $1 AND voided_at IS NULL", [expId])
+        if (!result.rowCount) throw new AppError("NOT_FOUND")
+    }
+
+    async listMaintenanceTimings(): Promise<MaintenanceTiming[]> {
+        const { rows } = await this.query<MaintenanceTiming>(
+            `SELECT m.mID AS id, m.uID AS "unitId", m.status, m.created_at AS "createdAt",
+                    CASE WHEN m.status = 'resolved' THEN
+                        (SELECT max(h.changed_at) FROM Maintenance_Status_History h WHERE h.mID = m.mID AND h.new_status = 'resolved')
+                    END AS "resolvedAt"
+             FROM Maintenance_T m WHERE m.deactivated_at IS NULL`,
+        )
+        return rows
+    }
+
+    async listRenewalNotices(): Promise<RenewalNoticeRecord[]> {
+        const { rows } = await this.query<RenewalNoticeRecord>(
+            `SELECT DISTINCT ON (LeaseID) LeaseID AS "leaseId", sent_at AS "sentAt", recipients
+             FROM Lease_Renewal_Notices ORDER BY LeaseID, sent_at DESC`,
+        )
+        return rows
+    }
+
+    async recordRenewalNotice(leaseId: number, recipients: number): Promise<void> {
+        const who = currentIdentity()
+        await this.query("INSERT INTO Lease_Renewal_Notices (LeaseID, sent_by, recipients) VALUES ($1, $2, $3)",
+            [leaseId, who.type === "admin" ? who.id : null, recipients])
+    }
+
+    async listLastOfficeMessages(): Promise<Array<{ tenantId: number; at: Date }>> {
+        const { rows } = await this.query<{ tenantId: number; at: Date }>(
+            `SELECT tID AS "tenantId", max(created_at) AS at FROM Messages WHERE sender_admin_id IS NOT NULL GROUP BY tID`,
+        )
+        return rows
+    }
+
 }

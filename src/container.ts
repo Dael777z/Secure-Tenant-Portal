@@ -7,6 +7,7 @@ import { createPool } from "./db/pool"
 import { PostgresDatabase } from "./db/postgres-db"
 import { createLogger, type LogService } from "./logging"
 import { AuthService } from "./services/auth"
+import { FinanceService } from "./services/finance-service"
 import { ManagerService } from "./services/manager-service"
 import { MessageService } from "./services/message-service"
 import { createPlaidGateway, type PlaidGateway } from "./services/plaid"
@@ -60,6 +61,7 @@ export function createContainer(overrides: { config?: AppConfig; db?: DatabaseIn
         manager: new ManagerService(db, config.timeZone, logger),
         tenant: new TenantService(db, config.timeZone, logger),
         messages: new MessageService(db, config.timeZone),
+        finance: new FinanceService(db, config.timeZone, logger),
         plaid,
         distRoot: overrides.distRoot,
         rentCharges,

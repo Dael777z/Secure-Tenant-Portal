@@ -2,7 +2,7 @@ import bcrypt from "bcrypt"
 import type { Pool, PoolClient } from "pg"
 
 import { newInvite } from "../../utils/tokens"
-import { DATASETS, PASSWORDS, type Dates, type SeedData, type SeedLease } from "./data"
+import { DATASETS, PASSWORDS, type Dates, type SeedData, type SeedExpense, type SeedLease } from "./data"
 
 
 /*
@@ -136,7 +136,16 @@ async function write(
                 [unitId, tenantId, r.title, r.description ?? "", r.status, r.filed],
             )
         }
+
+        // Expenses for this property (005), optionally on one unit.
+        for (const e of property.expenses ?? []) {
+            const unitId = e.unit === undefined ? null : unitIds.get(e.unit)
+            if (unitId === undefined) throw new Error(`seed data: expense on unit ${e.unit}, which ${property.name} does not have`)
+            await writeExpense(client, { ...e, propertyId, unitId })
+        }
     }
+
+    for (const e of data.expenses ?? []) await writeExpense(client, { ...e, propertyId: null, unitId: null })
 
     // Generate the rent charges for every tenant beginning at date ending at today.
     await client.query("SELECT generate_rent_charges($1::date)", [isoDate(ctx.today)])
@@ -162,7 +171,8 @@ function paymentHistory(lease: SeedLease, today: Date) {
     return paid
         .map((p) => {
             const at = new Date(`${p.due}T16:00:00Z`)
-            at.setUTCDate(at.getUTCDate() + 2)
+            // Most months on the due date or a day after; now and then a few days late.
+            at.setUTCDate(at.getUTCDate() + [0, 1, 0, 2, 0, 4][p.month % 6]!)
             return { ...p, at, method: p.month % 4 === 3 ? "Check (recorded by office)" : "Bank transfer" }
         })
         .filter((p) => p.at <= today)
@@ -194,9 +204,19 @@ function datesFrom(today: Date): Dates {
             const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - n, day))
             return isoDate(d)
         },
+        daysAhead(n) {
+            return isoDate(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + n)))
+        },
         daysAgo(n, hour = 9) {
             const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - n, hour))
             return d.toISOString()
         },
     }
+}
+
+async function writeExpense(client: PoolClient, e: SeedExpense & { propertyId: number | null; unitId: number | null }) {
+    await client.query(
+        "INSERT INTO Expenses (pID, uID, category, amount, spent_on, vendor, description) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        [e.propertyId, e.unitId, e.category, e.amount.toFixed(2), e.on, e.vendor ?? null, e.description ?? null],
+    )
 }

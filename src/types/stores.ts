@@ -1,3 +1,4 @@
+import type { ExpenseRecord, LeaseLocation, MaintenanceTiming, NewExpense, RenewalNoticeRecord } from "./finance"
 import type {
     BankAccountInput, BankItem, CreatedLease, NewCharge, HashExpiry, LeaseChanges, LeaseTenantInput, NewLease,
     NewMaintenance, NewPayment, NewRefreshToken, NewTenant, PropertyInput, TenantChanges, UnitInput,
@@ -163,7 +164,37 @@ export type ManagerStore =
 
 export type MessagingStore = MessageStore & Pick<PeopleStore, "findPerson"> & Pick<LeaseStore, "findCurrentLease">
 
+/** Finance, collections, P&L and performance (005). Staff ('admin') only. */
+export interface FinanceStore {
+    /** Every charge on every lease, oldest due first. */
+    listAllCharges(): Promise<ChargeRecord[]>
+    /** Every payment and refund on every lease, oldest first. */
+    listAllPayments(): Promise<PaymentRecord[]>
+    /** Every lease and where it is, retired units included. */
+    listLeaseLocations(): Promise<LeaseLocation[]>
+    /** Expenses that are not voided, newest first. */
+    listExpenses(): Promise<ExpenseRecord[]>
+    /** Returns its id. VALIDATION_ERROR when the unit is not in the property. */
+    addExpense(input: NewExpense): Promise<number>
+    /** NOT_FOUND when unknown or already voided. */
+    voidExpense(expId: number): Promise<void>
+    listMaintenanceTimings(): Promise<MaintenanceTiming[]>
+    /** The newest notice per lease. */
+    listRenewalNotices(): Promise<RenewalNoticeRecord[]>
+    recordRenewalNotice(leaseId: number, recipients: number): Promise<void>
+    /** When the office last wrote to each tenant. */
+    listLastOfficeMessages(): Promise<Array<{ tenantId: number; at: Date }>>
+}
+
+export type FinanceDataStore =
+    & FinanceStore
+    & Pick<PropertyStore, "listProperties" | "listUnits">
+    & Pick<PeopleStore, "listPeople">
+    & Pick<LeaseStore, "listLeases" | "listLeaseResidents" | "findLease" | "listLeaseTenants">
+    & Pick<LedgerStore, "listLeaseBalances">
+    & Pick<MessageStore, "sendMessage">
+
 /** The whole database. */
 export type DatabaseInterface =
     & HealthStore & AccountStore & SessionStore & PropertyStore & PeopleStore
-    & LeaseStore & LedgerStore & PaymentStore & MaintenanceStore & BankStore & MessageStore
+    & LeaseStore & LedgerStore & PaymentStore & MaintenanceStore & BankStore & MessageStore & FinanceStore
