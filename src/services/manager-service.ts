@@ -187,7 +187,7 @@ export class ManagerService {
         const person = await this.db.findPerson(tID)
         if (!person) throw new AppError("NOT_FOUND")
         const fresh = newInvite()
-        await this.db.resetSignIn(tID, fresh.hash)
+        await this.change("office.tenant.reset_sign_in", { tenantId: tID }, () => this.db.resetSignIn(tID, fresh.hash))
         return inviteResult(tID, person.email, fresh)
     }
 
@@ -281,7 +281,7 @@ export class ManagerService {
 
     /** A late fee, deposit, utility bill, proration or other charge. Rent itself is billed by the rent job. */
     addCharge(leaseId: number, input: Omit<NewCharge, "leaseId">): Promise<number> {
-        return this.db.addCharge({ ...input, leaseId })
+        return this.change("office.charge.add", { leaseId, kind: input.kind, amount: input.amount }, () => this.db.addCharge({ ...input, leaseId }), (chargeId) => ({ chargeId }))
     }
 
     // ---- Receipts
