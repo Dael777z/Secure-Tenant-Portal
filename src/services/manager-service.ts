@@ -266,15 +266,17 @@ export class ManagerService {
         leaseId: number,
         input: { amount: number; method: string; tenantId: number | null; receipt?: Receipt | null },
     ): Promise<string> {
-        const recorded = await this.db.recordPayment({
-            leaseId,
-            amount: input.amount,
-            tenantId: input.tenantId,
-            method: `${input.method} (recorded by office)`.slice(0, 60),
-            confirmation: officeConfirmation(),
-            receipt: input.receipt,
-        })
-        return recorded.confirmation
+        return this.change("payment.office", { leaseId, amount: input.amount, tenantId: input.tenantId, withReceipt: Boolean(input.receipt) }, async () => {
+            const recorded = await this.db.recordPayment({
+                leaseId,
+                amount: input.amount,
+                tenantId: input.tenantId,
+                method: `${input.method} (recorded by office)`.slice(0, 60),
+                confirmation: officeConfirmation(),
+                receipt: input.receipt,
+            })
+            return recorded.confirmation
+        }, (confirmation) => ({ confirmation }))
     }
 
     /** A late fee, deposit, utility bill, proration or other charge. Rent itself is billed by the rent job. */
