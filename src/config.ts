@@ -33,9 +33,9 @@ const FIXED = {
 
 /** Requests per IP per 15 minutes. */
 const RATE_LIMITS = {
-    production: { login: 10, signup: 5, refresh: 20, sensitive: 10 },
-    development: { login: 30, signup: 20, refresh: 60, sensitive: 30 },
-    test: { login: 1000, signup: 1000, refresh: 1000, sensitive: 1000 },
+    production: { login: 10, signup: 5, refresh: 20, sensitive: 10, messages: 60 },
+    development: { login: 30, signup: 20, refresh: 60, sensitive: 30, messages: 200 },
+    test: { login: 1000, signup: 1000, refresh: 1000, sensitive: 1000, messages: 1000 },
 }
 
 const DEV_ONLY_SECRET = "development-only-secret-never-use-in-production"

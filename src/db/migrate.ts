@@ -32,10 +32,13 @@ export async function migrationStatus(pool: Pool, dir = MIGRATIONS_DIR) {
         : [])
     
     // check old checksums against the current checksums, listing them by applied (up to date), changed (exists, out of date), pending (no schema entry)
+    // applied, changed and pending are migration files; unknown are names only, since there is no file left.
     return {
         applied: files.filter((file) => old_checksums.has(file.name) && old_checksums.get(file.name) == file.checksum),
         changed: files.filter((file) => old_checksums.has(file.name) && old_checksums.get(file.name) != file.checksum),
-        pending: files.filter((file) => !old_checksums.has(file.name))
+        pending: files.filter((file) => !old_checksums.has(file.name)),
+        // recorded in schema_migrations but no longer a file here (deleted or renamed)
+        unknown: [...old_checksums.keys()].filter((name) => !files.some((file) => file.name === name)),
     }
 }
 
@@ -45,11 +48,11 @@ export async function migrate(pool: Pool, dir = MIGRATIONS_DIR, log: (line: stri
     await pool.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
         filename TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`)
 
-    const { pending, changed } = await migrationStatus(pool, dir)
+    const { pending, changed, unknown } = await migrationStatus(pool, dir)
 
-    if (changed.length) {
+    if (changed.length || unknown.length) {
         throw new Error(
-            `The database does not match db/migrations (${changed.map((file) => `${file.name} was edited`).join(", ")}).\n` +
+            `The database does not match db/migrations (${[...changed.map((file) => `${file.name} was edited`), ...unknown.map((name) => `${name} is not a file`)].join(", ")}).\n` +
             "`npm run db reset` starts over.")
     }
 

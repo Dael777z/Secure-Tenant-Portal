@@ -36,9 +36,25 @@ npm run docker:prod db <task>   a database task inside the stack (see below)
 npm run docker:prod down        stop it   (npm run docker:prod down -- --volumes also deletes its database)
 ```
 
-Sign in to development data as `manager@example.com` / `manager-demo-password`,
-or `tenant@example.com` / `tenant-demo-password`. `npm run dev empty` starts a new
-development database with no sample data (add a login with `npm run db admin`).
+Sign in to development data as `manager@example.com` / `manager-demo-password`
+(property manager), `maintenance@example.com` / `manager-demo-password` (maintenance
+staff: the maintenance queue only), or `tenant@example.com` / `tenant-demo-password`.
+`npm run dev empty` starts a new development database with no sample data (add a
+login with `npm run db admin`; `--maintenance` makes it a maintenance staff login).
+
+## Three roles
+
+| Role | Admin.role / table | Can |
+|---|---|---|
+| Property manager | `admin` | Everything on the manager side |
+| Maintenance staff | `maintenance_staff` (003) | The maintenance queue: read, file, change status. No leases, money or bank accounts, in the API and in the database's RLS |
+| Tenant | Tenants table | Their own lease, ledger, payments, requests and bank links |
+
+On a lease, **Add a charge** adds a late fee, deposit, utility bill, proration or
+other charge (rent is billed automatically). On Tenants, **Reset sign-in** gives a
+signed-up tenant a link to choose a new password; their old password and sessions
+stop working. A tenant's payment carries a key per checkout, so a double click or a
+retry is recorded once.
 
 ## Database tasks
 

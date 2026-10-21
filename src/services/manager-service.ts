@@ -1,7 +1,7 @@
 import { currentIdentity } from "../db/identity"
 import { silentLogger, type LogMetadata, type LogService } from "../logging"
 import { AppError } from "../types/errors"
-import type { HashExpiry, LeaseChanges, NewLease, PropertyInput, TenantChanges, UnitInput } from "../types/inputs"
+import type { HashExpiry, LeaseChanges, NewCharge, NewLease, PropertyInput, TenantChanges, UnitInput } from "../types/inputs"
 import type { CreatedLeaseResult, DashboardData, InviteResult, LeaseDetail, MaintenanceRow, PropertySummary, TenantRow, UnitRow, UpdateRow } from "../types/manager"
 import type { LeaseRecord, MaintenanceState, Receipt } from "../types/records"
 import type { ManagerStore } from "../types/stores"
@@ -171,14 +171,24 @@ export class ManagerService {
     }
 
     // update the hash on the database for a tenant who exists but has not completed signup
-    reissueInvite(tID: number): Promise<InviteResult> {
-        return this.change("office.tenant.reinvite", { tenantId: tID }, async () => {
-            const person = await this.db.findPerson(tID)
-            if (!person) throw new AppError("NOT_FOUND")
-            const invite = newInvite()
-            await this.db.reissueInvite(tID, invite.hash)
-            return inviteResult(tID, person.email, invite)
-        })
+    async reissueInvite(tID: number): Promise<InviteResult> {
+        const person = await this.db.findPerson(tID)
+        if (!person) throw new AppError("NOT_FOUND")
+        const invite = newInvite()
+        await this.db.reissueInvite(tID, invite.hash)
+        return inviteResult(tID, person.email, invite)
+    }
+
+    /**
+     * A signed-up tenant who cannot sign in: their password stops working and
+     * they are signed out everywhere; the link lets them choose a new one.
+     */
+    async resetSignIn(tID: number): Promise<InviteResult> {
+        const person = await this.db.findPerson(tID)
+        if (!person) throw new AppError("NOT_FOUND")
+        const fresh = newInvite()
+        await this.db.resetSignIn(tID, fresh.hash)
+        return inviteResult(tID, person.email, fresh)
     }
 
     // update the atributes of a tenant by tenant id
@@ -256,18 +266,20 @@ export class ManagerService {
         leaseId: number,
         input: { amount: number; method: string; tenantId: number | null; receipt?: Receipt | null },
     ): Promise<string> {
-        const confirmation = officeConfirmation()
-        return this.change("payment.office", { leaseId, amount: input.amount, tenantId: input.tenantId, withReceipt: Boolean(input.receipt) }, async () => {
-            await this.db.recordPayment({
-                leaseId,
-                amount: input.amount,
-                tenantId: input.tenantId,
-                method: `${input.method} (recorded by office)`.slice(0, 60),
-                confirmation,
-                receipt: input.receipt,
-            })
-            return confirmation
-        }, () => ({ confirmation }))
+        const recorded = await this.db.recordPayment({
+            leaseId,
+            amount: input.amount,
+            tenantId: input.tenantId,
+            method: `${input.method} (recorded by office)`.slice(0, 60),
+            confirmation: officeConfirmation(),
+            receipt: input.receipt,
+        })
+        return recorded.confirmation
+    }
+
+    /** A late fee, deposit, utility bill, proration or other charge. Rent itself is billed by the rent job. */
+    addCharge(leaseId: number, input: Omit<NewCharge, "leaseId">): Promise<number> {
+        return this.db.addCharge({ ...input, leaseId })
     }
 
     // ---- Receipts

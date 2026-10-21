@@ -1,4 +1,10 @@
 import { useState } from "react";
+
+/** A fresh id for one checkout (letters, digits and dashes, as the server expects). */
+const newCheckoutKey = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 import { useTenantData } from "../data/tenantData";
 import { messageFor, tenantApi } from "../api/tenant";
 import { PlaidLinkButton } from "../components/PlaidLinkButton";
@@ -22,6 +28,8 @@ export function PayRentPage() {
   const { currentBalance, bankAccounts, plaidEnabled, testPayments, refresh } = useTenantData();
   const [confirmation, setConfirmation] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Kept until this checkout succeeds: pressing Pay again (or a retry) reuses it.
+  const [checkoutKey, setCheckoutKey] = useState(newCheckoutKey);
 
   const total = currentBalance + PROCESSING_FEE;
   // Bank transfer only for now (client, 9/27): from the tenant's Plaid-linked
@@ -37,10 +45,11 @@ export function PayRentPage() {
     setError(null);
 
     tenantApi
-      .pay(Math.round(total * 100) / 100, bankAccount?.id ?? null)
+      .pay(Math.round(total * 100) / 100, bankAccount?.id ?? null, checkoutKey)
       .then(async (result) => {
         setConfirmation(result.confirmation);
         setPaidJustNow(true);
+        setCheckoutKey(newCheckoutKey());   // the next payment is a new checkout
         await refresh();
       })
       .catch((caught) => setError(messageFor(caught)))

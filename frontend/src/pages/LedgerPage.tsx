@@ -5,6 +5,7 @@ export function LedgerPage() {
   const { ledger } = useTenantData();
   return (
     <section className="portal-panel" aria-label="Full ledger">
+       <div className="table-scroll">
       <table className="ledger-table">
         <thead>
           <tr>
@@ -30,6 +31,7 @@ export function LedgerPage() {
           ))}
         </tbody>
       </table>
+      </div>
     </section>
   );
 }

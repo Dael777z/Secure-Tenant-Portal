@@ -10,7 +10,8 @@ const HELP = `Database tasks, as the schema owner (POSTGRES_USER / POSTGRES_PASS
 
   status                 what is applied, what is pending, whether there is data
   migrate                apply pending migrations; give summit_app its password (APP_DB_PASSWORD)
-  admin <email> [name]   add a staff login; the password comes from ADMIN_PASSWORD (npm asks for it)
+  admin <email> [name]   add a staff login; the password comes from ADMIN_PASSWORD (npm asks for it).
+                         With --maintenance it is a maintenance staff login (the queue only)
   seed [clean]           load the sample data in src/db/seed/data.ts (skipped if staff exist)
   setup [clean|empty]    migrate, then seed (safe to repeat)
   reset [clean|empty]    wipe the database, then setup
@@ -50,8 +51,8 @@ async function main(command = "help", ...flags: string[]) {
             const password = process.env.ADMIN_PASSWORD ?? ""
             if (!email) throw new Error("Usage: admin <email> [name]")
             if (!password) throw new Error("Set ADMIN_PASSWORD (npm run db admin asks for it).")
-            await createStaffAccount(pool, { email, name: name.join(" ") || email.split("@")[0]!, password, bcryptRounds: config.bcryptRounds })
-            return console.log(`staff login added: ${email.toLowerCase()}`)
+            await createStaffAccount(pool, { email, name: name.join(" ") || email.split("@")[0]!, password, bcryptRounds: config.bcryptRounds, role: has("maintenance") ? "maintenance_staff" : "admin" })
+            return console.log(`staff login added: ${email.toLowerCase()}${has("maintenance") ? " (maintenance staff)" : ""}`)
         }
         if (command === "reset") {
             await wipe(pool)
@@ -77,6 +78,7 @@ async function printStatus(pool: Pool) {
     console.log(`applied: ${names(s.applied)}`)
     console.log(`pending: ${names(s.pending)}`)
     if (s.changed.length) console.log(`edited since applied: ${names(s.changed)} (npm run db reset)`)
+    if (s.unknown.length) console.log(`applied but no longer a file: ${s.unknown.join(", ")} (npm run db reset)`)
     if (s.applied.length || s.changed.length) {
         const staff = (await pool.query("SELECT count(*)::int AS n FROM Admin")).rows[0].n
         console.log(staff ? `data: ${staff} staff account(s)` : "data: empty (npm run db seed)")

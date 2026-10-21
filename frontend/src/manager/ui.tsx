@@ -15,6 +15,7 @@ export type Route =
   | { name: "tenants" }
   | { name: "lease"; id: number }
   | { name: "maintenance" }
+  | { name: "messages"; tenantId?: number }
   | { name: "updates" };
 
 export function parseRoute(hash: string): Route | null {
@@ -38,6 +39,8 @@ export function parseRoute(hash: string): Route | null {
       return { name: "maintenance" };
     case "updates":
       return { name: "updates" };
+    case "messages":
+      return Number.isInteger(n) && n > 0 ? { name: "messages", tenantId: n } : { name: "messages" };
     default:
       return null;
   }
@@ -51,6 +54,8 @@ export function routeHash(route: Route): string {
       return `#/leases/${route.id}`;
     case "rent-roll":
       return route.filter ? `#/rent-roll?status=${route.filter}` : "#/rent-roll";
+    case "messages":
+      return route.tenantId ? `#/messages/${route.tenantId}` : "#/messages";
     default:
       return `#/${route.name}`;
   }
@@ -72,6 +77,7 @@ export type Dialog =
   | { kind: "endLease"; leaseId: number; label: string }
   | { kind: "addResident"; leaseId: number }
   | { kind: "attachReceipt"; leaseId: number; paymentId: number; label: string }
+  | { kind: "charge"; leaseId: number; label: string }
   | {
       kind: "confirm";
       title: string;

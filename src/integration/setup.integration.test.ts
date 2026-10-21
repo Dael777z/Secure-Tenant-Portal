@@ -18,7 +18,7 @@ describe.skipIf(!hasDatabase)("database setup: migrate, seed, reset, startup che
     it("is fully migrated, and the app's login passes the startup check", async () => {
         const status = await migrationStatus(t.owner)
         expect(status.pending).toEqual([])
-        expect(status.applied.map((file) => file.name)).toEqual(["001_schema.sql", "002_portal.sql"])
+        expect(status.applied.map((file) => file.name)).toEqual(["001_schema.sql", "002_portal.sql", "003_maintenance_staff.sql", "004_messages.sql"])
         await expect(checkDatabase(t.app)).resolves.toBeUndefined()
         expect(await migrate(t.owner)).toEqual([])   // nothing left to do
     })
@@ -47,7 +47,7 @@ describe.skipIf(!hasDatabase)("database setup: migrate, seed, reset, startup che
 
     it("loads the full sample once, with history, balances and an invite link", async () => {
         const report = await seed(t.owner, { webOrigin: "http://localhost:5173", bcryptRounds: 4 })
-        expect(report[0]).toBe("seeded: 1 staff, 2 properties, 18 units, 14 leases, 15 tenants")
+        expect(report[0]).toBe("seeded: 2 staff, 2 properties, 18 units, 14 leases, 15 tenants")
         expect(report.join("\n")).toMatch(/nora\.brooks@example\.com: http:\/\/localhost:5173\/signup\?token=[0-9a-f]{64}/)
 
         const count = async (sql: string) => (await t.owner.query(sql)).rows[0].n as number
@@ -62,8 +62,8 @@ describe.skipIf(!hasDatabase)("database setup: migrate, seed, reset, startup che
     it("reset: wipe, migrate and seed again from nothing", async () => {
         await wipe(t.owner)
         await expect(checkDatabase(t.app)).rejects.toThrow("no tables yet")
-        expect(await migrate(t.owner)).toEqual(["001_schema.sql", "002_portal.sql"])
-        expect((await seed(t.owner, { dataset: "clean", webOrigin: "x", bcryptRounds: 4 }))[0]).toBe("seeded: 1 staff, 1 properties, 4 units, 1 leases, 1 tenants")
+        expect(await migrate(t.owner)).toEqual(["001_schema.sql", "002_portal.sql", "003_maintenance_staff.sql", "004_messages.sql"])
+        expect((await seed(t.owner, { dataset: "clean", webOrigin: "x", bcryptRounds: 4 }))[0]).toBe("seeded: 2 staff, 1 properties, 4 units, 1 leases, 1 tenants")
         await expect(checkDatabase(t.app)).resolves.toBeUndefined()
     })
 

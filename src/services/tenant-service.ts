@@ -129,7 +129,7 @@ export class TenantService {
     // logs payment.tenant.succeeded { userId, amount, method, leaseId, confirmation } or payment.tenant.failed { code }
     recordPayment(
         userId: string,
-        input: { amount: number; bankAccountId: number | null },
+        input: { amount: number; bankAccountId: number | null; idempotencyKey?: string | null },
         flags: { plaidEnabled: boolean; testPayments: boolean },
     ): Promise<{ confirmation: string }> {
         const facts: { leaseId?: number } = {}
@@ -159,15 +159,15 @@ export class TenantService {
             method = `${account.name}${account.mask ? ` ${account.mask}` : ""}`
         }
 
-        const confirmation = tenantConfirmation()
-        await this.db.recordPayment({
+        return this.db.recordPayment({
             leaseId: lease.id,
             amount: input.amount,
             tenantId: tID,
             method: method.slice(0, 60),
-            confirmation,
+            confirmation: tenantConfirmation(),
+            // Scoped to the tenant, so one tenant's key can never match another's payment.
+            idempotencyKey: input.idempotencyKey ? `tenant:${tID}:${input.idempotencyKey}` : null,
         })
-        return { confirmation }
     }
 
     /** Notices built from what is on record (there is no notices table): rent due, payments, repair updates. */
