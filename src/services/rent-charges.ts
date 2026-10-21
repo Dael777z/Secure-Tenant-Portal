@@ -1,4 +1,4 @@
-import type { LogService } from "../logging"
+import { silentLogger, type LogService } from "../logging"
 import { runAs, SYSTEM } from "../db/identity"
 import type { LedgerStore } from "../types/stores"
 import { localDate } from "./ledger"
@@ -10,20 +10,19 @@ export class RentChargeService {
     constructor(
         private readonly db: Pick<LedgerStore, "generateRentCharges">,
         private readonly timeZone: string,
-        private readonly logger?: LogService,
+        private readonly logger: LogService = silentLogger,
     ) {}
 
     /** Add every rent charge that is due and missing. Returns how many were added. */
+    // logs rent.charges.succeeded { added } or rent.charges.failed
     async run(): Promise<number> {
-        return runAs(SYSTEM, () => this.db.generateRentCharges(localDate(new Date(), this.timeZone)))
+        const today = localDate(new Date(), this.timeZone)
+        return this.logger.flow("rent.charges", { today }, () => runAs(SYSTEM, () => this.db.generateRentCharges(today)), (added) => ({ added }))
     }
 
     start(intervalMs = 6 * 60 * 60 * 1000): void {
         if (this.timer) return
-        const tick = () => this.run().then(
-            (added) => this.logger?.info("rent_charges.run", { added }),
-            (error) => this.logger?.errorWithCause("rent_charges.failed", error),
-        )
+        const tick = () => this.run().catch(() => undefined)   // already logged; the next tick tries again
         void tick()
         this.timer = setInterval(tick, intervalMs)
         this.timer.unref()   // never keeps the process alive

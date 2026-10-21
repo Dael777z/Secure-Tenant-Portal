@@ -57,13 +57,19 @@ export function createPlaidGateway(options: PlaidGatewayOptions): PlaidGateway {
         }),
     )
 
-    // wraps a plaid operation in a try catch statement that will catch and log plaid errors
-    async function call<T>(operation: string, request: () => Promise<{ data: T }>): Promise<T> {
+    // runs one plaid call and logs it: plaid.request.succeeded or plaid.request.failed, with plaid's
+    // request id (what plaid support asks for) and how long it took
+    async function call<T extends { request_id?: string }>(operation: string, request: () => Promise<{ data: T }>, outcome?: (data: T) => Record<string, unknown>): Promise<T> {
+        const startedAt = Date.now()
         try {
-            return (await request()).data
+            const data = (await request()).data
+            options.logger.info("plaid.request.succeeded", {
+                operation, env: options.env, requestId: data.request_id ?? null, ...outcome?.(data), durationMs: Date.now() - startedAt,
+            })
+            return data
         } catch (error) {
             const failure = describePlaidFailure(error)
-            options.logger.error("plaid.request_failed", { operation, env: options.env, ...failure })
+            options.logger.error("plaid.request.failed", { operation, env: options.env, ...failure, durationMs: Date.now() - startedAt })
             throw new AppError("PLAID_ERROR", {
                 operation,
                 plaidCode: failure.code,
@@ -84,15 +90,16 @@ export function createPlaidGateway(options: PlaidGatewayOptions): PlaidGateway {
                 products: [Products.Auth],
                 country_codes: [CountryCode.Us],
                 language: "en",
-                redirect_uri: options.redirectUri,
+                ...(options.redirectUri ? { redirect_uri: options.redirectUri } : {}), // only when one is configured
             }))
             return data.link_token
         },
 
         // exchange link token for a limited plaid api access token, return accounts and access token
         async exchangeAndGetAuth(publicToken) {
-            const exchange = await call("item_public_token_exchange", () => plaid.itemPublicTokenExchange({ public_token: publicToken }))
-            const auth = await call("auth_get", () => plaid.authGet({ access_token: exchange.access_token }))
+            const exchange = await call("item_public_token_exchange", () => plaid.itemPublicTokenExchange({ public_token: publicToken }), (data) => ({ itemId: data.item_id }))
+            const auth = await call("auth_get", () => plaid.authGet({ access_token: exchange.access_token }),
+                (data) => ({ itemId: data.item.item_id, accounts: data.accounts.length, achNumbers: data.numbers.ach.length }))
             const accounts = auth.accounts.map((account) => {
                 const ach = auth.numbers.ach.find((n) => n.account_id === account.account_id)
                 return {

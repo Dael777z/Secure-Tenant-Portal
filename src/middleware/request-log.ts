@@ -17,9 +17,15 @@ export function requestLog(logger: LogService): RequestHandler {
         const startedAt = Date.now()
 
         // log when this request completed and how long it took
-        res.on("finish", () => {
-            logger.info("request.completed", { method: req.method, path: req.originalUrl, statusCode: res.statusCode, durationMs: Date.now() - startedAt })
-        })
+        res.on("finish", () => runWithRequestId(requestId, () => {   // "finish" fires outside the request's context
+            logger.info("request.completed", {
+                method: req.method,
+                path: req.originalUrl.split("?")[0],   // no query string: sign-up and oauth links carry tokens
+                statusCode: res.statusCode,
+                ...(res.locals.errorCode ? { error: res.locals.errorCode } : {}),   // set by middleware/errors.ts
+                durationMs: Date.now() - startedAt,
+            })
+        }))
 
         runWithRequestId(requestId, next) // run the remaining middleware with the async local storage context associated with this request id
     }

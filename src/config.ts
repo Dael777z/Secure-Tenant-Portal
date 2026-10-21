@@ -82,8 +82,12 @@ export function loadConfig(vars: NodeJS.ProcessEnv = process.env, { server = tru
         plaidClientId: get("PLAID_CLIENT_ID"),
         plaidSecret: get("PLAID_SECRET"),
         plaidEnv: (get("PLAID_ENV") || "sandbox") as "sandbox" | "production",
-        /** Where a bank's own sign-in page sends the tenant back to Link. Must be in the Plaid dashboard's allowed redirect URIs. */
-        plaidRedirectUri: get("PLAID_REDIRECT_URI") || `${webOrigin.replace(/\/$/, "")}/plaid-oauth`,
+        /**
+         * Where a bank's own sign-in page sends the tenant back to Link. Off unless set, because
+         * Plaid refuses any address missing from its dashboard's allowed list (browsers do
+         * without it: Link uses a pop-up). A path like "/plaid-oauth" is joined to WEB_ORIGIN.
+         */
+        plaidRedirectUri: redirectUri(get("PLAID_REDIRECT_URI"), webOrigin),
         /** Encrypts Plaid access tokens at rest. */
         tokenEncryptionKey: get("TOKEN_ENCRYPTION_KEY") || (production ? "" : DEV_ONLY_SECRET),
     }
@@ -102,7 +106,7 @@ export function loadConfig(vars: NodeJS.ProcessEnv = process.env, { server = tru
         // plaid's rules: https, no query or fragment; http only for localhost, and only in sandbox
         const redirect = config.plaidRedirectUri
         const localHttp = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(redirect) && config.plaidEnv === "sandbox"
-        if (/[?#]/.test(redirect) || !(redirect.startsWith("https://") || localHttp)) {
+        if (redirect && (/[?#]/.test(redirect) || !(redirect.startsWith("https://") || localHttp))) {
             problems.push("PLAID_REDIRECT_URI must be https:// (http://localhost only in sandbox), with no ? or #")
         }
     }
@@ -111,6 +115,11 @@ export function loadConfig(vars: NodeJS.ProcessEnv = process.env, { server = tru
 }
 
 export type AppConfig = ReturnType<typeof loadConfig>
+
+/** "" stays off, "/path" follows the site's address, anything else is used as given. */
+function redirectUri(value: string, webOrigin: string): string {
+    return value.startsWith("/") ? `${webOrigin.replace(/\/$/, "")}${value}` : value
+}
 
 /** Load .env (if there is one) and read the settings. */
 export function configFromEnvironment(options?: { server?: boolean }): AppConfig {

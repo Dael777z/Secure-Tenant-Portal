@@ -88,7 +88,7 @@ export function buildLedger(charges: ChargeRecord[], payments: PaymentRecord[], 
     return { entries: entries.reverse(), balance: owedCents / 100 }
 }
 
-/** "November 1" and "Nov 5": when the money is due and when a late fee could start (the 5th, per the client). */
+
 export function dueDates(balance: number, today: Date): { rentDueDate: string; lateFeeGraceDate: string } {
     const due = balance > 0
         ? new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1))

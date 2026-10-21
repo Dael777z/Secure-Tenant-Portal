@@ -1,3 +1,5 @@
+import { currentIdentity } from "../db/identity"
+import { silentLogger, type LogMetadata, type LogService } from "../logging"
 import { AppError } from "../types/errors"
 import type { HashExpiry, LeaseChanges, NewLease, PropertyInput, TenantChanges, UnitInput } from "../types/inputs"
 import type { CreatedLeaseResult, DashboardData, InviteResult, LeaseDetail, MaintenanceRow, PropertySummary, TenantRow, UnitRow, UpdateRow } from "../types/manager"
@@ -23,8 +25,18 @@ export class ManagerService {
     constructor(
         private readonly db: ManagerStore,
         private readonly timeZone: string,
+        private readonly log: LogService = silentLogger,
     ) {}
 
+    /**
+     * Log an office change as `<event>.succeeded` / `<event>.failed`, with `by`: the staff
+     * member making it (e.g. "admin:3"). Ids and amounts only, never names or emails.
+     */
+    private change<T>(event: string, metadata: LogMetadata, work: () => Promise<T>, outcome?: (result: T) => LogMetadata): Promise<T> {
+        const who = currentIdentity()
+        const by = "id" in who ? `${who.type}:${who.id}` : who.type
+        return this.log.flow(event, { by, ...metadata }, work, outcome)
+    }
 
     /** Today's date (YYYY-MM-DD) in the portal's time zone. */
     private today(): string {
@@ -113,12 +125,14 @@ export class ManagerService {
 
     // save property into database, takes property input tuple (tuple of data needed for a property entry)
     saveProperty(id: number | null, input: PropertyInput): Promise<number> {
-        return this.db.saveProperty(id, input)
+        return this.change(id === null ? "office.property.create" : "office.property.update", {},
+            () => this.db.saveProperty(id, input), (propertyId) => ({ propertyId }))
     }
 
     // same as save property
     saveUnit(id: number | null, input: UnitInput): Promise<number> {
-        return this.db.saveUnit(id, input)
+        return this.change(id === null ? "office.unit.create" : "office.unit.update", {},
+            () => this.db.saveUnit(id, input), (unitId) => ({ unitId }))
     }
 
     // ---- Tenants
@@ -148,24 +162,28 @@ export class ManagerService {
     }
 
     // creates an invite token and inserts the new tenant into the tneant table
-    async inviteTenant(input: { name: string; email: string; phone: string | null }): Promise<InviteResult> {
-        const fresh_invite = newInvite()
-        const invited = await this.db.inviteTenant({ ...input, invite: fresh_invite.hash})
-        return inviteResult(parseUserId(invited.id)!.id, invited.email, fresh_invite)
+    inviteTenant(input: { name: string; email: string; phone: string | null }): Promise<InviteResult> {
+        return this.change("office.tenant.invite", {}, async () => {
+            const fresh_invite = newInvite()
+            const invited = await this.db.inviteTenant({ ...input, invite: fresh_invite.hash})
+            return inviteResult(parseUserId(invited.id)!.id, invited.email, fresh_invite)
+        }, (result) => ({ tenantId: result.tenantId }))
     }
 
     // update the hash on the database for a tenant who exists but has not completed signup
-    async reissueInvite(tID: number): Promise<InviteResult> {
-        const person = await this.db.findPerson(tID)
-        if (!person) throw new AppError("NOT_FOUND")
-        const invite = newInvite()
-        await this.db.reissueInvite(tID, invite.hash)
-        return inviteResult(tID, person.email, invite)
+    reissueInvite(tID: number): Promise<InviteResult> {
+        return this.change("office.tenant.reinvite", { tenantId: tID }, async () => {
+            const person = await this.db.findPerson(tID)
+            if (!person) throw new AppError("NOT_FOUND")
+            const invite = newInvite()
+            await this.db.reissueInvite(tID, invite.hash)
+            return inviteResult(tID, person.email, invite)
+        })
     }
 
     // update the atributes of a tenant by tenant id
     updateTenant(tID: number, input: TenantChanges): Promise<void> {
-        return this.db.updateTenant(tID, input)
+        return this.change("office.tenant.update", { tenantId: tID, fields: Object.keys(input) }, () => this.db.updateTenant(tID, input))
     }
 
     // ---- Leases
@@ -189,6 +207,11 @@ export class ManagerService {
         unitId: number; startDate: string; endDate: string | null; monthlyRent: number
         tenantIds: number[]; newTenants: Array<{ name: string; email: string; phone: string | null }>
     }): Promise<CreatedLeaseResult> {
+        return this.change("office.lease.create", { unitId: input.unitId, monthlyRent: input.monthlyRent }, () => this.newLease(input),
+            (created) => ({ leaseId: created.id, tenantIds: input.tenantIds, invited: created.invites.map((i) => i.tenantId) }))
+    }
+
+    private async newLease(input: Parameters<ManagerService["createLease"]>[0]): Promise<CreatedLeaseResult> {
         if (input.tenantIds.length + input.newTenants.length === 0) throw new AppError("VALIDATION_ERROR")
         if (input.endDate && input.endDate < input.startDate) throw new AppError("VALIDATION_ERROR")
 
@@ -203,26 +226,29 @@ export class ManagerService {
 
     // update a leases attributes by lease id
     async updateLease(leaseId: number, input: LeaseChanges): Promise<void> {
-        await this.db.updateLease(leaseId, input)
-        
-        // regenerate month charges from today onward
-        await this.db.generateRentCharges(this.today(), leaseId)
+        await this.change("office.lease.update", { leaseId, fields: Object.keys(input) }, async () => {
+            await this.db.updateLease(leaseId, input)
+            // regenerate month charges from today onward
+            return this.db.generateRentCharges(this.today(), leaseId)
+        }, (chargesAdded) => ({ chargesAdded }))
     }
 
     // attach an existing tenant to a lease or create a new tenant and attach an invite token to them
-    async addTenantToLease(leaseId: number, input: { tenantId?: number; newTenant?: { name: string; email: string; phone: string | null } }): Promise<InviteResult | null> {
-        if (!input.newTenant) {
-            await this.db.addTenantToLease(leaseId, { tenantId: input.tenantId })
-            return null
-        }
-        const fresh_invite = newInvite()
-        const tenantId = await this.db.addTenantToLease(leaseId, { newTenant: { ...input.newTenant, invite: fresh_invite.hash } })
-        return inviteResult(tenantId, input.newTenant.email.trim().toLowerCase(), fresh_invite)
+    addTenantToLease(leaseId: number, input: { tenantId?: number; newTenant?: { name: string; email: string; phone: string | null } }): Promise<InviteResult | null> {
+        return this.change("office.lease.add_tenant", { leaseId }, async () => {
+            if (!input.newTenant) {
+                await this.db.addTenantToLease(leaseId, { tenantId: input.tenantId })
+                return null
+            }
+            const fresh_invite = newInvite()
+            const tenantId = await this.db.addTenantToLease(leaseId, { newTenant: { ...input.newTenant, invite: fresh_invite.hash } })
+            return inviteResult(tenantId, input.newTenant.email.trim().toLowerCase(), fresh_invite)
+        }, (invite) => (invite ? { tenantId: invite.tenantId, invited: true } : { tenantId: input.tenantId, invited: false }))
     }
 
     // remove tenant from lease by lease id and tenant id
     removeTenantFromLease(leaseId: number, tID: number): Promise<void> {
-        return this.db.removeTenantFromLease(leaseId, tID)
+        return this.change("office.lease.remove_tenant", { leaseId, tenantId: tID }, () => this.db.removeTenantFromLease(leaseId, tID))
     }
 
    // record payment for manager side, constructs a payment input for the database and a confirmation message detailing the office made the payment
@@ -231,22 +257,24 @@ export class ManagerService {
         input: { amount: number; method: string; tenantId: number | null; receipt?: Receipt | null },
     ): Promise<string> {
         const confirmation = officeConfirmation()
-        await this.db.recordPayment({
-            leaseId,
-            amount: input.amount,
-            tenantId: input.tenantId,
-            method: `${input.method} (recorded by office)`.slice(0, 60),
-            confirmation,
-            receipt: input.receipt,
-        })
-        return confirmation
+        return this.change("payment.office", { leaseId, amount: input.amount, tenantId: input.tenantId, withReceipt: Boolean(input.receipt) }, async () => {
+            await this.db.recordPayment({
+                leaseId,
+                amount: input.amount,
+                tenantId: input.tenantId,
+                method: `${input.method} (recorded by office)`.slice(0, 60),
+                confirmation,
+                receipt: input.receipt,
+            })
+            return confirmation
+        }, () => ({ confirmation }))
     }
 
     // ---- Receipts
 
     // attach a receipt to an existing lease (a receipt image)
     attachReceipt(leaseId: number, payId: number, receipt: Receipt): Promise<void> {
-        return this.db.attachReceipt(leaseId, payId, receipt)
+        return this.change("payment.receipt_attached", { leaseId, paymentId: payId, contentType: receipt.contentType }, () => this.db.attachReceipt(leaseId, payId, receipt))
     }
 
     // find a receipt (a receipt image) by lease id and payment id
@@ -265,37 +293,37 @@ export class ManagerService {
     }
 
     // create a new maintenace ticket attached to no tenant, but attached to a unit
-    async createMaintenance(input: { unitId: number; title: string; description: string }): Promise<number> {
-        const created = await this.db.createMaintenance({ ...input, tenantId: null })
-        return created.id
+    createMaintenance(input: { unitId: number; title: string; description: string }): Promise<number> {
+        return this.change("maintenance.create", { unitId: input.unitId },
+            async () => (await this.db.createMaintenance({ ...input, tenantId: null })).id, (requestId) => ({ requestId }))
     }
 
     // change the status of a maintenance ticket
     setMaintenanceStatus(id: number, status: MaintenanceState): Promise<void> {
-        return this.db.setMaintenanceStatus(id, status)
+        return this.change("maintenance.status", { requestId: id, status }, () => this.db.setMaintenanceStatus(id, status))
     }
 
     // ---- Retiring records (nothing is deleted; history stays on record)
 
     deactivateTenant(tID: number): Promise<void> {
-        return this.db.deactivateTenant(tID, this.today())
+        return this.change("office.tenant.deactivate", { tenantId: tID }, () => this.db.deactivateTenant(tID, this.today()))
     }
 
     //  reverse an office payment by creating its matching refund record, for use with office refunds
     reverseOfficePayment(leaseId: number, payId: number): Promise<void> {
-        return this.db.reverseOfficePayment(leaseId, payId)
+        return this.change("payment.reversed", { leaseId, paymentId: payId }, () => this.db.reverseOfficePayment(leaseId, payId))
     }
 
     deactivateUnit(uID: number): Promise<void> {
-        return this.db.deactivateUnit(uID, this.today())
+        return this.change("office.unit.deactivate", { unitId: uID }, () => this.db.deactivateUnit(uID, this.today()))
     }
 
     deactivateProperty(pID: number): Promise<void> {
-        return this.db.deactivateProperty(pID, this.today())
+        return this.change("office.property.deactivate", { propertyId: pID }, () => this.db.deactivateProperty(pID, this.today()))
     }
 
     deactivateMaintenance(mID: number): Promise<void> {
-        return this.db.deactivateMaintenance(mID)
+        return this.change("maintenance.deactivate", { requestId: mID }, () => this.db.deactivateMaintenance(mID))
     }
 
     // Returns manager/admin/staff user data

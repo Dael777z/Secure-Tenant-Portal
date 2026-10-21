@@ -26,17 +26,23 @@ const HELP = `Database tasks, as the schema owner (POSTGRES_USER / POSTGRES_PASS
 
 async function main(command = "help", ...flags: string[]) {
     const config = configFromEnvironment({ server: false })
+    
     const has = (word: string) => flags.includes(word) || flags.includes(`--${word}`)
-    // Production only ever gets sample data from an explicit seed or reset.
+
     const loadSample = !has("empty") && !(config.production && command === "setup")
+
     if (!["status", "migrate", "admin", "seed", "setup", "reset"].includes(command)) return console.log(HELP)
-    if (!config.databaseAdminUrl) throw new Error("No owner login for the database: set POSTGRES_PASSWORD (or DATABASE_ADMIN_URL).")
+
+    if (!config.databaseAdminUrl) throw new Error("No owner login for the database: set POSTGRES_PASSWORD (or DATABASE_ADMIN_URL)")
+
     if (config.production && (command === "reset" || (command === "seed" && loadSample)) && !has("allow-production")) {
         throw new Error(`\`${command}\` with NODE_ENV=production needs --allow-production.`)
     }
 
     if (command !== "status") await createDatabaseIfMissing(config.databaseAdminUrl)
+
     const pool = createPool(config.databaseAdminUrl)
+
     try {
         if (command === "status") return await printStatus(pool)
         if (command === "admin") {
@@ -54,7 +60,7 @@ async function main(command = "help", ...flags: string[]) {
         if (command !== "seed") {
             const applied = await migrate(pool, undefined, console.log)
             if (!applied.length) console.log("migrations: up to date")
-            if (await setAppLogin(pool, config.databaseUrl)) console.log("summit_app: password set (APP_DB_PASSWORD)")
+            if (await setAppLogin(pool, config.databaseUrl)) console.log("portal_app: password set (APP_DB_PASSWORD)")
         }
         if (command !== "migrate" && loadSample) {
             const report = await seed(pool, { dataset: has("clean") ? "clean" : "sample", webOrigin: config.webOrigin, bcryptRounds: config.bcryptRounds })
