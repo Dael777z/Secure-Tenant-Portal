@@ -205,7 +205,10 @@ function datesFrom(today: Date): Dates {
             return isoDate(d)
         },
         daysAhead(n) {
-            return isoDate(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + n)))
+            // From the property's own calendar day (the finance screens count days left from it),
+            // so a lease seeded 25 days out reads "25 days left" in the evening too.
+            const [y, m, d] = today.toLocaleDateString("en-CA", { timeZone: "America/Denver" }).split("-").map(Number)
+            return isoDate(new Date(Date.UTC(y!, m! - 1, d! + n)))
         },
         daysAgo(n, hour = 9) {
             const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - n, hour))
