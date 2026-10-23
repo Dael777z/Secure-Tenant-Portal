@@ -100,17 +100,8 @@ export const mockNotices: Notice[] = [
 //Bank Account listed first and enabled
 export const paymentMethodOptions: PaymentMethodOption[] = [
   { kind: "bank", label: "Bank Account", sublabel: "Connected via Plaid" },
-  {
-    kind: "card",
-    label: "Credit/Debit Card",
-    sublabel: "Visa ending in 1234",
-  },
-  {
-    kind: "wallet",
-    label: "Digital Wallet",
-    sublabel: "Apple Pay",
-  },
-  { kind: "other", label: "Other", sublabel: "      " }
+  { kind: "cashapp", label: "Cash App", sublabel: "Send from Cash App" },
+  {kind: "zelle", label: "Zelle", sublabel: "Send from your bank's app"},
 ];
 
 export const currentBalance = 1500.0;

@@ -1,6 +1,6 @@
 //Shared domain types for the tenant side Resident Portal
 
-export type PageKey = "home" | "pay" | "ledger" | "maintenance" | "notices";
+export type PageKey = "home" | "pay" | "ledger" | "maintenance" | "notices" | "settings";
 
 export interface Tenant {
   id: string;
@@ -41,7 +41,7 @@ export interface Notice {
   timestamp: string;
 }
 
-export type PaymentMethodKind = "bank" | "card" | "wallet" | "other";
+export type PaymentMethodKind = "bank" | "cashapp" | "zelle" | "card" | "wallet";
 
 export interface PaymentMethodOption {
   kind: PaymentMethodKind;

@@ -7,6 +7,7 @@ import { PayRentPage } from "./pages/PayRentPage";
 import { LedgerPage } from "./pages/LedgerPage";
 import { MaintenancePage } from "./pages/MaintenancePage";
 import { NoticesPage } from "./pages/NoticesPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { mockTenant } from "./data/mockData";
 import "./styles/portal.css";
 
@@ -16,6 +17,7 @@ const pageTitles: Record<PageKey, string> = {
   ledger: "Ledger View",
   maintenance: "Maintenance",
   notices: "Notices",
+  settings: "Settings",
 };
 
 /* Root of the tenant-facing Resident Portal. */
@@ -46,6 +48,7 @@ export default function App() {
           {activePage === "ledger" && <LedgerPage />}
           {activePage === "maintenance" && <MaintenancePage />}
           {activePage === "notices" && <NoticesPage />}
+          {activePage === "settings" && <SettingsPage />}
         </div>
       </main>
     </div>
