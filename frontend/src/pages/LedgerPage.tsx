@@ -19,14 +19,14 @@ export function LedgerPage() {
         <tbody>
           {ledger.map((entry) => (
             <tr key={entry.id}>
-              <td>{entry.date}</td>
-              <td>{entry.description}</td>
-              <td>{entry.method ?? "-"}</td>
-              <td className={"amount-cell" + (entry.amount > 0 ? " amount-cell--credit" : "")}>
+              <td data-label="Date">{entry.date}</td>
+              <td data-label="Description">{entry.description}</td>
+              <td data-label="Method">{entry.method ?? "-"}</td>
+              <td data-label="Amount" className={"amount-cell" + (entry.amount > 0 ? " amount-cell--credit" : "")}>
                 {entry.amount > 0 ? "+" : ""}
                 {formatCurrency(entry.amount)}
               </td>
-              <td>{formatCurrency(entry.balanceAfter)}</td>
+              <td data-label="Balance">{formatCurrency(entry.balanceAfter)}</td>
             </tr>
           ))}
         </tbody>

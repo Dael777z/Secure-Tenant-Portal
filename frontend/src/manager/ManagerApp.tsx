@@ -2,7 +2,7 @@
 // after signing in. Same sign-in and session as the resident portal; the
 // backend decides what each role may do (Scott's RBAC permissions), and this
 // only hides what the role cannot use.
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionUser } from "../api/auth";
 import { managerApi, type StaffProfile } from "./api";
 import { DialogHost } from "./dialogs";
@@ -19,7 +19,7 @@ import {
   TenantsPage,
   UpdatesPage,
 } from "./pages";
-import { ManagerContext, initials, parseRoute, routeHash, type Dialog, type ManagerContextValue, type Route } from "./ui";
+import { ManagerContext, initials, parseRoute, routeHash, useTableLabels, type Dialog, type ManagerContextValue, type Route } from "./ui";
 import "./manager.css";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -70,6 +70,8 @@ export function ManagerApp({ user, onLogout }: { user: SessionUser; onLogout: ()
   const [profile, setProfile] = useState<StaffProfile | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const shellRef = useRef<HTMLDivElement>(null);
+  useTableLabels(shellRef);
 
   useEffect(() => {
     managerApi.me().then(setProfile, () => setProfile(null));
@@ -134,7 +136,7 @@ export function ManagerApp({ user, onLogout }: { user: SessionUser; onLogout: ()
 
   return (
     <ManagerContext.Provider value={ctx}>
-      <div className="mgr-shell">
+      <div className="mgr-shell" ref={shellRef}>
         <aside className={`mgr-sidebar${menuOpen ? " mgr-sidebar--open" : ""}`} aria-label="Manager navigation">
           <div className="mgr-brand">
             <span className="mgr-brand__mark" aria-hidden="true">SP</span>

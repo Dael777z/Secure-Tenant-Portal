@@ -1077,3 +1077,59 @@ body {
   display: inline-grid;
   place-items: center;
 }
+
+/* Phones: the menu wraps instead of scrolling sideways, and the ledger
+ * becomes one card per entry (labels come from data-label). */
+@media (max-width: 900px) {
+  .portal-nav {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+  .portal-nav-item {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 640px) {
+  .table-scroll {
+    overflow-x: visible;
+  }
+  .ledger-table {
+    min-width: 0;
+  }
+  .ledger-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .ledger-table,
+  .ledger-table tbody,
+  .ledger-table tr {
+    display: block;
+    width: 100%;
+  }
+  .ledger-table tr {
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  .ledger-table td {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 3px 0;
+    border-bottom: none;
+    white-space: normal;
+    text-align: right;
+  }
+  .ledger-table td::before {
+    content: attr(data-label);
+    color: var(--portal-ice);
+    font-size: 12px;
+    font-weight: 700;
+    text-align: left;
+    flex-shrink: 0;
+  }
+}

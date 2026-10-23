@@ -1,5 +1,5 @@
 // Small building blocks shared by the manager screens.
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { SessionUser } from "../api/auth";
 import { managerMessage } from "./api";
 import type { FinancePeriod } from "./finance-api";
@@ -333,6 +333,62 @@ export function useSubmit(onDone: () => void) {
     [onDone],
   );
   return { busy, error, run };
+}
+
+/**
+ * Tables that don't fit their box show each row as a card ("Owed  $1,820.00").
+ * This gives every body and footer cell a data-label with its column's
+ * heading, so the CSS can print it (cells labelled by hand are left alone),
+ * and switches a table to cards only while it is too wide to show whole.
+ */
+export function useTableLabels(root: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const el = root.current;
+    if (!el) return;
+    let frame = 0;
+    const label = () => {
+      frame = 0;
+      for (const table of el.querySelectorAll<HTMLTableElement>("table.mgr-table")) {
+        const heads = [...table.querySelectorAll("thead tr:last-child th")].map((th) => (th.textContent ?? "").replace(/[▲▼↕]/g, "").trim());
+        for (const tr of table.querySelectorAll("tbody tr, tfoot tr")) {
+          let col = 0;
+          for (const cell of tr.children as HTMLCollectionOf<HTMLTableCellElement>) {
+            if (cell.tagName === "TD" && !cell.hasAttribute("data-label")) cell.setAttribute("data-label", heads[col] ?? "");
+            col += cell.colSpan || 1;
+          }
+        }
+      }
+    };
+    // A table that is wider than its box at its narrowest becomes cards
+    // (one per row), so nothing ever scrolls sideways. Checked again on
+    // every resize and content change; measured in table form each time.
+    const fit = () => {
+      for (const table of el.querySelectorAll<HTMLTableElement>("table.mgr-table")) {
+        const box = table.parentElement;
+        if (!box) continue;
+        table.classList.remove("mgr-table--cards");
+        const tooWide = table.scrollWidth > box.clientWidth + 1;
+        table.classList.toggle("mgr-table--cards", tooWide);
+      }
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(() => {
+        label();
+        fit();
+      });
+    };
+    const watch = new MutationObserver(schedule);
+    watch.observe(el, { childList: true, subtree: true });
+    const resize = new ResizeObserver(schedule);
+    resize.observe(el);
+    label();
+    fit();
+    return () => {
+      watch.disconnect();
+      resize.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, [root]);
 }
 
 /** A check that fails in the browser, before anything is sent. */

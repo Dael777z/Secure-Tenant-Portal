@@ -171,6 +171,27 @@ function MonthTable({ months }: { months: Array<{ month: string; label: string; 
   );
 }
 
+/** Only the buckets that hold money, oldest first ("31–60 days  $910"). */
+function AgingLines({ row }: { row: CollectionRow }) {
+  const parts: Array<[string, number]> = [
+    ["90+ days", row.d90plus],
+    ["61–90 days", row.d61_90],
+    ["31–60 days", row.d31_60],
+    ["1–30 days", row.d1_30],
+    ["Not late yet", row.current],
+  ].filter(([, v]) => (v as number) > 0) as Array<[string, number]>;
+  if (parts.length === 0) return <span className="mgr-muted">—</span>;
+  return (
+    <ul className="mgr-aging-lines">
+      {parts.map(([label, value]) => (
+        <li key={label}>
+          <span className="mgr-muted">{label}</span> {money(value, false)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function Collections({ rows, aging }: { rows: CollectionRow[]; aging: Parameters<typeof AgingBar>[0]["aging"] & { accounts: number } }) {
   const { go, open, can } = useManager();
   const [band, setBand] = useState<LateBand>("all");
@@ -191,11 +212,8 @@ function Collections({ rows, aging }: { rows: CollectionRow[]; aging: Parameters
   const sorter = useSort("collections", filtered, {
     unit: (r) => r.unitLabel,
     owed: (r) => r.total,
-    current: (r) => r.current,
-    d1: (r) => r.d1_30,
-    d31: (r) => r.d31_60,
-    d61: (r) => r.d61_90,
-    d90: (r) => r.d90plus,
+    // Oldest money first: weight each bucket by how late it is.
+    oldest: (r) => r.d90plus * 1e9 + r.d61_90 * 1e6 + r.d31_60 * 1e3 + r.d1_30,
     late: (r) => r.daysLate,
     behind: (r) => r.monthsBehind,
     last: (r) => r.lastPayment?.paidAt ?? null,
@@ -283,11 +301,7 @@ function Collections({ rows, aging }: { rows: CollectionRow[]; aging: Parameters
                 <SortTh sorter={sorter} k="unit">Unit</SortTh>
                 <th scope="col">Residents &amp; contact</th>
                 <SortTh sorter={sorter} k="owed" num>Owed</SortTh>
-                <SortTh sorter={sorter} k="current" num>Not late</SortTh>
-                <SortTh sorter={sorter} k="d1" num>1–30</SortTh>
-                <SortTh sorter={sorter} k="d31" num>31–60</SortTh>
-                <SortTh sorter={sorter} k="d61" num>61–90</SortTh>
-                <SortTh sorter={sorter} k="d90" num>90+</SortTh>
+                <SortTh sorter={sorter} k="oldest" num>Aging</SortTh>
                 <SortTh sorter={sorter} k="late" num>Days late</SortTh>
                 <SortTh sorter={sorter} k="last">Last paid / contacted</SortTh>
                 <th scope="col"><span className="mgr-sr">Actions</span></th>
@@ -308,11 +322,9 @@ function Collections({ rows, aging }: { rows: CollectionRow[]; aging: Parameters
                     <strong>{money(r.total)}</strong>
                     {r.monthsBehind >= 1 && <div className="mgr-muted">{r.monthsBehind.toFixed(1).replace(".0", "")} mo. rent</div>}
                   </td>
-                  <td className="mgr-num">{r.current ? money(r.current, false) : "—"}</td>
-                  <td className="mgr-num">{r.d1_30 ? money(r.d1_30, false) : "—"}</td>
-                  <td className="mgr-num">{r.d31_60 ? money(r.d31_60, false) : "—"}</td>
-                  <td className="mgr-num">{r.d61_90 ? money(r.d61_90, false) : "—"}</td>
-                  <td className="mgr-num">{r.d90plus ? money(r.d90plus, false) : "—"}</td>
+                  <td className="mgr-num">
+                    <AgingLines row={r} />
+                  </td>
                   <td className="mgr-num">
                     {r.daysLate > 0 ? <span className={`mgr-pill mgr-pill--${r.daysLate > 30 ? "late" : "partial"}`}>{r.daysLate} days</span> : <span className="mgr-muted">Not late</span>}
                     {r.oldestUnpaidDue && <div className="mgr-muted">since {isoDate(r.oldestUnpaidDue)}</div>}
@@ -368,6 +380,8 @@ function Collections({ rows, aging }: { rows: CollectionRow[]; aging: Parameters
 function RecentPayments({ rows }: { rows: RecentPaymentRow[] }) {
   const { go } = useManager();
   const [status, setStatus] = useState<"all" | RecentPaymentRow["status"]>("all");
+  const [showAll, setShowAll] = useState(false);
+  const SHOWN = 12;
   const filtered = useMemo(() => rows.filter((r) => status === "all" || r.status === status), [rows, status]);
   const sorter = useSort("recent-payments", filtered, {
     date: (r) => r.paidAt,
@@ -410,7 +424,7 @@ function RecentPayments({ rows }: { rows: RecentPaymentRow[] }) {
               </tr>
             </thead>
             <tbody>
-              {sorter.rows.map((r) => (
+              {(showAll ? sorter.rows : sorter.rows.slice(0, SHOWN)).map((r) => (
                 <tr key={r.id}>
                   <td>
                     {new Date(r.paidAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
@@ -435,6 +449,14 @@ function RecentPayments({ rows }: { rows: RecentPaymentRow[] }) {
             </tbody>
           </table>
         </div>
+      )}
+      {sorter.rows.length > SHOWN && (
+        <p className="mgr-table-foot">
+          {showAll ? `All ${sorter.rows.length} payments` : `Latest ${SHOWN} of ${sorter.rows.length}`} ·{" "}
+          <button type="button" className="mgr-btn mgr-btn--link" onClick={() => setShowAll(!showAll)}>
+            {showAll ? "Show fewer" : `Show all ${sorter.rows.length}`}
+          </button>
+        </p>
       )}
     </section>
   );
@@ -605,6 +627,7 @@ export function ProfitLossPage({ period }: { period: FinancePeriod }) {
       <div className="mgr-columns mgr-columns--pnl">
         <section className="mgr-card mgr-statement" aria-labelledby="pnl-statement">
           <h2 className="mgr-h2" id="pnl-statement">Statement</h2>
+          <div className="mgr-table-wrap">
           <table className="mgr-table mgr-table--statement">
             <thead>
               <tr>
@@ -665,27 +688,28 @@ export function ProfitLossPage({ period }: { period: FinancePeriod }) {
               {p.expenses.map((e) => (
                 <tr key={e.category}>
                   <th scope="row">{e.label}</th>
-                  <td />
-                  <td className="mgr-num">{money(e.amount)}</td>
-                  <td className="mgr-num mgr-muted">{p.totalCollected > 0 ? pct(e.amount / p.totalCollected) : "—"}</td>
+                  <td data-label="" />
+                  <td className="mgr-num" data-label="Amount">{money(e.amount)}</td>
+                  <td className="mgr-num mgr-muted" data-label="% of income">{p.totalCollected > 0 ? pct(e.amount / p.totalCollected) : "—"}</td>
                 </tr>
               ))}
               <tr className="mgr-statement__total">
                 <th scope="row">Total operating expenses</th>
-                <td />
-                <td className="mgr-num">{money(p.totalExpenses)}</td>
-                <td className="mgr-num">{p.totalCollected > 0 ? pct(p.totalExpenses / p.totalCollected) : "—"}</td>
+                <td data-label="" />
+                <td className="mgr-num" data-label="Amount">{money(p.totalExpenses)}</td>
+                <td className="mgr-num" data-label="% of income">{p.totalCollected > 0 ? pct(p.totalExpenses / p.totalCollected) : "—"}</td>
               </tr>
             </tbody>
             <tfoot>
               <tr className="mgr-statement__net">
                 <th scope="row">Net operating income</th>
-                <td />
-                <td className={`mgr-num${p.netOperatingIncome < 0 ? " mgr-owes" : ""}`}>{money(p.netOperatingIncome)}</td>
-                <td className="mgr-num">{pct(p.margin)}</td>
+                <td data-label="" />
+                <td className={`mgr-num${p.netOperatingIncome < 0 ? " mgr-owes" : ""}`} data-label="Amount">{money(p.netOperatingIncome)}</td>
+                <td className="mgr-num" data-label="Margin">{pct(p.margin)}</td>
               </tr>
             </tfoot>
           </table>
+          </div>
           <p className="mgr-field__hint">
             Cash basis: income counts when the money arrives, so a month's rent paid late shows in the month it was paid. "Billed" shows what was charged in the same period, for comparison. Refunds and undone payments come off income.
           </p>
@@ -877,24 +901,20 @@ export function PerformancePage() {
       <section className="mgr-card" aria-labelledby="perf-props">
         <div className="mgr-card__head">
           <h2 className="mgr-h2" id="perf-props">Property comparison</h2>
-          <span className="mgr-muted">Money columns are the last 12 months. Click a column to rank by it.</span>
+          <span className="mgr-muted">Money is the last 12 months. Click a column to rank by it.</span>
         </div>
         <div className="mgr-table-wrap">
           <table className="mgr-table">
             <thead>
               <tr>
                 <SortTh sorter={props} k="name">Property</SortTh>
-                <SortTh sorter={props} k="units" num>Units</SortTh>
                 <SortTh sorter={props} k="occupancy" num>Occupancy</SortTh>
                 <SortTh sorter={props} k="rentRoll" num>Rent roll</SortTh>
-                <SortTh sorter={props} k="avgRent" num>Avg rent</SortTh>
                 <SortTh sorter={props} k="collected" num>Collected</SortTh>
-                <SortTh sorter={props} k="rate" num>Coll. rate</SortTh>
                 <SortTh sorter={props} k="expenses" num>Expenses</SortTh>
                 <SortTh sorter={props} k="noi" num>NOI</SortTh>
-                <SortTh sorter={props} k="noiUnit" num>NOI / unit</SortTh>
-                <SortTh sorter={props} k="outstanding" num>Owed</SortTh>
-                <SortTh sorter={props} k="maintenance" num>Open req.</SortTh>
+                <SortTh sorter={props} k="outstanding" num>Owed now</SortTh>
+                <SortTh sorter={props} k="maintenance" num>Open requests</SortTh>
                 <SortTh sorter={props} k="expiring" num>Ending ≤90d</SortTh>
               </tr>
             </thead>
@@ -906,22 +926,28 @@ export function PerformancePage() {
                       {r.name}
                     </button>
                   </th>
-                  <td className="mgr-num">{r.units}</td>
                   <td className="mgr-num">
                     {pct(r.occupancy)}
+                    <div className="mgr-muted">
+                      {r.occupied} of {r.units} units
+                    </div>
                     <div className="mgr-occupancy mgr-occupancy--inline" aria-hidden="true">
                       <span style={{ width: pct(r.occupancy) }} />
                     </div>
                   </td>
-                  <td className="mgr-num">{money(r.rentRoll, false)}</td>
-                  <td className="mgr-num">{money(r.avgRent, false)}</td>
-                  <td className="mgr-num">{money(r.collected12m, false)}</td>
-                  <td className={`mgr-num${r.collectionRate < 0.9 ? " mgr-owes" : ""}`}>{pct(r.collectionRate)}</td>
+                  <td className="mgr-num">
+                    {money(r.rentRoll, false)}
+                    <div className="mgr-muted">{money(r.avgRent, false)} avg</div>
+                  </td>
+                  <td className="mgr-num">
+                    {money(r.collected12m, false)}
+                    <div className={r.collectionRate < 0.9 ? "mgr-owes" : "mgr-muted"}>{pct(r.collectionRate)} of billed</div>
+                  </td>
                   <td className="mgr-num">{money(r.expenses12m, false)}</td>
                   <td className={`mgr-num${r.noi12m < 0 ? " mgr-owes" : ""}`}>
                     <strong>{money(r.noi12m, false)}</strong>
+                    <div className="mgr-muted">{money(r.units ? r.noi12m / r.units : 0, false)} / unit</div>
                   </td>
-                  <td className="mgr-num">{money(r.units ? r.noi12m / r.units : 0, false)}</td>
                   <td className={`mgr-num${r.outstanding > 0 ? " mgr-owes" : ""}`}>{money(r.outstanding, false)}</td>
                   <td className="mgr-num">{r.openMaintenance}</td>
                   <td className="mgr-num">{r.expiring90}</td>

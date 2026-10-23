@@ -718,7 +718,7 @@ body:has(.mgr-shell) {
 
 .mgr-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
   gap: 16px;
 }
 
@@ -893,7 +893,7 @@ body:has(.mgr-shell) {
 
 .mgr-form__row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
   gap: 12px;
 }
 
@@ -971,9 +971,17 @@ body:has(.mgr-shell) {
 
 .mgr-people__row {
   display: grid;
-  grid-template-columns: 1.1fr 1.3fr 1fr auto;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.3fr) minmax(0, 1fr) auto;
   gap: 8px;
   width: 100%;
+}
+
+.mgr-people__row input,
+.mgr-form input,
+.mgr-form select,
+.mgr-form textarea {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .mgr-toast {
@@ -1914,7 +1922,7 @@ body:has(.mgr-shell) {
 
 .mgr-table--collections td,
 .mgr-table--collections th {
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .mgr-table--collections td:nth-child(2) {
@@ -1926,20 +1934,6 @@ body:has(.mgr-shell) {
   display: block;
 }
 
-/* Wide screens: the actions stay in view while the table scrolls sideways. */
-@media (min-width: 900px) {
-  .mgr-table--collections td.mgr-row-actions,
-  .mgr-table--collections thead th:last-child {
-    position: sticky;
-    right: 0;
-    background: #fff;
-    box-shadow: -8px 0 8px -8px rgba(16, 59, 96, 0.25);
-  }
-
-  .mgr-table--collections tbody tr:hover td.mgr-row-actions {
-    background: #f8fafc;
-  }
-}
 
 .mgr-row--alert {
   box-shadow: inset 3px 0 0 var(--mgr-red);
@@ -2614,4 +2608,237 @@ body:has(.mgr-shell) {
   .mgr-pnl-hero__main .mgr-muted {
     color: var(--mgr-muted);
   }
+}
+
+/* ================================================================== *
+ * No sideways scrolling, at any width. Tables wrap their text; one that
+ * still doesn't fit its box gets .mgr-table--cards (useTableLabels in
+ * ui.tsx) and shows each row as a card, values under their column name.
+ * ================================================================== */
+
+.mgr-update__body {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mgr-table td {
+  white-space: normal;
+}
+
+.mgr-table td.mgr-num,
+.mgr-table .mgr-pill {
+  white-space: nowrap;
+}
+
+.mgr-table td.mgr-row-actions {
+  white-space: normal;
+}
+
+.mgr-table td.mgr-row-actions > * {
+  margin: 2px 0 2px 4px;
+}
+
+.mgr-aging-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.mgr-aging-lines li {
+  white-space: nowrap;
+}
+
+.mgr-table--cards,
+.mgr-table--cards tbody,
+.mgr-table--cards tfoot,
+.mgr-table--cards tr {
+  display: block;
+  width: 100%;
+}
+
+/* Several cards side by side when there is room. */
+.mgr-table--cards tbody {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(290px, 100%), 1fr));
+  gap: 10px;
+}
+
+.mgr-table--cards tfoot {
+  margin-top: 10px;
+}
+
+/* The headings move into each card; keep them for screen readers. */
+.mgr-table--cards thead {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.mgr-table--cards tbody tr,
+.mgr-table--cards tfoot tr {
+  border: 1px solid var(--mgr-line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.mgr-table--cards tbody tr:hover {
+  background: #fff;
+}
+
+.mgr-table.mgr-table--cards th,
+.mgr-table.mgr-table--cards td {
+  display: block;
+  border-top: none;
+  padding: 5px 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.mgr-table.mgr-table--cards td {
+  position: relative;
+  padding-left: 42%;
+  text-align: right;
+  min-height: 26px;
+}
+
+.mgr-table--cards td::before {
+  content: attr(data-label);
+  position: absolute;
+  left: 0;
+  top: 5px;
+  width: 40%;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mgr-muted);
+  overflow-wrap: normal;
+}
+
+.mgr-table.mgr-table--cards td[data-label=""],
+.mgr-table.mgr-table--cards td:not([data-label]) {
+  padding-left: 0;
+}
+
+.mgr-table--cards td[data-label=""]::before,
+.mgr-table--cards td:not([data-label])::before {
+  content: none;
+}
+
+.mgr-table--cards td:empty {
+  display: none;
+}
+
+/* The row's name (unit, tenant, month…) is the card's title. */
+.mgr-table.mgr-table--cards tbody th[scope="row"],
+.mgr-table.mgr-table--cards tfoot th[scope="row"] {
+  font-size: 15px;
+  text-align: left;
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--mgr-line);
+}
+
+.mgr-table.mgr-table--cards td.mgr-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: auto;
+  min-width: 0;
+  padding: 8px 0 0;
+  text-align: left;
+}
+
+.mgr-table--cards td.mgr-row-actions::before {
+  content: none;
+}
+
+.mgr-table.mgr-table--cards td.mgr-row-actions > * {
+  margin: 0;
+}
+
+.mgr-table--cards .mgr-actions-grid {
+  grid-template-columns: 1fr 1fr;
+  width: 100%;
+}
+
+.mgr-table--cards .mgr-aging-lines {
+  justify-items: end;
+}
+
+.mgr-table--cards .mgr-occupancy--inline {
+  margin-left: auto;
+}
+
+/* Profit & Loss statement: one column, section rows become small headings. */
+.mgr-table--statement.mgr-table--cards tbody {
+  display: block;
+}
+
+.mgr-table--statement.mgr-table--cards tbody tr,
+.mgr-table--statement.mgr-table--cards tfoot tr {
+  margin-bottom: 8px;
+}
+
+.mgr-table--cards .mgr-statement__section {
+  border: none !important;
+  background: none !important;
+  padding: 10px 0 0 !important;
+}
+
+.mgr-table--cards .mgr-statement__section td {
+  display: none;
+}
+
+.mgr-table--cards .mgr-statement__section th {
+  border-bottom: none !important;
+}
+
+.mgr-table--cards .mgr-statement__total th,
+.mgr-table--cards .mgr-statement__total td,
+.mgr-table--cards .mgr-statement__net th,
+.mgr-table--cards .mgr-statement__net td {
+  border-top: none;
+  background: none;
+}
+
+.mgr-table--cards .mgr-statement__total {
+  border-color: var(--mgr-text) !important;
+}
+
+.mgr-table--cards .mgr-statement__net {
+  background: var(--mgr-blue-soft) !important;
+}
+
+.mgr-table--cards .mgr-row--alert {
+  box-shadow: inset 3px 0 0 var(--mgr-red);
+}
+
+.mgr-wizard__nav {
+  flex-wrap: wrap;
+}
+
+.mgr-wizard__nav .mgr-btn {
+  white-space: normal;
+  max-width: 100%;
+}
+
+.mgr-wizard__nav .mgr-btn--primary {
+  margin-left: auto;
+}
+
+/* Collections: fits as a table from about 1280px wide. */
+.mgr-table--collections tbody th {
+  white-space: normal;
+  min-width: 110px;
+}
+
+.mgr-table--collections .mgr-actions-grid {
+  grid-template-columns: repeat(2, 92px);
 }
