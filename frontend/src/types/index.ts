@@ -1,6 +1,6 @@
 //Shared domain types for the tenant side Resident Portal
 
-export type PageKey = "home" | "pay" | "ledger" | "maintenance" | "notices";
+export type PageKey = "home" | "pay" | "ledger" | "maintenance" | "notices" | "settings";
 
 export interface Tenant {
   id: string;
@@ -41,7 +41,11 @@ export interface Notice {
   timestamp: string;
 }
 
-export type PaymentMethodKind = "bank" | "card" | "wallet" | "other";
+// Juan (tenant-side-ui 23d7a8e): bank first, then Cash App and Zelle; "Other" is gone.
+export type PaymentMethodKind = "bank" | "cashapp" | "zelle";
+
+/** Cash App / Zelle: sent from the tenant's own app, then reported ("I've sent it"). */
+export type ManualPayMethod = Exclude<PaymentMethodKind, "bank">;
 
 export interface PaymentMethodOption {
   kind: PaymentMethodKind;

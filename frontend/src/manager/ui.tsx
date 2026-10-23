@@ -22,7 +22,8 @@ export type Route =
   | { name: "pnl"; period: FinancePeriod }
   | { name: "performance" }
   | { name: "renewals"; days: number }
-  | { name: "setup" };
+  | { name: "setup" }
+  | { name: "settings" };
 
 const PERIOD_KEYS: FinancePeriod[] = ["this-month", "30d", "90d", "ytd", "12m"];
 const periodFrom = (query: string, fallback: FinancePeriod): FinancePeriod => {
@@ -65,6 +66,8 @@ export function parseRoute(hash: string): Route | null {
     }
     case "setup":
       return { name: "setup" };
+    case "settings":
+      return { name: "settings" };
     default:
       return null;
   }
@@ -110,6 +113,7 @@ export type Dialog =
   | { kind: "charge"; leaseId: number; label: string }
   | { kind: "expense"; propertyId?: number }
   | { kind: "renewal"; leaseId: number; label: string; residents: string[] }
+  | { kind: "rejectReport"; payId: number; label: string }
   | {
       kind: "confirm";
       title: string;

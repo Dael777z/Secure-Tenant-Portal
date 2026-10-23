@@ -2842,3 +2842,11 @@ body:has(.mgr-shell) {
 .mgr-table--collections .mgr-actions-grid {
   grid-template-columns: repeat(2, 92px);
 }
+
+/* Cash App / Zelle payments waiting for the office (006). */
+.mgr-card--attention {
+  border-left: 4px solid #d29922;
+}
+.mgr-update--payment_reported {
+  border-left-color: #d29922;
+}

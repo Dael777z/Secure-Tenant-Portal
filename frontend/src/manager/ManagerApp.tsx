@@ -6,7 +6,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import type { SessionUser } from "../api/auth";
 import { managerApi, type StaffProfile } from "./api";
 import { DialogHost } from "./dialogs";
-import { FinancePage, PerformancePage, ProfitLossPage, RenewalsPage } from "./finance";
+import { FinancePage, PaymentOptionsPage, PerformancePage, ProfitLossPage, RenewalsPage } from "./finance";
 import { MessagesPage } from "./messages";
 import { SetupPage } from "./onboarding";
 import {
@@ -47,6 +47,7 @@ const NAV: NavItem[] = [
   { section: "Money", label: "Finance", route: { name: "finance", period: "this-month" }, matches: ["finance"], permission: "ledger:read:property" },
   { label: "Profit & Loss", route: { name: "pnl", period: "ytd" }, matches: ["pnl"], permission: "ledger:read:property" },
   { label: "Performance", route: { name: "performance" }, matches: ["performance"], permission: "ledger:read:property" },
+  { label: "Payment options", route: { name: "settings" }, matches: ["settings"], permission: "ledger:read:property" },
   { section: "Day to day", label: "Messages", route: { name: "messages" }, matches: ["messages"], permission: "messages:manage" },
   { label: "Maintenance", route: { name: "maintenance" }, matches: ["maintenance"], permission: "maintenance:manage" },
   { label: "Updates", route: { name: "updates" }, matches: ["updates"], permission: "ledger:read:property" },
@@ -206,6 +207,7 @@ export function ManagerApp({ user, onLogout }: { user: SessionUser; onLogout: ()
             {route.name === "performance" && <PerformancePage />}
             {route.name === "renewals" && <RenewalsPage days={route.days} />}
             {route.name === "setup" && <SetupPage />}
+            {route.name === "settings" && <PaymentOptionsPage />}
           </main>
         </div>
         {dialog && <DialogHost dialog={dialog} onClose={() => setDialog(null)} />}

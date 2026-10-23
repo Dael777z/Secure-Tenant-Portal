@@ -203,6 +203,36 @@ export interface ExpiringLeaseRow {
   lastNotice: { sentAt: string; recipients: number } | null;
 }
 
+/** A Cash App / Zelle payment a tenant reported (006). Shapes mirror src/types/settings.ts. */
+export type ManualPayMethod = "cashapp" | "zelle";
+export const MANUAL_PAY_LABELS: Record<ManualPayMethod, string> = { cashapp: "Cash App", zelle: "Zelle" };
+
+export interface ReportedPaymentRow {
+  id: number;
+  leaseId: number;
+  unitLabel: string;
+  propertyName: string;
+  tenantName: string;
+  method: ManualPayMethod;
+  amount: number;
+  reportedAt: string;
+  confirmation: string;
+  /** The lease's balance now (the report does not count until it is confirmed). */
+  balance: number;
+  status: "pending" | "confirmed" | "rejected";
+  reason: string | null;
+  reviewedAt: string | null;
+  reviewedBy: string | null;
+}
+
+/** Where tenants send Cash App / Zelle payments. */
+export interface OfficeSettings {
+  cashappHandle: string | null;
+  zelleHandle: string | null;
+  updatedAt: string | null;
+  updatedBy: string | null;
+}
+
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await apiFetch(`/api/manager${path}`, init);
   const body = await res.json().catch(() => ({}));
@@ -228,6 +258,12 @@ export const financeApi = {
     description: string | null;
   }) => send<{ id: number }>("POST", "/expenses", input),
   voidExpense: (id: number) => send<{ ok: true }>("DELETE", `/expenses/${id}`),
+  reported: (status: "pending" | "all" = "pending") =>
+    call<{ payments: ReportedPaymentRow[] }>(`/payments/reported?status=${status}`).then((r) => r.payments),
+  confirmReport: (payId: number) => send<ReportedPaymentRow>("POST", `/payments/${payId}/confirm`),
+  rejectReport: (payId: number, reason: string) => send<ReportedPaymentRow>("POST", `/payments/${payId}/reject`, { reason }),
+  settings: () => call<OfficeSettings>("/settings"),
+  saveSettings: (input: { cashappHandle: string | null; zelleHandle: string | null }) => send<OfficeSettings>("PUT", "/settings", input),
 };
 
 /** Download rows as a CSV file the office can open in Excel or Google Sheets. */

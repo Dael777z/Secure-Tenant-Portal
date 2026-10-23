@@ -883,6 +883,7 @@ const UPDATE_LABEL: Record<UpdateRow["kind"], string> = {
   overdue: "Overdue rent",
   maintenance_new: "New maintenance",
   not_signed_up: "Not signed up",
+  payment_reported: "Payment to confirm",
 };
 
 function UpdateList({ updates, compact = false }: { updates: UpdateRow[]; compact?: boolean }) {
@@ -903,6 +904,11 @@ function UpdateList({ updates, compact = false }: { updates: UpdateRow[]; compac
             {u.kind === "overdue" && u.leaseId !== null && can("ledger:adjust") && !compact && (
               <button type="button" className="mgr-btn mgr-btn--secondary mgr-btn--small" onClick={() => open({ kind: "payment", leaseId: u.leaseId! })}>
                 Record payment
+              </button>
+            )}
+            {u.kind === "payment_reported" && can("ledger:adjust") && (
+              <button type="button" className="mgr-btn mgr-btn--secondary mgr-btn--small" onClick={() => go({ name: "finance", period: "this-month" })}>
+                Review
               </button>
             )}
             {u.kind === "maintenance_new" ? (
@@ -930,6 +936,7 @@ export function UpdatesPage() {
   const count = (k: UpdateRow["kind"] | "all") => (data ?? []).filter((u) => k === "all" || u.kind === k).length;
   const tabs: Array<[UpdateRow["kind"] | "all", string]> = [
     ["all", "All"],
+    ["payment_reported", "Payments to confirm"],
     ["overdue", "Overdue rent"],
     ["maintenance_new", "New maintenance"],
     ["not_signed_up", "Not signed up"],

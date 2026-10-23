@@ -10,12 +10,14 @@ import {
   EXPENSE_CATEGORIES,
   expenseLabel,
   financeApi,
+  MANUAL_PAY_LABELS,
   PERIODS,
   type CollectionRow,
   type ExpenseCategory,
   type ExpiringLeaseRow,
   type FinancePeriod,
   type RecentPaymentRow,
+  type ReportedPaymentRow,
 } from "./finance-api";
 import { SortSelect, SortTh, useSort } from "./sort";
 import { Empty, Field, Kpi, Loading, LocalError, Modal, PageHeader, isoDate, money, timeAgo, todayIso, useLoad, useManager, useSubmit, type Dialog } from "./ui";
@@ -114,6 +116,7 @@ export function FinancePage({ period }: { period: FinancePeriod }) {
             </div>
           </div>
 
+          <ReportedPayments />
           <Collections rows={data.collections} aging={data.aging} />
           <section className="mgr-card" aria-labelledby="fin-monthly">
             <div className="mgr-card__head">
@@ -374,6 +377,265 @@ function Collections({ rows, aging }: { rows: CollectionRow[]; aging: Parameters
         {sorter.rows.length} account{sorter.rows.length === 1 ? "" : "s"} · <span className="mgr-owes">{money(totalShown)} owed</span> · Payments go to the oldest charge first.
       </p>
     </section>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Cash App / Zelle payments tenants reported (Juan's tenant side, 006)
+ * ------------------------------------------------------------------ */
+
+const fmtDateTime = (iso: string) =>
+  new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
+/** Payments a tenant says they sent: they count once the office confirms the money arrived. */
+function ReportedPayments() {
+  const { open, can } = useManager();
+  const { data, error } = useLoad(() => financeApi.reported("pending"));
+  if (error) return null; // the rest of Finance still works
+  if (!data || data.length === 0) return null;
+  return (
+    <section className="mgr-card mgr-card--attention" aria-labelledby="fin-reported">
+      <div className="mgr-card__head">
+        <h2 className="mgr-h2" id="fin-reported">
+          Awaiting confirmation <span className="mgr-tab__count">{data.length}</span>
+        </h2>
+      </div>
+      <p className="mgr-muted">
+        Tenants paid with Cash App or Zelle and told the portal. Check the office's account, then confirm it (it counts on their ledger) or reject it with a reason
+        (they're messaged).
+      </p>
+      <div className="mgr-table-wrap">
+        <table className="mgr-table">
+          <thead>
+            <tr>
+              <th scope="col">Reported</th>
+              <th scope="col">Tenant</th>
+              <th scope="col">Unit</th>
+              <th scope="col">Method</th>
+              <th scope="col" className="mgr-num">Amount</th>
+              <th scope="col">Memo to look for</th>
+              {can("ledger:adjust") && <th scope="col">Decision</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((r) => (
+              <ReportedRow key={r.id} row={r} canDecide={can("ledger:adjust")} onReject={() => open({ kind: "rejectReport", payId: r.id, label: `${r.tenantName}'s ${MANUAL_PAY_LABELS[r.method]} payment of ${money(r.amount)}` })} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function ReportedRow({ row: r, canDecide, onReject }: { row: ReportedPaymentRow; canDecide: boolean; onReject: () => void }) {
+  const { open } = useManager();
+  return (
+    <tr>
+      <td>
+        {fmtDateTime(r.reportedAt)}
+        <div className="mgr-muted">{timeAgo(r.reportedAt)}</div>
+      </td>
+      <th scope="row">{r.tenantName}</th>
+      <td>
+        {r.unitLabel}
+        <div className="mgr-muted">{r.propertyName}</div>
+      </td>
+      <td>{MANUAL_PAY_LABELS[r.method]}</td>
+      <td className="mgr-num">
+        {money(r.amount)}
+        <div className="mgr-muted">Balance {money(r.balance)}</div>
+      </td>
+      <td className="mgr-muted">
+        {/* The same text the tenant was told to put in the memo (PayRentPage). */}
+        {r.unitLabel} - {r.propertyName} - {r.tenantName}
+      </td>
+      {canDecide && (
+        <td>
+          <div className="mgr-row-actions">
+            <button
+              type="button"
+              className="mgr-btn mgr-btn--primary mgr-btn--small"
+              onClick={() =>
+                open({
+                  kind: "confirm",
+                  title: "Confirm payment",
+                  body: `Did ${money(r.amount)} from ${r.tenantName} arrive in the office's ${MANUAL_PAY_LABELS[r.method]}? Confirming puts it on their ledger and lowers the balance. They get a message saying it was received.`,
+                  confirmLabel: "Yes, it arrived",
+                  run: () => financeApi.confirmReport(r.id),
+                  done: `${r.tenantName}'s payment is on their ledger.`,
+                })
+              }
+            >
+              Confirm
+            </button>
+            <button type="button" className="mgr-btn mgr-btn--secondary mgr-btn--small" onClick={onReject}>
+              Reject
+            </button>
+          </div>
+        </td>
+      )}
+    </tr>
+  );
+}
+
+export function RejectReportDialog({ payId, label, onClose }: DialogProps<"rejectReport">) {
+  const { changed } = useManager();
+  const [reason, setReason] = useState("");
+  const { busy, error, run } = useSubmit(() => {
+    onClose();
+    changed("Rejected. The tenant has a message with your reason.");
+  });
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    void run(
+      async () => {
+        if (!reason.trim()) throw new LocalError("Say why, so the tenant knows what to check.");
+        await financeApi.rejectReport(payId, reason.trim());
+      },
+      { NOT_FOUND: "Someone already decided this payment. Refresh to see it." },
+    );
+  }
+  return (
+    <Modal title="Reject payment" onClose={onClose}>
+      <form className="mgr-form" onSubmit={submit}>
+        <p className="mgr-muted" style={{ marginTop: 0 }}>
+          {label}. It stays off their ledger, and they're sent this reason.
+        </p>
+        <Field label="Reason">
+          <input maxLength={300} placeholder="No payment with that memo arrived" value={reason} onChange={(e) => setReason(e.target.value)} required autoFocus />
+        </Field>
+        <ErrorText error={error} />
+        <div className="mgr-modal__actions">
+          <button type="button" className="mgr-btn mgr-btn--ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="mgr-btn mgr-btn--primary" disabled={busy}>
+            {busy ? "Saving…" : "Reject payment"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Payment options: the office's Cash App and Zelle (shown to tenants)
+ * ------------------------------------------------------------------ */
+
+export function PaymentOptionsPage() {
+  const { can, changed } = useManager();
+  const { data, error } = useLoad(() => financeApi.settings());
+  const history = useLoad(() => financeApi.reported("all"));
+  const [cashapp, setCashapp] = useState<string | null>(null);
+  const [zelle, setZelle] = useState<string | null>(null);
+  const editable = can("users:provision");
+  const cashappValue = cashapp ?? data?.cashappHandle ?? "";
+  const zelleValue = zelle ?? data?.zelleHandle ?? "";
+  const { busy, error: saveError, run } = useSubmit(() => {
+    setCashapp(null);
+    setZelle(null);
+    changed("Saved. Tenants see these on Pay rent now.");
+  });
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    void run(async () => {
+      const tag = cashappValue.trim();
+      const z = zelleValue.trim();
+      if (tag && !/^\$[A-Za-z][A-Za-z0-9_-]{0,19}$/.test(tag)) throw new LocalError("A $cashtag starts with $ and a letter, like $SummitPM.");
+      if (z && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(z) && z.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "").length !== 10) {
+        throw new LocalError("Zelle needs the email address or 10-digit phone number the office's Zelle uses.");
+      }
+      await financeApi.saveSettings({ cashappHandle: tag || null, zelleHandle: z || null });
+    });
+  }
+
+  const decided = (history.data ?? []).filter((r) => r.status !== "pending").slice(0, 10);
+  return (
+    <>
+      <PageHeader title="Payment options" subtitle="Where tenants can send rent besides their bank account." />
+      {!data ? (
+        <Loading error={error} />
+      ) : (
+        <>
+          <section className="mgr-card" aria-labelledby="po-handles">
+            <h2 className="mgr-h2" id="po-handles">Cash App &amp; Zelle</h2>
+            <p className="mgr-muted">
+              Tenants see these on Pay rent with their memo (unit and name). Their payment waits under Finance → Awaiting confirmation until someone checks the
+              account and confirms it. Leave one empty to stop offering it.
+            </p>
+            <form className="mgr-form" onSubmit={submit}>
+              <div className="mgr-form__row">
+                <Field label="Cash App $cashtag" hint="Like $SummitPM">
+                  <input maxLength={21} placeholder="$SummitPM" value={cashappValue} onChange={(e) => setCashapp(e.target.value)} disabled={!editable} />
+                </Field>
+                <Field label="Zelle email or phone" hint="What the office's Zelle is enrolled with">
+                  <input maxLength={120} placeholder="payments@yourcompany.com" value={zelleValue} onChange={(e) => setZelle(e.target.value)} disabled={!editable} />
+                </Field>
+              </div>
+              <ErrorText error={saveError} />
+              {editable ? (
+                <div className="mgr-modal__actions">
+                  <button type="submit" className="mgr-btn mgr-btn--primary" disabled={busy || (cashapp === null && zelle === null)}>
+                    {busy ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              ) : (
+                <p className="mgr-muted">Only a property manager can change these.</p>
+              )}
+              {data.updatedBy && data.updatedAt && (
+                <p className="mgr-muted">
+                  Last changed by {data.updatedBy}, {timeAgo(data.updatedAt)}.
+                </p>
+              )}
+            </form>
+          </section>
+          <section className="mgr-card" aria-labelledby="po-history">
+            <h2 className="mgr-h2" id="po-history">Recent decisions</h2>
+            {decided.length === 0 ? (
+              <Empty>No Cash App or Zelle payments have been confirmed or rejected yet.</Empty>
+            ) : (
+              <div className="mgr-table-wrap">
+                <table className="mgr-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Reported</th>
+                      <th scope="col">Tenant</th>
+                      <th scope="col">Method</th>
+                      <th scope="col" className="mgr-num">Amount</th>
+                      <th scope="col">Decision</th>
+                      <th scope="col">By</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {decided.map((r) => (
+                      <tr key={r.id}>
+                        <td>{fmtDateTime(r.reportedAt)}</td>
+                        <th scope="row">
+                          {r.tenantName}
+                          <div className="mgr-muted">{r.unitLabel}</div>
+                        </th>
+                        <td>{MANUAL_PAY_LABELS[r.method]}</td>
+                        <td className="mgr-num">{money(r.amount)}</td>
+                        <td>
+                          <span className={`mgr-pill mgr-pill--${r.status === "confirmed" ? "paid" : "late"}`}>{r.status === "confirmed" ? "Confirmed" : "Rejected"}</span>
+                          {r.reason && <div className="mgr-muted">{r.reason}</div>}
+                        </td>
+                        <td className="mgr-muted">
+                          {r.reviewedBy ?? "—"}
+                          {r.reviewedAt && <div>{timeAgo(r.reviewedAt)}</div>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </>
+      )}
+    </>
   );
 }
 

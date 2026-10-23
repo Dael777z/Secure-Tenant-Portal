@@ -1,5 +1,5 @@
 // The tenant API (src/routes/tenant.ts) and Dael's Plaid routes (src/routes/plaid.ts).
-import type { LedgerEntry, MaintenanceRequest, Notice, Tenant } from "../types";
+import type { LedgerEntry, MaintenanceRequest, ManualPayMethod, Notice, Tenant } from "../types";
 import { apiFetch } from "./session";
 
 export interface LinkedBankAccount {
@@ -9,8 +9,32 @@ export interface LinkedBankAccount {
   subtype: string | null;
 }
 
+/** Email choices (Settings). Email only; no text messages. */
+export interface NotificationPrefs {
+  rentDue: boolean;
+  paymentReceipts: boolean;
+  maintenance: boolean;
+  messages: boolean;
+}
+
+/** A Cash App / Zelle payment the tenant reported, and what the office decided. */
+export interface ReportedPayment {
+  id: number;
+  method: ManualPayMethod;
+  amount: number;
+  reportedOn: string;
+  status: "pending" | "confirmed" | "rejected";
+  reason: string | null;
+}
+
 export interface TenantSummary {
   tenant: Tenant;
+  /** The tenant's own contact details; the email is their sign-in. */
+  contact: { email: string; phone: string | null };
+  /** Where to send Cash App / Zelle; null when the office has not set one up. */
+  payOptions: { cashapp: string | null; zelle: string | null };
+  reportedPayments: ReportedPayment[];
+  notificationPrefs: NotificationPrefs;
   currentBalance: number;
   rentDueDate: string;
   lateFeeGraceDate: string;
@@ -70,6 +94,16 @@ export const tenantApi = {
       method: "POST",
       body: JSON.stringify({ amount, bankAccountId, idempotencyKey: checkoutKey }),
     }),
+  /** Cash App / Zelle: the tenant sent the full balance in their own app. Pending until the office confirms it. */
+  reportPayment: (method: ManualPayMethod, amount: number, checkoutKey: string) =>
+    call<{ confirmation: string }>("/tenant/payments/report", {
+      method: "POST",
+      body: JSON.stringify({ method, amount, idempotencyKey: checkoutKey }),
+    }),
+  updateProfile: (name: string, phone: string) =>
+    call<{ ok: true }>("/tenant/profile", { method: "PUT", body: JSON.stringify({ name, phone }) }),
+  saveNotificationPrefs: (prefs: NotificationPrefs) =>
+    call<NotificationPrefs>("/tenant/notifications", { method: "PUT", body: JSON.stringify(prefs) }),
   newMaintenanceRequest: (title: string, description: string) =>
     call<MaintenanceRequest>("/tenant/maintenance", { method: "POST", body: JSON.stringify({ title, description }) }),
   /** The conversation with the office; `unread` counts the office's messages not opened yet. */
@@ -93,6 +127,10 @@ export function messageFor(error: unknown): string {
       const message = error.details?.message ?? "Plaid could not complete that. Please try again.";
       return error.details?.plaidCode ? `${message} (Plaid: ${error.details.plaidCode})` : message;
     }
+    if (error.code === "AMOUNT_MUST_EQUAL_BALANCE") return "Pay the full balance shown. Partial payments aren't accepted.";
+    if (error.code === "NOTHING_DUE") return "Nothing is due right now.";
+    if (error.code === "ALREADY_REPORTED") return "Your last payment is still waiting for the office to confirm it. Once it's confirmed (or if it can't be matched) you'll see it here.";
+    if (error.code === "METHOD_NOT_AVAILABLE") return "The office doesn't take that payment method right now. Choose another one.";
     if (error.code === "VALIDATION_ERROR") return "Check what you entered and try again.";
     if (error.code === "RATE_LIMITED") return "Too many messages at once. Wait a few minutes and try again.";
   }
