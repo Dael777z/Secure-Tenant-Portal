@@ -2,6 +2,7 @@ import { silentLogger, type LogService } from "../logging"
 import { AppError } from "../types/errors"
 import type { BankAccountInput, BankItem } from "../types/inputs"
 import type { TenantStore } from "../types/stores"
+import { MANUAL_PAY_LABELS, type ManualPayMethod, type NotificationPrefs, type TenantReportedPayment } from "../types/settings"
 import type { LinkedBankAccount, MaintenanceRequest, Notice, TenantSummary } from "../types/tenant"
 import { tenantConfirmation } from "../utils/confirmations"
 import { tenantIdOf } from "../utils/user-id"
@@ -54,20 +55,39 @@ export class TenantService {
         let ledger: TenantSummary["ledger"] = []
         let balance = 0
         if (lease) {
-            const [charges, payments] = await Promise.all([
-                this.db.listChargesForLease(lease.id),
-                this.db.listPaymentsForLease(lease.id),
-            ])
-            const built = buildLedger(charges, payments, this.timeZone)
+            const built = await this.ledgerFor(lease.id)
             ledger = built.entries
             balance = built.balance
         }
 
-        const [maintenanceRequests, bankAccounts] = await Promise.all([this.maintenance(tID), this.bankAccounts(tID)])
+        const [maintenanceRequests, bankAccounts, office, notificationPrefs, reported] = await Promise.all([
+            this.maintenance(tID),
+            this.bankAccounts(tID),
+            this.db.getOfficeSettings(),
+            this.db.getNotificationPrefs(tID),
+            lease ? this.db.listReportedPayments({ leaseId: lease.id }) : Promise.resolve([]),
+        ])
         const { rentDueDate, lateFeeGraceDate } = dueDates(balance, now)
+        // Waiting ones, and decisions from the last 30 days.
+        const recent = Date.now() - 30 * 86_400_000
+        const reportedPayments: TenantReportedPayment[] = reported
+            .filter((r) => r.status === "pending" || (r.reviewedAt && r.reviewedAt.getTime() > recent))
+            .slice(0, 5)
+            .map((r) => ({
+                id: r.id,
+                method: r.method,
+                amount: r.amount,
+                reportedOn: formatDate(r.reportedAt, this.timeZone),
+                status: r.status === "pending" ? "pending" : r.decision === "rejected" ? "rejected" : "confirmed",
+                reason: r.decision === "rejected" ? r.reason : null,
+            }))
 
         return {
             tenant,
+            contact: { email: person.email, phone: person.phone },
+            payOptions: { cashapp: office.cashappHandle, zelle: office.zelleHandle },
+            reportedPayments,
+            notificationPrefs,
             currentBalance: balance,
             rentDueDate,
             lateFeeGraceDate,
@@ -77,6 +97,28 @@ export class TenantService {
             bankAccounts,
             ...flags,
         }
+    }
+
+    private async ledgerFor(leaseId: number) {
+        const [charges, payments] = await Promise.all([this.db.listChargesForLease(leaseId), this.db.listPaymentsForLease(leaseId)])
+        return buildLedger(charges, payments, this.timeZone)
+    }
+
+    /**
+     * One payment at a time: while a Cash App / Zelle report waits for the
+     * office, the tenant can't report another or pay by bank (it would pay twice).
+     */
+    private async requireNoReportWaiting(leaseId: number): Promise<void> {
+        const waiting = await this.db.listReportedPayments({ leaseId, pendingOnly: true })
+        if (waiting.length) throw new AppError("ALREADY_REPORTED", { method: waiting[0]!.method, amount: waiting[0]!.amount })
+    }
+
+    /** Tenants pay the whole balance, never part of it (Summit, Oct 21). Returns the balance. */
+    private async requireFullBalance(leaseId: number, amount: number): Promise<number> {
+        const { balance } = await this.ledgerFor(leaseId)
+        if (balance <= 0) throw new AppError("NOTHING_DUE")
+        if (Math.abs(Math.round(amount * 100) - Math.round(balance * 100)) > 0) throw new AppError("AMOUNT_MUST_EQUAL_BALANCE", { balance })
+        return balance
     }
 
     private async maintenance(tID: number): Promise<MaintenanceRequest[]> {
@@ -151,6 +193,12 @@ export class TenantService {
         const lease = await this.currentLease(tID)
         if (!lease) throw new AppError("NO_ACTIVE_LEASE")
         facts.leaseId = lease.id
+        // The same checkout again (double click, retry): the first payment's confirmation.
+        const key = input.idempotencyKey ? `tenant:${tID}:${input.idempotencyKey}` : null
+        const earlier = key ? await this.db.findConfirmationByKey(lease.id, key) : null
+        if (earlier) return { confirmation: earlier }
+        await this.requireFullBalance(lease.id, input.amount)
+        await this.requireNoReportWaiting(lease.id)
 
         let method = "Test transfer (no bank linked)"
         if (input.bankAccountId !== null) {
@@ -166,8 +214,49 @@ export class TenantService {
             method: method.slice(0, 60),
             confirmation: tenantConfirmation(),
             // Scoped to the tenant, so one tenant's key can never match another's payment.
-            idempotencyKey: input.idempotencyKey ? `tenant:${tID}:${input.idempotencyKey}` : null,
+            idempotencyKey: key,
         })
+    }
+
+    /**
+     * Cash App / Zelle: the tenant sent the full balance in their own app and
+     * says so. Recorded as pending; it counts once the office confirms it.
+     */
+    // logs payment.tenant_reported.succeeded { userId, method, amount, leaseId } or .failed { code }
+    reportPayment(userId: string, input: { method: ManualPayMethod; amount: number; idempotencyKey?: string | null }): Promise<{ confirmation: string }> {
+        const facts: { leaseId?: number } = {}
+        return this.log.flow("payment.tenant_reported", { userId, method: input.method, amount: input.amount }, async () => {
+            const tID = tenantIdOf(userId)
+            const lease = await this.currentLease(tID)
+            if (!lease) throw new AppError("NO_ACTIVE_LEASE")
+            facts.leaseId = lease.id
+            const office = await this.db.getOfficeSettings()
+            if (!(input.method === "cashapp" ? office.cashappHandle : office.zelleHandle)) throw new AppError("METHOD_NOT_AVAILABLE")
+            const key = input.idempotencyKey ? `tenant:${tID}:${input.idempotencyKey}` : null
+            const earlier = key ? await this.db.findConfirmationByKey(lease.id, key) : null
+            if (earlier) return { confirmation: earlier }
+            await this.requireFullBalance(lease.id, input.amount)
+            await this.requireNoReportWaiting(lease.id)
+            return this.db.recordPayment({
+                leaseId: lease.id,
+                amount: input.amount,
+                tenantId: tID,
+                method: `${MANUAL_PAY_LABELS[input.method]} (reported by tenant)`,
+                confirmation: tenantConfirmation(),
+                idempotencyKey: key,
+                reported: { method: input.method },
+            })
+        }, () => facts)
+    }
+
+    // logs tenant.profile.update.succeeded { userId }
+    updateProfile(userId: string, input: { name: string; phone: string | null }): Promise<void> {
+        return this.log.flow("tenant.profile.update", { userId }, () => this.db.updateOwnProfile(input))
+    }
+
+    // logs tenant.notifications.update.succeeded { userId, ...choices }
+    saveNotificationPrefs(userId: string, prefs: NotificationPrefs): Promise<void> {
+        return this.log.flow("tenant.notifications.update", { userId, ...prefs }, () => this.db.saveNotificationPrefs(tenantIdOf(userId), prefs))
     }
 
     /** Notices built from what is on record (there is no notices table): rent due, payments, repair updates. */

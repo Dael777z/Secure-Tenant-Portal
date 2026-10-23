@@ -11,7 +11,7 @@ export const permissionsByRole: Record<Role, readonly Permission[]> = {
     admin: ["ledger:read:property", "ledger:adjust", "maintenance:manage", "users:provision", "messages:manage"],
     // On-site maintenance: the queue and nothing else (003's policies say the same in the database).
     maintenance_staff: ["maintenance:manage"],
-    tenant: ["ledger:read:self", "payment:create:self", "maintenance:create", "messages:self"],
+    tenant: ["ledger:read:self", "payment:create:self", "maintenance:create", "messages:self", "account:self"],
 }
 
 export interface JwtConfig {

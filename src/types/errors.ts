@@ -27,6 +27,11 @@ export const ERROR_STATUS = {
     PROPERTY_HAS_LEASES: 409,
     NOT_OFFICE_PAYMENT: 409,
     PAYMENT_ALREADY_REVERSED: 409,
+    // tenant payments (006): the full balance only, once per report
+    AMOUNT_MUST_EQUAL_BALANCE: 409,
+    NOTHING_DUE: 409,
+    ALREADY_REPORTED: 409,
+    METHOD_NOT_AVAILABLE: 409,
     // missing on this server
     PLAID_NOT_CONFIGURED: 503,
     PLAID_ERROR: 502,

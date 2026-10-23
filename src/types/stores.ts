@@ -1,3 +1,4 @@
+import type { NotificationPrefs, OfficeSettingsRecord, ReportedPaymentRecord } from "./settings"
 import type { ExpenseRecord, LeaseLocation, MaintenanceTiming, NewExpense, RenewalNoticeRecord } from "./finance"
 import type {
     BankAccountInput, BankItem, CreatedLease, NewCharge, HashExpiry, LeaseChanges, LeaseTenantInput, NewLease,
@@ -107,6 +108,8 @@ export interface PaymentStore {
      * already used on this lease, the first payment's (nothing new is written).
      */
     recordPayment(input: NewPayment): Promise<{ confirmation: string }>
+    /** The confirmation of the payment already recorded on this lease under this idempotency key, if any. */
+    findConfirmationByKey(leaseId: number, idempotencyKey: string): Promise<string | null>
     /** Adds a matching refund. NOT_OFFICE_PAYMENT for a tenant's payment, PAYMENT_ALREADY_REVERSED the second time. */
     reverseOfficePayment(leaseId: number, payId: number): Promise<void>
     attachReceipt(leaseId: number, payId: number, receipt: Receipt): Promise<void>
@@ -148,19 +151,37 @@ export interface MessageStore {
     countUnreadThreads(): Promise<number>
 }
 
+/** Juan's tenant side (006): reported Cash App / Zelle payments, office handles, tenant settings. */
+export interface SettingsStore {
+    getOfficeSettings(): Promise<OfficeSettingsRecord>
+    /** Property managers only. */
+    updateOfficeSettings(input: { cashappHandle: string | null; zelleHandle: string | null }): Promise<void>
+    /** The defaults (everything on) when the tenant has not chosen. */
+    getNotificationPrefs(tID: number): Promise<NotificationPrefs>
+    saveNotificationPrefs(tID: number, prefs: NotificationPrefs): Promise<void>
+    /** As the signed-in tenant: their own name and phone, nothing else. NOT_FOUND if that fails. */
+    updateOwnProfile(input: { name: string; phone: string | null }): Promise<void>
+    /** Newest first. `leaseId` limits to one lease; `pendingOnly` to the ones waiting for the office. */
+    listReportedPayments(filter?: { leaseId?: number; pendingOnly?: boolean }): Promise<ReportedPaymentRecord[]>
+    /** Confirm (the payment completes) or reject (it fails, with a reason). NOT_FOUND unless it is pending. */
+    reviewReportedPayment(payId: number, decision: "confirmed" | "rejected", reason: string | null): Promise<ReportedPaymentRecord>
+}
+
 export type AuthStore = AccountStore & SessionStore
 
 export type TenantStore =
     & Pick<PeopleStore, "findPerson">
     & Pick<LeaseStore, "findCurrentLease">
     & Pick<LedgerStore, "listChargesForLease">
-    & Pick<PaymentStore, "listPaymentsForLease" | "recordPayment">
+    & Pick<PaymentStore, "listPaymentsForLease" | "recordPayment" | "findConfirmationByKey">
     & Pick<MaintenanceStore, "listTenantMaintenance" | "createMaintenance">
     & BankStore
+    & Pick<SettingsStore, "getOfficeSettings" | "getNotificationPrefs" | "saveNotificationPrefs" | "updateOwnProfile" | "listReportedPayments">
 
 export type ManagerStore =
     & PropertyStore & PeopleStore & LeaseStore & LedgerStore & PaymentStore & MaintenanceStore
     & Pick<AccountStore, "findStaffProfile">
+    & Pick<SettingsStore, "listReportedPayments">
 
 export type MessagingStore = MessageStore & Pick<PeopleStore, "findPerson"> & Pick<LeaseStore, "findCurrentLease">
 
@@ -193,8 +214,9 @@ export type FinanceDataStore =
     & Pick<LeaseStore, "listLeases" | "listLeaseResidents" | "findLease" | "listLeaseTenants">
     & Pick<LedgerStore, "listLeaseBalances">
     & Pick<MessageStore, "sendMessage">
+    & Pick<SettingsStore, "getOfficeSettings" | "updateOfficeSettings" | "listReportedPayments" | "reviewReportedPayment">
 
 /** The whole database. */
 export type DatabaseInterface =
     & HealthStore & AccountStore & SessionStore & PropertyStore & PeopleStore
-    & LeaseStore & LedgerStore & PaymentStore & MaintenanceStore & BankStore & MessageStore & FinanceStore
+    & LeaseStore & LedgerStore & PaymentStore & MaintenanceStore & BankStore & MessageStore & FinanceStore & SettingsStore

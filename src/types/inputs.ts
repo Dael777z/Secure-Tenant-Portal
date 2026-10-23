@@ -78,6 +78,11 @@ export interface NewPayment {
      * is recorded once (Payment.idempotency_key is unique).
      */
     idempotencyKey?: string | null
+    /**
+     * Cash App / Zelle (006): the tenant says they sent it. Recorded as
+     * 'pending' (it does not move the balance) until the office confirms it.
+     */
+    reported?: { method: "cashapp" | "zelle" } | null
 }
 
 /** A charge the office adds by hand. Rent is billed by the rent job, so it is not one of these kinds. */

@@ -353,8 +353,24 @@ export class ManagerService {
 
     // returns a list of updates regarding units, maintenance, and tenant status.
     async updates(): Promise<UpdateRow[]> {
-        const [units, maintenance, tenants] = await Promise.all([this.units(), this.maintenance(), this.tenants()])
+        const [units, maintenance, tenants, reported] = await Promise.all([
+            this.units(), this.maintenance(), this.tenants(), this.db.listReportedPayments({ pendingOnly: true }),
+        ])
         const out: UpdateRow[] = []
+        // Cash App / Zelle payments a tenant says they sent: the office checks its account and confirms (006).
+        for (const r of reported) {
+            const u = units.find((x) => x.leaseId === r.leaseId)
+            const money = r.amount.toLocaleString("en-US", { style: "currency", currency: "USD" })
+            out.push({
+                kind: "payment_reported",
+                title: `${r.method === "zelle" ? "Zelle" : "Cash App"} payment to confirm`,
+                detail: `${r.reportedByName} says they sent ${money}. Check the office's ${r.method === "zelle" ? "Zelle" : "Cash App"} for the note "${u ? `Unit ${u.unitNum} - ${u.propertyName}` : "their unit"} - ${r.reportedByName}".`,
+                leaseId: r.leaseId,
+                unitLabel: u ? `Unit ${u.unitNum} - ${u.propertyName}` : "",
+                amount: r.amount,
+                severity: 90,
+            })
+        }
         for (const u of units.filter((x) => x.status === "owing")) {
             const months = u.monthlyRent ? u.balance / u.monthlyRent : 0
             out.push({

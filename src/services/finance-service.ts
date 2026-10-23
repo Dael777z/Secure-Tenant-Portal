@@ -8,6 +8,7 @@ import type {
 import { EXPENSE_CATEGORIES } from "../types/finance"
 import type { ChargeRecord, LeaseRecord, PaymentRecord } from "../types/records"
 import type { FinanceDataStore } from "../types/stores"
+import { MANUAL_PAY_LABELS, type OfficeSettings, type ReportedPaymentRecord, type ReportedPaymentRow } from "../types/settings"
 import { parseUserId } from "../utils/user-id"
 import {
     CHARGE_KIND_LABELS, EXPENSE_LABELS, LATE_AFTER_DAYS, addDays, aging, allocate, cents, daysBetween, dollars, inRange,
@@ -432,6 +433,78 @@ export class FinanceService {
             await this.db.recordRenewalNotice(leaseId, tenants.length)
             return tenants.length
         })
+    }
+
+    // ---- Cash App / Zelle payments tenants reported (006)
+
+    async reportedPayments(pendingOnly: boolean): Promise<ReportedPaymentRow[]> {
+        const [reports, locations, balances] = await Promise.all([
+            this.db.listReportedPayments({ pendingOnly }),
+            this.db.listLeaseLocations(),
+            this.db.listLeaseBalances(),
+        ])
+        const where = new Map(locations.map((l) => [l.leaseId, l]))
+        const balance = new Map(balances.map((b) => [b.leaseId, b.balance]))
+        return reports.slice(0, pendingOnly ? 200 : 60).map((r) => this.reportRow(r, where.get(r.leaseId), balance.get(r.leaseId) ?? 0))
+    }
+
+    private reportRow(r: ReportedPaymentRecord, w: { unitNum: string; propertyName: string } | undefined, balance: number): ReportedPaymentRow {
+        return {
+            id: r.id,
+            leaseId: r.leaseId,
+            unitLabel: w ? `Unit ${w.unitNum}` : "Unit",
+            propertyName: w?.propertyName ?? "",
+            tenantName: r.reportedByName,
+            method: r.method,
+            amount: r.amount,
+            reportedAt: r.reportedAt.toISOString(),
+            confirmation: r.confirmation,
+            balance,
+            status: r.status === "pending" ? "pending" : r.decision === "rejected" ? "rejected" : "confirmed",
+            reason: r.reason,
+            reviewedAt: r.reviewedAt ? r.reviewedAt.toISOString() : null,
+            reviewedBy: r.reviewedBy,
+        }
+    }
+
+    /**
+     * The office found the money in its Cash App / Zelle: the payment counts
+     * now. Or it didn't: rejected with a reason, and the tenant is told by message.
+     */
+    // logs office.payment_report.confirmed / .rejected { by, payId, leaseId, amount }
+    async reviewReport(staffUserId: string, payId: number, decision: "confirmed" | "rejected", reason: string | null): Promise<ReportedPaymentRow> {
+        const owner = parseUserId(staffUserId)
+        if (!owner || owner.table !== "admin") throw new AppError("FORBIDDEN")
+        if (decision === "rejected" && !reason?.trim()) throw new AppError("VALIDATION_ERROR")
+        return this.log.flow(`office.payment_report.${decision}`, { by: staffUserId, payId }, async () => {
+            const record = await this.db.reviewReportedPayment(payId, decision, decision === "rejected" ? reason!.trim() : null)
+            const app = MANUAL_PAY_LABELS[record.method]
+            const amount = record.amount.toLocaleString("en-US", { style: "currency", currency: "USD" })
+            const when = formatDate(record.reportedAt, this.timeZone)
+            await this.db.sendMessage({
+                tenantId: record.reportedBy,
+                adminId: owner.id,
+                body: decision === "confirmed"
+                    ? `We received your ${app} payment of ${amount} (reported ${when}). It's now on your ledger. Thank you!`
+                    : `We couldn't match your ${app} payment of ${amount} (reported ${when}): ${record.reason}. Please check your ${app} app and reply here, or pay again from the Pay rent page.`,
+            })
+            const [locations, balances] = await Promise.all([this.db.listLeaseLocations(), this.db.listLeaseBalances()])
+            return this.reportRow(record, locations.find((l) => l.leaseId === record.leaseId), balances.find((b) => b.leaseId === record.leaseId)?.balance ?? 0)
+        }, (row) => ({ leaseId: row.leaseId, amount: row.amount }))
+    }
+
+    // ---- Office settings (006): where tenants send Cash App / Zelle payments
+
+    async officeSettings(): Promise<OfficeSettings> {
+        const o = await this.db.getOfficeSettings()
+        return { cashappHandle: o.cashappHandle, zelleHandle: o.zelleHandle, updatedAt: o.updatedAt ? o.updatedAt.toISOString() : null, updatedBy: o.updatedBy }
+    }
+
+    // logs office.settings.update { cashapp: set|cleared, zelle: set|cleared }
+    async updateOfficeSettings(input: { cashappHandle: string | null; zelleHandle: string | null }): Promise<OfficeSettings> {
+        await this.log.flow("office.settings.update", { cashapp: input.cashappHandle ? "set" : "cleared", zelle: input.zelleHandle ? "set" : "cleared" },
+            () => this.db.updateOfficeSettings(input))
+        return this.officeSettings()
     }
 
     // ---- Expenses

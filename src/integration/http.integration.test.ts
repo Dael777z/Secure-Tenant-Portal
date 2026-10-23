@@ -136,13 +136,36 @@ describe.skipIf(!hasDatabase)("HTTP API on a seeded database", () => {
         expect((await admin.post(`/manager/leases/${lease}/charges`, { kind: "late_fee", amount: -1, dueDate: "2026-10-16" })).status).toBe(400)
     })
 
+    /** The test tenant's balance, after the office bills `extra` (a utility charge) when it is zero. */
+    const owing = async (tenant: Client, extra = 40) => {
+        let balance = (await tenant.get("/tenant/summary")).body.currentBalance as number
+        if (balance <= 0) {
+            const admin = await signedIn(ADMIN)
+            const row = (await admin.get("/manager/tenants")).body.tenants.find((x: { email: string }) => x.email === TENANT.email)
+            expect((await admin.post(`/manager/leases/${row.leaseId}/charges`, { kind: "utility", amount: extra, dueDate: "2026-10-01", description: "Water" })).status).toBe(201)
+            balance = (await tenant.get("/tenant/summary")).body.currentBalance
+        }
+        return balance
+    }
+
     it("records a tenant checkout once, however many times it is sent", async () => {
         const tenant = await signedIn(TENANT)
-        const first = await tenant.post("/tenant/payments", { amount: 12, idempotencyKey: "checkout-1234-abcd" })
-        const again = await tenant.post("/tenant/payments", { amount: 12, idempotencyKey: "checkout-1234-abcd" })
+        const amount = await owing(tenant)
+        const first = await tenant.post("/tenant/payments", { amount, idempotencyKey: "checkout-1234-abcd" })
+        const again = await tenant.post("/tenant/payments", { amount, idempotencyKey: "checkout-1234-abcd" })
         expect(first.status).toBe(201)
+        expect(again.status).toBe(201)
         expect(again.body.confirmation).toBe(first.body.confirmation)
-        expect((await tenant.post("/tenant/payments", { amount: 12, idempotencyKey: "no spaces allowed" })).status).toBe(400)
+        expect((await tenant.post("/tenant/payments", { amount, idempotencyKey: "no spaces allowed" })).status).toBe(400)
+    })
+
+    it("a tenant pays the whole balance, never part of it", async () => {
+        const tenant = await signedIn(TENANT)
+        const amount = await owing(tenant)
+        expect(await tenant.post("/tenant/payments", { amount: Math.round((amount - 1) * 100) / 100 })).toMatchObject({ status: 409, body: { error: "AMOUNT_MUST_EQUAL_BALANCE" } })
+        expect(await tenant.post("/tenant/payments", { amount: amount + 1 })).toMatchObject({ status: 409, body: { error: "AMOUNT_MUST_EQUAL_BALANCE" } })
+        expect((await tenant.post("/tenant/payments", { amount })).status).toBe(201)
+        expect(await tenant.post("/tenant/payments", { amount: 5 })).toMatchObject({ status: 409, body: { error: "NOTHING_DUE" } })
     })
 
     it("shows a tenant their own summary, and lets them pay and file a request", async () => {
@@ -151,7 +174,7 @@ describe.skipIf(!hasDatabase)("HTTP API on a seeded database", () => {
         expect(before.status).toBe(200)
 
         expect(before.body).toMatchObject({ plaidEnabled: false, testPayments: true })
-        const pay = await tenant.post("/tenant/payments", { amount: 100 })   // development: a test transfer
+        const pay = await tenant.post("/tenant/payments", { amount: await owing(tenant) })   // development: a test transfer
         expect(pay.status).toBe(201)
         expect(pay.body.confirmation).toMatch(/^CONF-/)
 

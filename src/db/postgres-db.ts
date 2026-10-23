@@ -10,6 +10,7 @@ import type {
     Receipt, RecentPaymentRecord, SessionUser, StaffProfile, TenantMaintenanceRecord, ThreadRecord, UnitRecord, UserRecord,
 } from "../types/records"
 import type { ExpenseRecord, LeaseLocation, MaintenanceTiming, NewExpense, RenewalNoticeRecord } from "../types/finance"
+import { DEFAULT_NOTIFICATION_PREFS, type NotificationPrefs, type OfficeSettingsRecord, type ReportedPaymentRecord } from "../types/settings"
 import type { DatabaseInterface } from "../types/stores"
 import { isStaffRole, type Role } from "../types/access"
 import { AppError } from "../types/errors"
@@ -519,6 +520,14 @@ export class PostgresDatabase implements DatabaseInterface {
         return rows.map((r) => r.id)
     }
 
+    async findConfirmationByKey(leaseId: number, idempotencyKey: string): Promise<string | null> {
+        const { rows } = await this.query<{ confirmation: string }>(
+            "SELECT transaction_id AS confirmation FROM Payment WHERE idempotency_key = $1 AND LeaseID = $2",
+            [idempotencyKey, leaseId],
+        )
+        return rows[0]?.confirmation ?? null
+    }
+
     async recordPayment(input: NewPayment): Promise<{ confirmation: string }> {
         const key = input.idempotencyKey ?? null
         // The payment already recorded under this key on this lease, if any.
@@ -544,14 +553,19 @@ export class PostgresDatabase implements DatabaseInterface {
         const write = async (client: PoolClient) => {
             const { rows } = await client.query<{ id: number }>(
                 `INSERT INTO Payment (LeaseID, direction, amount, status, transaction_id, idempotency_key)
-                 VALUES ($1, 'charge', $2, 'completed', $3, $4)
+                 VALUES ($1, 'charge', $2, $5, $3, $4)
                  ON CONFLICT (idempotency_key) DO NOTHING
                  RETURNING payID AS id`,
-                [input.leaseId, input.amount.toFixed(2), input.confirmation, key],
+                [input.leaseId, input.amount.toFixed(2), input.confirmation, key, input.reported ? "pending" : "completed"],
             )
             const payId = rows[0]?.id
             if (payId === undefined) return null
             await client.query("INSERT INTO Payment_Details (payID, tID, method) VALUES ($1, $2, $3)", [payId, input.tenantId, input.method])
+            // Cash App / Zelle (006): pending until the office confirms it.
+            if (input.reported) {
+                if (input.tenantId === null) throw new AppError("VALIDATION_ERROR")
+                await client.query("INSERT INTO Reported_Payments (payID, method, reported_by) VALUES ($1, $2, $3)", [payId, input.reported.method, input.tenantId])
+            }
             if (input.receipt) await this.saveReceipt(client, payId, input.receipt)
             return { confirmation: input.confirmation }
         }
@@ -825,6 +839,90 @@ export class PostgresDatabase implements DatabaseInterface {
     async voidExpense(expId: number): Promise<void> {
         const result = await this.query("UPDATE Expenses SET voided_at = now() WHERE expID = $1 AND voided_at IS NULL", [expId])
         if (!result.rowCount) throw new AppError("NOT_FOUND")
+    }
+
+    // ---- Juan's tenant side (006): office handles, tenant settings, reported payments
+
+    async getOfficeSettings(): Promise<OfficeSettingsRecord> {
+        const { rows } = await this.query<OfficeSettingsRecord>(
+            `SELECT o.cashapp_handle AS "cashappHandle", o.zelle_handle AS "zelleHandle",
+                    CASE WHEN o.updated_by IS NULL THEN NULL ELSE o.updated_at END AS "updatedAt", a.Name AS "updatedBy"
+               FROM Office_Settings o LEFT JOIN Admin a ON a.admin_id = o.updated_by`,
+        )
+        return rows[0] ?? { cashappHandle: null, zelleHandle: null, updatedAt: null, updatedBy: null }
+    }
+
+    async updateOfficeSettings(input: { cashappHandle: string | null; zelleHandle: string | null }): Promise<void> {
+        const who = currentIdentity()
+        try {
+            const result = await this.query(
+                "UPDATE Office_Settings SET cashapp_handle = $1, zelle_handle = $2, updated_by = $3, updated_at = now() WHERE id",
+                [input.cashappHandle, input.zelleHandle, who.type === "admin" ? who.id : null],
+            )
+            if (!result.rowCount) throw new AppError("FORBIDDEN")   // RLS: not a property manager
+        } catch (error) {
+            if (hasCode(error, PG.check)) throw new AppError("VALIDATION_ERROR")
+            throw error
+        }
+    }
+
+    async getNotificationPrefs(tID: number): Promise<NotificationPrefs> {
+        const { rows } = await this.query<NotificationPrefs>(
+            `SELECT rent_due AS "rentDue", payment_receipts AS "paymentReceipts", maintenance, messages
+               FROM Tenant_Notification_Prefs WHERE tID = $1`,
+            [tID],
+        )
+        return rows[0] ?? { ...DEFAULT_NOTIFICATION_PREFS }
+    }
+
+    async saveNotificationPrefs(tID: number, prefs: NotificationPrefs): Promise<void> {
+        await this.query(
+            `INSERT INTO Tenant_Notification_Prefs (tID, rent_due, payment_receipts, maintenance, messages)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (tID) DO UPDATE SET rent_due = $2, payment_receipts = $3, maintenance = $4, messages = $5, updated_at = now()`,
+            [tID, prefs.rentDue, prefs.paymentReceipts, prefs.maintenance, prefs.messages],
+        )
+    }
+
+    async updateOwnProfile(input: { name: string; phone: string | null }): Promise<void> {
+        const { rows } = await this.query<{ ok: boolean }>("SELECT tenant_update_own_profile($1, $2) AS ok", [input.name, input.phone])
+        if (!rows[0]?.ok) throw new AppError("NOT_FOUND")
+    }
+
+    async listReportedPayments(filter: { leaseId?: number; pendingOnly?: boolean } = {}): Promise<ReportedPaymentRecord[]> {
+        const { rows } = await this.query<ReportedPaymentRecord>(
+            `SELECT p.payID AS id, p.LeaseID AS "leaseId", p.amount, r.method, r.reported_at AS "reportedAt",
+                    r.reported_by AS "reportedBy", t.Name AS "reportedByName", p.transaction_id AS confirmation, p.status,
+                    v.decision, v.reason, v.reviewed_at AS "reviewedAt", a.Name AS "reviewedBy"
+               FROM Reported_Payments r
+               JOIN Payment p ON p.payID = r.payID
+               JOIN Tenants t ON t.tID = r.reported_by
+               LEFT JOIN Payment_Reviews v ON v.payID = r.payID
+               LEFT JOIN Admin a ON a.admin_id = v.reviewed_by
+              WHERE ($1::int IS NULL OR p.LeaseID = $1) AND (NOT $2::boolean OR p.status = 'pending')
+              ORDER BY r.reported_at DESC, p.payID DESC`,
+            [filter.leaseId ?? null, filter.pendingOnly ?? false],
+        )
+        return rows
+    }
+
+    async reviewReportedPayment(payId: number, decision: "confirmed" | "rejected", reason: string | null): Promise<ReportedPaymentRecord> {
+        const who = currentIdentity()
+        if (who.type !== "admin") throw new AppError("FORBIDDEN")
+        const leaseId = await this.tx(async (client) => {
+            // Lock the payment, so two managers can't decide the same report at once.
+            const { rows } = await client.query<{ leaseId: number }>(
+                `SELECT p.LeaseID AS "leaseId" FROM Payment p JOIN Reported_Payments r ON r.payID = p.payID
+                  WHERE p.payID = $1 AND p.status = 'pending' FOR UPDATE OF p`,
+                [payId],
+            )
+            if (!rows[0]) throw new AppError("NOT_FOUND")
+            await client.query("UPDATE Payment SET status = $2 WHERE payID = $1", [payId, decision === "confirmed" ? "completed" : "failed"])
+            await client.query("INSERT INTO Payment_Reviews (payID, decision, reason, reviewed_by) VALUES ($1, $2, $3, $4)", [payId, decision, reason, who.id])
+            return rows[0].leaseId
+        })
+        const [record] = (await this.listReportedPayments({ leaseId })).filter((r) => r.id === payId)
+        return record!
     }
 
     async listMaintenanceTimings(): Promise<MaintenanceTiming[]> {

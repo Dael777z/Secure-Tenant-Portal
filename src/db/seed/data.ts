@@ -40,6 +40,11 @@ export interface SeedLease {
     owes?: number
     /** Amount paid toward the last month (instead of the full rent). */
     partial?: number
+    /**
+     * The tenant says they sent what they owe by Cash App or Zelle (006), `daysAgo`
+     * days ago; it waits for the office to confirm. Use with `owes`.
+     */
+    reported?: { method: "cashapp" | "zelle"; daysAgo: number }
 }
 
 // Seeded maintenance request
@@ -70,6 +75,8 @@ export interface SeedData {
     staff: Array<{ name: string; email: string; maintenance?: boolean }>
     /** Expenses for the whole portfolio, not one property (insurance, software). */
     expenses?: SeedExpense[]
+    /** Where tenants send Cash App / Zelle payments (006). Placeholders: not real accounts. */
+    office?: { cashapp: string | null; zelle: string | null }
     properties: SeedProperty[]
 }
 
@@ -118,6 +125,8 @@ export const sample = (dates: Dates): SeedData => {
         { name: "Dana Whitfield", email: "manager@example.com" },
         { name: "Luis Ortega", email: "maintenance@example.com", maintenance: true },
     ],
+    // Juan's placeholders (tenant-side-ui 23d7a8e). The office changes them in Settings.
+    office: { cashapp: "$SummitPM", zelle: "payments@summitpm.example" },
     // Expenses for the whole portfolio (005): software and an umbrella policy.
     expenses: [
         ...everyMonth(dates, 12, 3, () => ({ category: "other", amount: 79, vendor: "Summit portal hosting", description: "Software and hosting" })),
@@ -172,7 +181,8 @@ export const sample = (dates: Dates): SeedData => {
             address: "118 Calle de Guadalupe, Mesilla, NM 88046",
             units: {
                 A1: { rent: 1350, since: monthsAgo(8), tenants: [{ name: "Tom Nguyen", email: "tom.nguyen@example.com", phone: "(575) 555-0201" }] },
-                A2: { rent: 1290, since: monthsAgo(3), tenants: [{ name: "Lucia Reyes", email: "lucia.reyes@example.com", phone: "(575) 555-0202" }], owes: 1 },
+                // Lucia sent this month's rent by Zelle yesterday; the office hasn't confirmed it yet.
+                A2: { rent: 1290, since: monthsAgo(3), tenants: [{ name: "Lucia Reyes", email: "lucia.reyes@example.com", phone: "(575) 555-0202" }], owes: 1, reported: { method: "zelle", daysAgo: 1 } },
                 A3: VACANT,
                 A4: { rent: 1400, since: monthsAgo(7), until: daysAhead(84), tenants: [{ name: "Ben Osei", email: "ben.osei@example.com", phone: "(575) 555-0204" }] },
                 A5: { rent: 1325, since: monthsAgo(1), tenants: [{ name: "Hana Tanaka", email: "hana.tanaka@example.com" }] },

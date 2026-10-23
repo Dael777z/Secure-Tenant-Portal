@@ -20,6 +20,13 @@ import { date, id, money, text } from "./validate"
  *   POST   /manager/leases/:leaseId/renewal-notice  { body? }    message the residents
  *   POST   /manager/expenses   { category, amount, spentOn, propertyId?, unitId?, vendor?, description? }
  *   DELETE /manager/expenses/:expenseId                          void it (kept on record)
+ *
+ * Juan's tenant side (006):
+ *   GET    /manager/payments/reported?status=pending|all         Cash App / Zelle payments tenants reported
+ *   POST   /manager/payments/:payId/confirm                      the money arrived: it counts now
+ *   POST   /manager/payments/:payId/reject   { reason }          it didn't: the tenant is told why
+ *   GET    /manager/settings                                     the office's Cash App / Zelle handles
+ *   PUT    /manager/settings   { cashappHandle, zelleHandle }    (null or "" to turn one off)
  */
 export function createFinanceRouter(deps: { finance: FinanceService; guard: Auth; limits: RateLimits }): Router {
     const { finance, guard, limits } = deps
@@ -72,6 +79,37 @@ export function createFinanceRouter(deps: { finance: FinanceService; guard: Auth
     router.delete("/manager/expenses/:expenseId", ...can("ledger:adjust"), async (req, res) => {
         await finance.voidExpense(id(req.params.expenseId))
         res.json({ ok: true })
+    })
+
+    router.get("/manager/payments/reported", ...can("ledger:read:property"), async (req, res) => {
+        const status = req.query.status ?? "pending"
+        if (status !== "pending" && status !== "all") throw new AppError("VALIDATION_ERROR")
+        res.json({ payments: await finance.reportedPayments(status === "pending") })
+    })
+
+    router.post("/manager/payments/:payId/confirm", limits.sensitive, ...can("ledger:adjust"), async (req: ValidRequest, res) => {
+        res.json(await finance.reviewReport(req.user!.id, id(req.params.payId), "confirmed", null))
+    })
+
+    router.post("/manager/payments/:payId/reject", limits.sensitive, ...can("ledger:adjust"), async (req: ValidRequest, res) => {
+        const body = req.body as Record<string, unknown>
+        res.json(await finance.reviewReport(req.user!.id, id(req.params.payId), "rejected", text(body.reason, 300)))
+    })
+
+    router.get("/manager/settings", ...can("ledger:read:property"), async (_req, res) => {
+        res.json(await finance.officeSettings())
+    })
+
+    router.put("/manager/settings", limits.sensitive, ...can("users:provision"), async (req, res) => {
+        const body = req.body as Record<string, unknown>
+        const cashapp = text(body.cashappHandle, 21, { optional: true })
+        const zelle = text(body.zelleHandle, 120, { optional: true })
+        if (cashapp !== null && !/^\$[A-Za-z][A-Za-z0-9_-]{0,19}$/.test(cashapp)) throw new AppError("VALIDATION_ERROR")
+        // An email address or a 10-digit US phone number (Zelle enrolls one of those).
+        if (zelle !== null && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(zelle) && zelle.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "").length !== 10) {
+            throw new AppError("VALIDATION_ERROR")
+        }
+        res.json(await finance.updateOfficeSettings({ cashappHandle: cashapp, zelleHandle: zelle }))
     })
 
     return router

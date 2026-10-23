@@ -123,6 +123,22 @@ async function write(
                 )
                 await client.query("INSERT INTO Payment_Details (payID, tID, method) VALUES ($1, $2, $3)", [payId, payer, p.method])
             }
+
+            // A Cash App / Zelle payment the tenant reported, waiting for the office (006).
+            if (lease.reported) {
+                const owed = Math.round(((lease.owes ?? 0) * lease.rent + (lease.partial ? lease.rent - lease.partial : 0)) * 100) / 100
+                if (owed <= 0) throw new Error(`seed data: ${property.name} lease reports a payment but owes nothing`)
+                const at = new Date(ctx.today.getTime() - lease.reported.daysAgo * 86_400_000)
+                confirmation += 1
+                const { id: payId } = await one(
+                    `INSERT INTO Payment (LeaseID, direction, amount, status, transaction_id, "timestamp")
+                     VALUES ($1, 'charge', $2, 'pending', $3, $4) RETURNING payID AS id`,
+                    [leaseId, owed.toFixed(2), `CONF-${confirmation}`, at],
+                )
+                const label = lease.reported.method === "zelle" ? "Zelle" : "Cash App"
+                await client.query("INSERT INTO Payment_Details (payID, tID, method) VALUES ($1, $2, $3)", [payId, payers[0], `${label} (reported by tenant)`])
+                await client.query("INSERT INTO Reported_Payments (payID, method, reported_by, reported_at) VALUES ($1, $2, $3, $4)", [payId, lease.reported.method, payers[0], at])
+            }
         }
 
         //
@@ -146,6 +162,10 @@ async function write(
     }
 
     for (const e of data.expenses ?? []) await writeExpense(client, { ...e, propertyId: null, unitId: null })
+
+    if (data.office) {
+        await client.query("UPDATE Office_Settings SET cashapp_handle = $1, zelle_handle = $2 WHERE id", [data.office.cashapp, data.office.zelle])
+    }
 
     // Generate the rent charges for every tenant beginning at date ending at today.
     await client.query("SELECT generate_rent_charges($1::date)", [isoDate(ctx.today)])

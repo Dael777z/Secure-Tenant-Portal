@@ -67,7 +67,7 @@ export interface MaintenanceRow {
 }
 
 export interface UpdateRow {
-    kind: "overdue" | "maintenance_new" | "not_signed_up"
+    kind: "overdue" | "maintenance_new" | "not_signed_up" | "payment_reported"
     title: string
     detail: string
     leaseId: number | null

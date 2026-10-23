@@ -1,3 +1,5 @@
+import type { NotificationPrefs, TenantReportedPayment } from "./settings"
+
 // What the tenant API returns. These match frontend/src/types/index.ts; dates
 // come formatted for display ("Oct 1, 2026").
 
@@ -49,6 +51,13 @@ export interface LinkedBankAccount {
 
 export interface TenantSummary {
     tenant: TenantProfile
+    /** The tenant's own contact details (Settings). The email is their sign-in. */
+    contact: { email: string; phone: string | null }
+    /** Where to send Cash App / Zelle payments; null when the office has not set one up. */
+    payOptions: { cashapp: string | null; zelle: string | null }
+    /** Cash App / Zelle payments the tenant reported: waiting, and recent decisions. */
+    reportedPayments: TenantReportedPayment[]
+    notificationPrefs: NotificationPrefs
     currentBalance: number
     rentDueDate: string
     lateFeeGraceDate: string
