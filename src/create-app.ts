@@ -5,6 +5,7 @@ import type { AppConfig } from "./config"
 import type { LogService } from "./logging"
 import { createAuth } from "./middleware/auth"
 import { errorHandler } from "./middleware/errors"
+import { jsonBody } from "./middleware/body"
 import { verifyRequestOrigin } from "./middleware/origin"
 import { createRateLimits } from "./middleware/rate-limit"
 import { requestLog } from "./middleware/request-log"
@@ -72,8 +73,8 @@ export function createApp(deps: AppDependencies): Application {
     app.use(requestLog(logger))
     app.use(securityHeaders({ production: config.production, https: config.webOrigin.startsWith("https://") }))
     app.use(privateApiCache)
-    // 6 MB: room for a payment receipt (at most 4 MB, sent as base64).
-    app.use(express.json({ limit: "6mb" }))
+    // 100 KB, except the receipt routes (middleware/body.ts).
+    app.use(jsonBody)
     app.use(cookieParser())
     app.use(verifyRequestOrigin(config.webOrigin))
 

@@ -1,6 +1,7 @@
 import { Router } from "express"
 
 import type { Auth } from "../middleware/auth"
+import { receiptBody } from "../middleware/body"
 import type { RateLimits } from "../middleware/rate-limit"
 import type { ManagerService } from "../services/manager-service"
 import { AppError } from "../types/errors"
@@ -174,7 +175,7 @@ export function createManagerRouter(deps: {
     // ---- Payments and receipts
 
     // add a new rent payment onto the database
-    router.post("/manager/leases/:leaseId/payments", limits.sensitive, ...guard.can("ledger:adjust"), async (req, res) => {
+    router.post("/manager/leases/:leaseId/payments", limits.sensitive, ...guard.can("ledger:adjust"), receiptBody, async (req, res) => {
         const body = req.body as Record<string, unknown>
         const methods = ["Check", "Cash", "Money order", "Bank transfer"]
         if (typeof body.method !== "string" || !methods.includes(body.method)) throw new AppError("VALIDATION_ERROR") // check payment method exists and is valid
@@ -210,7 +211,7 @@ export function createManagerRouter(deps: {
     })
 
     // add a receipt to a particular payment
-    router.put("/manager/leases/:leaseId/payments/:paymentId/receipt", limits.sensitive, ...guard.can("ledger:adjust"), async (req, res) => {
+    router.put("/manager/leases/:leaseId/payments/:paymentId/receipt", limits.sensitive, ...guard.can("ledger:adjust"), receiptBody, async (req, res) => {
         await manager.attachReceipt(id(req.params.leaseId), id(req.params.paymentId), receipt(req.body))
         res.json({ ok: true })
     })

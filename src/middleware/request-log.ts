@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import type { RequestHandler } from "express"
 
 import { runWithRequestId, type LogService } from "../logging"
+import type { ValidRequest } from "../types/access"
 
 /* attach a request id in the headers of incoming requests, if the request is already associated with an existing request, carry the requests existing id
 
@@ -22,6 +23,8 @@ export function requestLog(logger: LogService): RequestHandler {
                 method: req.method,
                 path: req.originalUrl.split("?")[0],   // no query string: sign-up and oauth links carry tokens
                 statusCode: res.statusCode,
+                ip: req.ip,
+                ...((req as ValidRequest).user ? { user: (req as ValidRequest).user!.id } : {}),
                 ...(res.locals.errorCode ? { error: res.locals.errorCode } : {}),   // set by middleware/errors.ts
                 durationMs: Date.now() - startedAt,
             })
