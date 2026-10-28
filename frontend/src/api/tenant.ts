@@ -60,6 +60,8 @@ export interface TenantSummary {
   plaidEnabled: boolean;
   /** Development only: paying without a linked bank records a test transfer. */
   testPayments: boolean;
+  /** The signed lease on file (opens at /api/tenant/lease-document); null if none. */
+  leaseDocument?: { filename: string; uploadedOn: string } | null;
 }
 
 /** Extra facts some errors carry; PLAID_ERROR has plaid's code, request id and a message. */

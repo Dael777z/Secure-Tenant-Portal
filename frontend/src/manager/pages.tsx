@@ -3,12 +3,14 @@
 // views (manager-dashboard, -portfolio, -rentroll, -directory, -maintenance,
 // -exceptions), cut down to what the team's schema stores.
 import { useMemo, useState } from "react";
-import { managerApi, receiptUrl, type RequestStatus, type TenantRow, type UnitRow, type UpdateRow } from "./api";
+import { managerApi, receiptUrl, REQUEST_PRIORITIES, REQUEST_STATUSES, REQUEST_TYPES, type MaintenanceRow, type RequestStatus, type TenantRow, type UnitRow, type UpdateRow } from "./api";
+import { downloadCsv } from "./finance-api";
+import { MoreMenu, tenantStages, type TenantStage } from "./ops";
 import type { LedgerEntry } from "../types";
 import { financeApi } from "./finance-api";
 import { GettingStarted } from "./onboarding";
 import { SortTh, useSort } from "./sort";
-import { Empty, Kpi, Loading, LocalError, PageHeader, StatusPill, isoDate, money, percent, timeAgo, useLoad, useManager } from "./ui";
+import { Breadcrumbs, Empty, Kpi, Loading, LocalError, PageHeader, StatusPill, ViewCard, isoDate, money, percent, timeAgo, todayIso, useLoad, useManager, type MaintenanceView, type TenantView } from "./ui";
 
 /* ------------------------------------------------------------------ *
  * Quick actions — the common jobs, one click from any screen
@@ -187,6 +189,7 @@ export function PropertyPage({ id }: { id: number }) {
 
   return (
     <>
+      <Breadcrumbs trail={[["Properties", { name: "properties" }], [property.name, null]]} />
       <PageHeader
         title={property.name}
         subtitle={property.address}
@@ -270,7 +273,15 @@ function UnitTable({ units, showProperty }: { units: UnitRow[]; showProperty: bo
           {sorter.rows.map((u) => (
             <tr key={u.id}>
               <th scope="row">
-                {u.unitNum}
+                <a
+                  href={`#/units/${u.id}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    go({ name: "unit", id: u.id, tab: "overview" });
+                  }}
+                >
+                  {u.unitNum}
+                </a>
                 {u.openRequests > 0 && (
                   <span className="mgr-badge" title={`${u.openRequests} open maintenance request${u.openRequests === 1 ? "" : "s"}`}>
                     {u.openRequests} open
@@ -363,7 +374,7 @@ export function RentRollPage({ filter }: { filter?: "owing" | "current" | "vacan
 
   return (
     <>
-      <PageHeader title="Rent Roll" subtitle="Every unit, who lives there, and where each account stands today." />
+      <PageHeader title="Units" subtitle="Every unit, who lives there, and where each account stands today. Open a unit for its leases, charges and documents." />
       <QuickActions />
       {units.data && (
         <div className="mgr-kpis">
@@ -418,7 +429,9 @@ export function RentRollPage({ filter }: { filter?: "owing" | "current" | "vacan
  * Tenants
  * ------------------------------------------------------------------ */
 
-export function TenantsPage() {
+const TENANT_VIEW_LABEL: Record<TenantStage, string> = { current: "Current", "moving-in": "Moving in", leaving: "Leaving", prior: "No lease" };
+
+export function TenantsPage({ view }: { view?: TenantView }) {
   const { go, open, can, changed } = useManager();
 
   // Tenants sign up from a link the office sends them. A new link replaces the old one.
@@ -452,22 +465,33 @@ export function TenantsPage() {
     });
   }
   const { data, error } = useLoad(() => managerApi.tenants());
+  const units = useLoad(() => managerApi.units());
   const [search, setSearch] = useState("");
+  const [showBalance, setShowBalance] = useState(true);
+  const today = todayIso();
+  const stages = useMemo(() => tenantStages(data ?? [], units.data ?? [], today), [data, units.data, today]);
+  const count = (v: TenantStage) => (data ?? []).filter((t) => stages.get(t.id)?.stage === v).length;
   const q = search.trim().toLowerCase();
-  const rows = useMemo(() => (data ?? []).filter((t) => !q || t.name.toLowerCase().includes(q) || t.email.includes(q) || (t.unitLabel ?? "").toLowerCase().includes(q)), [data, q]);
+  const rows = useMemo(
+    () => (data ?? []).filter((t) => (!view || stages.get(t.id)?.stage === view) && (!q || t.name.toLowerCase().includes(q) || t.email.includes(q) || (t.unitLabel ?? "").toLowerCase().includes(q))),
+    [data, q, view, stages],
+  );
   const sorter = useSort("tenants", rows, {
     name: (t) => t.name,
     contact: (t) => t.email,
     unit: (t) => t.unitLabel,
+    start: (t) => stages.get(t.id)?.startDate ?? null,
+    end: (t) => stages.get(t.id)?.endDate ?? null,
     balance: (t) => (t.leaseId === null ? null : t.balance),
     account: (t) => (t.signedUp ? 1 : 0),
   }, { key: "name", dir: "asc" });
+  const setView = (v: TenantStage) => go({ name: "tenants", view: v === view ? undefined : v });
 
   return (
     <>
       <PageHeader
         title="Tenants"
-        subtitle="Everyone with a resident account, and whether they have signed up yet."
+        subtitle="Everyone with a resident account, where their lease stands, and whether they have signed up yet."
         actions={
           can("users:provision") && (
             <button type="button" className="mgr-btn mgr-btn--primary" onClick={() => open({ kind: "tenant" })}>
@@ -476,8 +500,50 @@ export function TenantsPage() {
           )
         }
       />
+      {data && units.data && (
+        <div className="mgr-viewcards">
+          {(["current", "moving-in", "leaving", "prior"] as const).map((v) => (
+            <ViewCard
+              key={v}
+              label={TENANT_VIEW_LABEL[v]}
+              value={String(count(v))}
+              note={v === "leaving" ? "Lease ends in 60 days" : v === "prior" ? "Prior or not leased yet" : `View ${TENANT_VIEW_LABEL[v].toLowerCase()}`}
+              active={view === v}
+              onClick={() => setView(v)}
+              tone={v === "leaving" && count(v) ? "warn" : undefined}
+            />
+          ))}
+        </div>
+      )}
       <div className="mgr-toolbar">
         <input type="search" aria-label="Search tenants" placeholder="Search name, email or unit" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <div className="mgr-toolbar__filters">
+          {view && (
+            <button type="button" className="mgr-btn mgr-btn--ghost mgr-btn--small" onClick={() => go({ name: "tenants" })}>
+              Show everyone
+            </button>
+          )}
+          <label className="mgr-check mgr-check--inline">
+            <input type="checkbox" checked={showBalance} onChange={(e) => setShowBalance(e.target.checked)} />
+            Show balance due
+          </label>
+          <button
+            type="button"
+            className="mgr-btn mgr-btn--secondary mgr-btn--small"
+            disabled={rows.length === 0}
+            onClick={() =>
+              downloadCsv("tenants.csv", [
+                ["Name", "Email", "Phone", "Unit", "Lease start", "Lease end", "Status", "Balance", "Account"],
+                ...sorter.rows.map((t) => {
+                  const s = stages.get(t.id);
+                  return [t.name, t.email, t.phone ?? "", t.unitLabel ?? "", s?.startDate ?? "", s?.endDate ?? "", s ? TENANT_VIEW_LABEL[s.stage] : "", t.leaseId === null ? "" : t.balance, t.signedUp ? "Signed up" : "Invited"];
+                }),
+              ])
+            }
+          >
+            Export CSV
+          </button>
+        </div>
       </div>
       {!data ? (
         <Loading error={error} />
@@ -493,69 +559,78 @@ export function TenantsPage() {
                     <SortTh sorter={sorter} k="name">Name</SortTh>
                     <SortTh sorter={sorter} k="contact">Contact</SortTh>
                     <SortTh sorter={sorter} k="unit">Unit</SortTh>
-                    <SortTh sorter={sorter} k="balance" num>Balance</SortTh>
+                    <SortTh sorter={sorter} k="end">Lease</SortTh>
+                    {showBalance && <SortTh sorter={sorter} k="balance" num>Balance</SortTh>}
                     <SortTh sorter={sorter} k="account">Account</SortTh>
                     <th scope="col"><span className="mgr-sr">Actions</span></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {sorter.rows.map((t) => (
-                    <tr key={t.id}>
-                      <th scope="row">{t.name}</th>
-                      <td>
-                        <a href={`mailto:${t.email}`}>{t.email}</a>
-                        {t.phone && <div className="mgr-muted">{t.phone}</div>}
-                      </td>
-                      <td>{t.unitLabel ?? <span className="mgr-muted">No lease</span>}</td>
-                      <td className={`mgr-num${t.balance > 0 ? " mgr-owes" : ""}`}>{t.leaseId === null ? "—" : money(t.balance)}</td>
-                      <td>{t.signedUp ? <span className="mgr-pill mgr-pill--current">Signed up</span> : <span className="mgr-pill mgr-pill--submitted">Invited</span>}</td>
-                      <td className="mgr-row-actions">
-                        {t.leaseId !== null && (
-                          <button type="button" className="mgr-btn mgr-btn--secondary mgr-btn--small" onClick={() => go({ name: "lease", id: t.leaseId! })}>
-                            Lease
-                          </button>
-                        )}
-                        {can("messages:manage") && (
-                          <button type="button" className="mgr-btn mgr-btn--secondary mgr-btn--small" onClick={() => go({ name: "messages", tenantId: t.id })}>
-                            Message
-                          </button>
-                        )}
-                        {can("users:provision") && !t.signedUp && (
-                          <button type="button" className="mgr-btn mgr-btn--secondary mgr-btn--small" onClick={() => void copySignUpLink(t)}>
-                            Copy sign-up link
-                          </button>
-                        )}
-                        {can("users:provision") && t.signedUp && (
-                          <button type="button" className="mgr-btn mgr-btn--ghost mgr-btn--small" onClick={() => resetSignIn(t)}>
-                            Reset sign-in
-                          </button>
-                        )}
-                        {can("users:provision") && (
-                          <button type="button" className="mgr-btn mgr-btn--ghost mgr-btn--small" onClick={() => open({ kind: "editTenant", id: t.id, name: t.name, phone: t.phone })}>
-                            Edit
-                          </button>
-                        )}
-                        {can("users:provision") && t.leaseId === null && (
-                          <button
-                            type="button"
-                            className="mgr-btn mgr-btn--danger-ghost mgr-btn--small"
-                            onClick={() =>
-                              open({
-                                kind: "confirm",
-                                title: "Delete tenant",
-                                body: `Delete ${t.name} (${t.email})? Their sign-in stops working; their payments and requests stay on record.`,
-                                confirmLabel: "Delete tenant",
-                                run: () => managerApi.deleteTenant(t.id),
-                                done: `${t.name} deleted.`,
-                              })
-                            }
+                  {sorter.rows.map((t) => {
+                    const s = stages.get(t.id);
+                    return (
+                      <tr key={t.id}>
+                        <th scope="row">
+                          <a
+                            href={`#/tenants/${t.id}`}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              go({ name: "tenant", id: t.id, tab: "overview" });
+                            }}
                           >
-                            Delete
+                            {t.name}
+                          </a>
+                        </th>
+                        <td>
+                          <a href={`mailto:${t.email}`}>{t.email}</a>
+                          {t.phone && <div className="mgr-muted">{t.phone}</div>}
+                        </td>
+                        <td>{t.unitLabel ?? <span className="mgr-muted">No lease</span>}</td>
+                        <td>
+                          {s?.startDate ? `${isoDate(s.startDate)} – ${s.endDate ? isoDate(s.endDate) : "month to month"}` : "—"}
+                          {s?.daysLeft !== null && s?.daysLeft !== undefined && s.daysLeft <= 60 && (
+                            <div>
+                              <span className={`mgr-pill mgr-pill--${s.daysLeft < 0 ? "late" : "submitted"}`}>{s.daysLeft < 0 ? "Ended" : `${s.daysLeft} day${s.daysLeft === 1 ? "" : "s"} left`}</span>
+                            </div>
+                          )}
+                        </td>
+                        {showBalance && <td className={`mgr-num${t.balance > 0 ? " mgr-owes" : ""}`}>{t.leaseId === null ? "—" : money(t.balance)}</td>}
+                        <td>{t.signedUp ? <span className="mgr-pill mgr-pill--current">Signed up</span> : <span className="mgr-pill mgr-pill--submitted">Invited</span>}</td>
+                        <td className="mgr-row-actions">
+                          <button type="button" className="mgr-btn mgr-btn--secondary mgr-btn--small" onClick={() => go({ name: "tenant", id: t.id, tab: "overview" })}>
+                            Open
                           </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                          {can("messages:manage") && (
+                            <button type="button" className="mgr-btn mgr-btn--secondary mgr-btn--small" onClick={() => go({ name: "messages", tenantId: t.id })}>
+                              Message
+                            </button>
+                          )}
+                          {can("users:provision") && (
+                            <MoreMenu
+                              items={[
+                                ...(t.signedUp ? [["Reset sign-in", () => resetSignIn(t)] as [string, () => void]] : [["Copy sign-up link", () => void copySignUpLink(t)] as [string, () => void]]),
+                                ["Edit details", () => open({ kind: "editTenant", id: t.id, name: t.name, phone: t.phone })],
+                                ...(t.leaseId === null
+                                  ? [[
+                                      "Delete tenant",
+                                      () =>
+                                        open({
+                                          kind: "confirm",
+                                          title: "Delete tenant",
+                                          body: `Delete ${t.name} (${t.email})? Their sign-in stops working; their payments and requests stay on record.`,
+                                          confirmLabel: "Delete tenant",
+                                          run: () => managerApi.deleteTenant(t.id),
+                                          done: `${t.name} deleted.`,
+                                        }),
+                                    ] as [string, () => void]]
+                                  : []),
+                              ]}
+                            />
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -638,8 +713,10 @@ export function LeasePage({ id }: { id: number }) {
     }
   }
 
+  const startDay = Number(data.startDate.slice(8, 10));
   return (
     <>
+      <Breadcrumbs trail={[["Units", { name: "rent-roll" }], [data.propertyName, { name: "property", id: data.propertyId }], [`Unit ${data.unitNum}`, { name: "unit", id: data.unitId, tab: "overview" }], ["Lease", null]]} />
       <PageHeader
         title={label}
         subtitle={
@@ -670,6 +747,9 @@ export function LeasePage({ id }: { id: number }) {
                 <button type="button" className="mgr-btn mgr-btn--danger-ghost" onClick={() => open({ kind: "endLease", leaseId: id, label })}>
                   End lease
                 </button>
+                <button type="button" className="mgr-btn mgr-btn--ghost" onClick={() => open({ kind: "leaseDocument", leaseId: id, label })}>
+                  Upload signed lease
+                </button>
               </>
             )}
           </>
@@ -677,7 +757,7 @@ export function LeasePage({ id }: { id: number }) {
       />
       <div className="mgr-kpis">
         <Kpi label="Balance due" value={money(data.balance)} tone={data.balance > 0 ? "warn" : "good"} note={data.balance > 0 ? "Owed today" : "Paid up"} />
-        <Kpi label="Monthly rent" value={money(data.monthlyRent)} note="Charged on the 1st" />
+        <Kpi label="Monthly rent" value={money(data.monthlyRent)} note={`Billed on day ${startDay} of each month`} />
         <Kpi label="Lease start" value={isoDate(data.startDate)} />
         <Kpi label="Lease end" value={data.endDate ? isoDate(data.endDate) : "Month to month"} note={ended ? "This lease has ended" : undefined} />
       </div>
@@ -758,64 +838,137 @@ export function LeasePage({ id }: { id: number }) {
  * Maintenance
  * ------------------------------------------------------------------ */
 
+const STATUS_TEXT = Object.fromEntries(REQUEST_STATUSES) as Record<RequestStatus, string>;
+const PRIORITY_TEXT = Object.fromEntries(REQUEST_PRIORITIES) as Record<MaintenanceRow["priority"], string>;
+const TYPE_TEXT = Object.fromEntries(REQUEST_TYPES) as Record<MaintenanceRow["requestType"], string>;
+const PRIORITY_RANK: Record<MaintenanceRow["priority"], number> = { emergency: 0, high: 1, medium: 2, low: 3, none: 4 };
+
+/** The next step for a request at each stage (the first one is the main button). */
 const NEXT_STATUS: Record<RequestStatus, Array<[RequestStatus, string]>> = {
-  submitted: [["in_progress", "Start work"], ["resolved", "Mark resolved"]],
-  in_progress: [["resolved", "Mark resolved"], ["submitted", "Back to new"]],
+  submitted: [["in_review", "Review"], ["scheduled", "Schedule"]],
+  in_review: [["scheduled", "Schedule"], ["in_progress", "Start work"]],
+  scheduled: [["in_progress", "Start work"], ["resolved", "Mark completed"]],
+  in_progress: [["resolved", "Mark completed"]],
   resolved: [["in_progress", "Reopen"]],
 };
 
-export function MaintenancePage() {
-  const { open, changed } = useManager();
+export function MaintenancePage({ view = "open" }: { view?: MaintenanceView }) {
+  const { open, changed, go } = useManager();
   const { data, error } = useLoad(() => managerApi.maintenance());
-  const [filter, setFilter] = useState<"open" | RequestStatus | "all">("open");
+  const [property, setProperty] = useState("");
+  const [priority, setPriority] = useState("");
+  const [type, setType] = useState("");
+  const [sort, setSort] = useState<"newest" | "priority" | "scheduled">("newest");
   const [busy, setBusy] = useState<number | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(true);
 
-  const requests = (data?.requests ?? []).filter((r) =>
-    filter === "all" ? true : filter === "open" ? r.status !== "resolved" : r.status === filter,
-  );
-  const count = (f: typeof filter) =>
-    (data?.requests ?? []).filter((r) => (f === "all" ? true : f === "open" ? r.status !== "resolved" : r.status === f)).length;
+  const all = data?.requests ?? [];
+  const inView = (r: MaintenanceRow, v: MaintenanceView) => (v === "all" ? true : v === "open" ? r.status !== "resolved" : r.status === v);
+  const count = (v: MaintenanceView) => all.filter((r) => inView(r, v)).length;
+  const properties = [...new Map(all.map((r) => [r.propertyId, r.propertyName])).entries()];
+  const requests = all
+    .filter((r) => inView(r, view) && (!property || String(r.propertyId) === property) && (!priority || r.priority === priority) && (!type || r.requestType === type))
+    .sort((a, b) =>
+      sort === "priority"
+        ? PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || b.id - a.id
+        : sort === "scheduled"
+          ? (a.scheduledFor ?? "9999").localeCompare(b.scheduledFor ?? "9999") || b.id - a.id
+          : b.id - a.id,
+    );
 
-  async function move(id: number, status: RequestStatus) {
-    setBusy(id);
+  async function update(r: MaintenanceRow, change: Parameters<typeof managerApi.updateMaintenance>[1], message: string) {
+    setBusy(r.id);
     setFailed(null);
     try {
-      await managerApi.setMaintenanceStatus(id, status);
-      changed(status === "resolved" ? "Request resolved. The resident sees the update." : "Status updated.");
+      await managerApi.updateMaintenance(r.id, change);
+      changed(message);
     } catch {
-      setFailed("That status change did not save. Try again.");
+      setFailed("That change did not save. Try again.");
     } finally {
       setBusy(null);
     }
   }
-
-  const tabs: Array<[typeof filter, string]> = [
-    ["open", "Open"],
-    ["submitted", "New"],
-    ["in_progress", "In progress"],
-    ["resolved", "Resolved"],
-    ["all", "All"],
-  ];
+  const setView = (v: MaintenanceView) => go({ name: "maintenance", view: v === "open" ? undefined : v });
 
   return (
     <>
       <PageHeader
         title="Maintenance"
-        subtitle="Requests from residents and the office. Status changes show up in the resident's portal."
+        subtitle="Requests from residents and the office, from new to completed. Every change shows up in the resident's portal."
         actions={
           <button type="button" className="mgr-btn mgr-btn--primary" onClick={() => open({ kind: "maintenance" })}>
             + New request
           </button>
         }
       />
+      <div className="mgr-viewcards mgr-viewcards--five">
+        {(["submitted", "in_review", "scheduled", "in_progress", "resolved"] as const).map((v) => (
+          <ViewCard
+            key={v}
+            label={STATUS_TEXT[v]}
+            value={String(count(v))}
+            note={`View ${STATUS_TEXT[v].toLowerCase()}`}
+            active={view === v}
+            onClick={() => setView(view === v ? "open" : v)}
+            tone={v === "submitted" && count(v) ? "warn" : undefined}
+          />
+        ))}
+      </div>
       <div className="mgr-toolbar">
-        <div className="mgr-tabs" role="tablist" aria-label="Filter by status">
-          {tabs.map(([value, label]) => (
-            <button key={value} type="button" role="tab" aria-selected={filter === value} className={`mgr-tab${filter === value ? " mgr-tab--active" : ""}`} onClick={() => setFilter(value)}>
-              {label} <span className="mgr-tab__count">{count(value)}</span>
+        <div className="mgr-tabs" role="tablist" aria-label="Show">
+          {(["open", "all"] as const).map((v) => (
+            <button key={v} type="button" role="tab" aria-selected={view === v} className={`mgr-tab${view === v ? " mgr-tab--active" : ""}`} onClick={() => setView(v)}>
+              {v === "open" ? "All open" : "Everything"} <span className="mgr-tab__count">{count(v)}</span>
             </button>
           ))}
+        </div>
+        <div className="mgr-toolbar__filters">
+          <select aria-label="Property" value={property} onChange={(e) => setProperty(e.target.value)}>
+            <option value="">All properties</option>
+            {properties.map(([id, name]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </select>
+          <select aria-label="Priority" value={priority} onChange={(e) => setPriority(e.target.value)}>
+            <option value="">All priorities</option>
+            {REQUEST_PRIORITIES.map(([k, label]) => (
+              <option key={k} value={k}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <select aria-label="Request type" value={type} onChange={(e) => setType(e.target.value)}>
+            <option value="">All request types</option>
+            {REQUEST_TYPES.map(([k, label]) => (
+              <option key={k} value={k}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <select aria-label="Sort" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
+            <option value="newest">Newest first</option>
+            <option value="priority">Highest priority first</option>
+            <option value="scheduled">Soonest scheduled first</option>
+          </select>
+          <button type="button" className="mgr-btn mgr-btn--ghost mgr-btn--small" aria-pressed={expanded} onClick={() => setExpanded(!expanded)}>
+            {expanded ? "Collapse rows" : "Expand rows"}
+          </button>
+          <button
+            type="button"
+            className="mgr-btn mgr-btn--secondary mgr-btn--small"
+            disabled={requests.length === 0}
+            onClick={() =>
+              downloadCsv("maintenance.csv", [
+                ["Submitted", "Property", "Unit", "From", "Title", "Type", "Priority", "Status", "Scheduled", "Details"],
+                ...requests.map((r) => [r.submittedDate, r.propertyName, r.unitNum, r.tenantName ?? "Office", r.title, TYPE_TEXT[r.requestType], PRIORITY_TEXT[r.priority], STATUS_TEXT[r.status], r.scheduledFor ?? "", r.description]),
+              ])
+            }
+          >
+            Export CSV
+          </button>
         </div>
       </div>
       {failed && <p className="mgr-alert mgr-alert--error">{failed}</p>}
@@ -831,11 +984,72 @@ export function MaintenancePage() {
                 <div className="mgr-request__title">
                   <h2 className="mgr-h3">{r.title}</h2>
                   <StatusPill status={r.status} />
+                  {r.priority !== "none" && <span className={`mgr-pill mgr-pill--prio-${r.priority}`}>{PRIORITY_TEXT[r.priority]}</span>}
+                  <span className="mgr-pill mgr-pill--vacant">{TYPE_TEXT[r.requestType]}</span>
                 </div>
                 <p className="mgr-muted">
-                  Unit {r.unitNum} - {r.propertyName} · {r.tenantName ? `from ${r.tenantName}` : "from the office"} · {r.submittedDate}
+                  <a
+                    href={`#/units/${r.unitId}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      go({ name: "unit", id: r.unitId, tab: "overview" });
+                    }}
+                  >
+                    Unit {r.unitNum} - {r.propertyName}
+                  </a>{" "}
+                  · {r.tenantName ? `from ${r.tenantName}` : "from the office"} · {r.submittedDate}
+                  {r.scheduledFor && <> · <strong>Scheduled {isoDate(r.scheduledFor)}</strong></>}
                 </p>
-                {r.description && <p className="mgr-request__desc">{r.description}</p>}
+                {expanded && r.description && <p className="mgr-request__desc">{r.description}</p>}
+                {expanded && (
+                  <div className="mgr-request__edit">
+                    <label>
+                      Stage
+                      <select value={r.status} disabled={busy === r.id} onChange={(e) => void update(r, { status: e.target.value as RequestStatus }, `Moved to ${STATUS_TEXT[e.target.value as RequestStatus]}.`)}>
+                        {REQUEST_STATUSES.map(([k, label]) => (
+                          <option key={k} value={k}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Priority
+                      <select value={r.priority} disabled={busy === r.id} onChange={(e) => void update(r, { priority: e.target.value as MaintenanceRow["priority"] }, "Priority updated.")}>
+                        {REQUEST_PRIORITIES.map(([k, label]) => (
+                          <option key={k} value={k}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Type
+                      <select value={r.requestType} disabled={busy === r.id} onChange={(e) => void update(r, { requestType: e.target.value as MaintenanceRow["requestType"] }, "Request type updated.")}>
+                        {REQUEST_TYPES.map(([k, label]) => (
+                          <option key={k} value={k}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Scheduled for
+                      <input
+                        type="date"
+                        value={r.scheduledFor ?? ""}
+                        disabled={busy === r.id}
+                        onChange={(e) =>
+                          void update(
+                            r,
+                            e.target.value ? { scheduledFor: e.target.value, ...(r.status === "submitted" || r.status === "in_review" ? { status: "scheduled" as const } : {}) } : { scheduledFor: null },
+                            e.target.value ? `Scheduled for ${isoDate(e.target.value)}.` : "Schedule cleared.",
+                          )
+                        }
+                      />
+                    </label>
+                  </div>
+                )}
               </div>
               <div className="mgr-row-actions">
                 {NEXT_STATUS[r.status].map(([status, label], i) => (
@@ -844,7 +1058,7 @@ export function MaintenancePage() {
                     type="button"
                     className={`mgr-btn mgr-btn--small ${i === 0 ? "mgr-btn--secondary" : "mgr-btn--ghost"}`}
                     disabled={busy === r.id}
-                    onClick={() => void move(r.id, status)}
+                    onClick={() => void update(r, { status }, status === "resolved" ? "Request completed. The resident sees the update." : `Moved to ${STATUS_TEXT[status]}.`)}
                   >
                     {label}
                   </button>

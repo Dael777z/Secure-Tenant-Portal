@@ -388,7 +388,7 @@ const fmtDateTime = (iso: string) =>
   new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 /** Payments a tenant says they sent: they count once the office confirms the money arrived. */
-function ReportedPayments() {
+export function ReportedPayments() {
   const { open, can } = useManager();
   const { data, error } = useLoad(() => financeApi.reported("pending"));
   if (error) return null; // the rest of Finance still works
@@ -523,7 +523,7 @@ export function RejectReportDialog({ payId, label, onClose }: DialogProps<"rejec
  * Payment options: the office's Cash App and Zelle (shown to tenants)
  * ------------------------------------------------------------------ */
 
-export function PaymentOptionsPage() {
+export function PaymentOptionsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { can, changed } = useManager();
   const { data, error } = useLoad(() => financeApi.settings());
   const history = useLoad(() => financeApi.reported("all"));
@@ -554,7 +554,7 @@ export function PaymentOptionsPage() {
   const decided = (history.data ?? []).filter((r) => r.status !== "pending").slice(0, 10);
   return (
     <>
-      <PageHeader title="Payment options" subtitle="Where tenants can send rent besides their bank account." />
+      {!embedded && <PageHeader title="Payment options" subtitle="Where tenants can send rent besides their bank account." />}
       {!data ? (
         <Loading error={error} />
       ) : (

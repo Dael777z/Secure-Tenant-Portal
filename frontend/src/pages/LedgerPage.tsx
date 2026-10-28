@@ -2,9 +2,17 @@ import { useTenantData } from "../data/tenantData";
 import { formatBalance, formatCurrency } from "../components/formatCurrency";
 
 export function LedgerPage() {
-  const { ledger } = useTenantData();
+  const { ledger, leaseDocument } = useTenantData();
   return (
     <section className="portal-panel" aria-label="Full ledger">
+      {leaseDocument && (
+        <p className="ledger-lease-doc">
+          <a href="/api/tenant/lease-document" target="_blank" rel="noopener">
+            View your signed lease (PDF)
+          </a>{" "}
+          <span className="ledger-lease-doc__when">uploaded {leaseDocument.uploadedOn}</span>
+        </p>
+      )}
        <div className="table-scroll">
       <table className="ledger-table">
         <thead>

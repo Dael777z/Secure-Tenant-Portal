@@ -1,7 +1,8 @@
 // Every add/edit form on the manager side, opened as a dialog from the quick
 // actions bar or from a screen. Each one closes and refreshes on success.
 import { useRef, useState, type FormEvent } from "react";
-import { CHARGE_KINDS, managerApi, PAYMENT_METHODS, type ChargeKind, RECEIPT_ACCEPT, readReceipt, type NewPerson, type ReceiptUpload, type UnitRow } from "./api";
+import { managerApi, PAYMENT_METHODS, RECEIPT_ACCEPT, readReceipt, REQUEST_PRIORITIES, REQUEST_TYPES, type NewPerson, type ReceiptUpload, type RequestPriority, type RequestType, type UnitRow } from "./api";
+import { ChargeWizard, CreateNewDialog, LateFeeRuleDialog, LeaseDocumentDialog, ReminderRuleDialog } from "./ops";
 import { ExpenseDialog, RejectReportDialog, RenewalDialog } from "./finance";
 import { Field, LocalError, Modal, money, todayIso, useLoad, useManager, useSubmit, type Dialog } from "./ui";
 
@@ -32,7 +33,15 @@ export function DialogHost({ dialog, onClose }: { dialog: Dialog; onClose: () =>
     case "attachReceipt":
       return <AttachReceiptDialog {...dialog} onClose={onClose} />;
     case "charge":
-      return <ChargeDialog {...dialog} onClose={onClose} />;
+      return <ChargeWizard {...dialog} onClose={onClose} />;
+    case "lateFeeRule":
+      return <LateFeeRuleDialog {...dialog} onClose={onClose} />;
+    case "reminderRule":
+      return <ReminderRuleDialog {...dialog} onClose={onClose} />;
+    case "leaseDocument":
+      return <LeaseDocumentDialog {...dialog} onClose={onClose} />;
+    case "create":
+      return <CreateNewDialog {...dialog} onClose={onClose} />;
     case "expense":
       return <ExpenseDialog {...dialog} onClose={onClose} />;
     case "renewal":
@@ -511,6 +520,8 @@ function MaintenanceDialog({ unitId, onClose }: Props<"maintenance">) {
   const [unit, setUnit] = useState(unitId ? String(unitId) : "");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [priority, setPriority] = useState<RequestPriority>("none");
+  const [requestType, setRequestType] = useState<RequestType>("other");
   const { busy, error, run } = useSubmit(() => {
     onClose();
     changed("Request added to the queue.");
@@ -523,7 +534,7 @@ function MaintenanceDialog({ unitId, onClose }: Props<"maintenance">) {
           e.preventDefault();
           void run(async () => {
             if (!unit) throw new LocalError("Choose the unit.");
-            await managerApi.createMaintenance({ unitId: Number(unit), title: title.trim(), description: description.trim() });
+            await managerApi.createMaintenance({ unitId: Number(unit), title: title.trim(), description: description.trim(), priority, requestType });
           });
         }}
       >
@@ -540,6 +551,26 @@ function MaintenanceDialog({ unitId, onClose }: Props<"maintenance">) {
         <Field label="What needs fixing">
           <input value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={120} placeholder="Water heater leaking" />
         </Field>
+        <div className="mgr-form__row">
+          <Field label="Type">
+            <select value={requestType} onChange={(e) => setRequestType(e.target.value as RequestType)}>
+              {REQUEST_TYPES.map(([k, label]) => (
+                <option key={k} value={k}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Priority">
+            <select value={priority} onChange={(e) => setPriority(e.target.value as RequestPriority)}>
+              {REQUEST_PRIORITIES.map(([k, label]) => (
+                <option key={k} value={k}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
         <Field label="Details (optional)">
           <textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={4000} />
         </Field>
@@ -575,54 +606,6 @@ function RentDialog({ leaseId, monthlyRent, onClose }: Props<"rent">) {
         </Field>
         <ErrorText error={error} />
         <Actions busy={busy} label="Save rent" onClose={onClose} />
-      </form>
-    </Modal>
-  );
-}
-
-function ChargeDialog({ leaseId, label, onClose }: Props<"charge">) {
-  const { changed } = useManager();
-  const [kind, setKind] = useState<ChargeKind>("late_fee");
-  const [amount, setAmount] = useState("");
-  const [due, setDue] = useState(todayIso());
-  const [note, setNote] = useState("");
-  const kindLabel = CHARGE_KINDS.find((k) => k.kind === kind)?.label ?? "Charge";
-  const { busy, error, run } = useSubmit(() => {
-    onClose();
-    changed(`${kindLabel} added to ${label}.`);
-  });
-  return (
-    <Modal title="Add a charge" onClose={onClose}>
-      <form
-        className="mgr-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void run(() =>
-            managerApi.addCharge(leaseId, { kind, amount: parseMoney(amount, "the amount"), dueDate: due, description: note.trim() || null }),
-          );
-        }}
-      >
-        <p className="mgr-muted">{label}. Rent is billed automatically each month; use this for everything else.</p>
-        <Field label="Kind">
-          <select value={kind} onChange={(e) => setKind(e.target.value as ChargeKind)}>
-            {CHARGE_KINDS.map((k) => (
-              <option key={k.kind} value={k.kind}>
-                {k.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Amount">
-          <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="25.00" required />
-        </Field>
-        <Field label="Due date">
-          <input type="date" value={due} onChange={(e) => setDue(e.target.value)} required />
-        </Field>
-        <Field label="Note on the statement" hint="Optional. Shown on the ledger, e.g. “Late fee, October”.">
-          <input value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} />
-        </Field>
-        <ErrorText error={error} />
-        <Actions busy={busy} label="Add charge" onClose={onClose} />
       </form>
     </Modal>
   );

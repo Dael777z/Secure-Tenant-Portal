@@ -13,9 +13,15 @@ export type Route =
   | { name: "properties" }
   | { name: "property"; id: number }
   | { name: "rent-roll"; filter?: "owing" | "current" | "vacant" }
-  | { name: "tenants" }
+  | { name: "unit"; id: number; tab: UnitTab }
+  | { name: "documents" }
+  | { name: "tenants"; view?: TenantView }
+  | { name: "tenant"; id: number; tab: TenantTab }
   | { name: "lease"; id: number }
-  | { name: "maintenance" }
+  | { name: "charges"; month: string }
+  | { name: "payments"; period: FinancePeriod; view?: PaymentView }
+  | { name: "payment-rules"; tab: RulesTab }
+  | { name: "maintenance"; view?: MaintenanceView }
   | { name: "messages"; tenantId?: number }
   | { name: "updates" }
   | { name: "finance"; period: FinancePeriod }
@@ -23,7 +29,27 @@ export type Route =
   | { name: "performance" }
   | { name: "renewals"; days: number }
   | { name: "setup" }
-  | { name: "settings" };
+  | { name: "settings"; tab: SettingsTab };
+
+export const UNIT_TABS = ["overview", "leases", "performance", "documents", "charges", "chats"] as const;
+export type UnitTab = (typeof UNIT_TABS)[number];
+export const TENANT_TABS = ["overview", "charges", "documents", "chats"] as const;
+export type TenantTab = (typeof TENANT_TABS)[number];
+export const TENANT_VIEWS = ["current", "moving-in", "leaving", "prior"] as const;
+export type TenantView = (typeof TENANT_VIEWS)[number];
+export const PAYMENT_VIEWS = ["paid", "partial", "ahead", "returns"] as const;
+export type PaymentView = (typeof PAYMENT_VIEWS)[number];
+export const RULES_TABS = ["late-fees", "reminders", "order"] as const;
+export type RulesTab = (typeof RULES_TABS)[number];
+export const SETTINGS_TABS = ["account", "payment-options", "notifications", "team"] as const;
+export type SettingsTab = (typeof SETTINGS_TABS)[number];
+export const MAINTENANCE_VIEWS = ["open", "submitted", "in_review", "scheduled", "in_progress", "resolved", "all"] as const;
+export type MaintenanceView = (typeof MAINTENANCE_VIEWS)[number];
+
+const pick = <T extends string>(value: string | null, allowed: readonly T[], fallback: T): T =>
+  allowed.includes(value as T) ? (value as T) : fallback;
+const maybe = <T extends string>(value: string | null, allowed: readonly T[]): T | undefined =>
+  allowed.includes(value as T) ? (value as T) : undefined;
 
 const PERIOD_KEYS: FinancePeriod[] = ["this-month", "30d", "90d", "ytd", "12m"];
 const periodFrom = (query: string, fallback: FinancePeriod): FinancePeriod => {
@@ -35,6 +61,7 @@ export function parseRoute(hash: string): Route | null {
   const [path = "", query = ""] = hash.replace(/^#\/?/, "").split("?");
   const [head, id] = path.split("/");
   const n = Number(id);
+  const q = new URLSearchParams(query);
   switch (head) {
     case "dashboard":
       return { name: "dashboard" };
@@ -45,11 +72,25 @@ export function parseRoute(hash: string): Route | null {
       return filter === "owing" || filter === "current" || filter === "vacant" ? { name: "rent-roll", filter } : { name: "rent-roll" };
     }
     case "tenants":
-      return { name: "tenants" };
+      return Number.isInteger(n) && n > 0
+        ? { name: "tenant", id: n, tab: pick(q.get("tab"), TENANT_TABS, "overview") }
+        : { name: "tenants", view: maybe(q.get("view"), TENANT_VIEWS) };
+    case "units":
+      return Number.isInteger(n) && n > 0 ? { name: "unit", id: n, tab: pick(q.get("tab"), UNIT_TABS, "overview") } : { name: "rent-roll" };
+    case "documents":
+      return { name: "documents" };
+    case "rent-and-charges": {
+      const m = q.get("month");
+      return { name: "charges", month: m && (m === "all" || /^\d{4}-(0[1-9]|1[0-2])$/.test(m)) ? m : todayIso().slice(0, 7) };
+    }
+    case "payments":
+      return { name: "payments", period: periodFrom(query, "this-month"), view: maybe(q.get("view"), PAYMENT_VIEWS) };
+    case "payment-rules":
+      return { name: "payment-rules", tab: pick(q.get("tab"), RULES_TABS, "late-fees") };
     case "leases":
       return Number.isInteger(n) && n > 0 ? { name: "lease", id: n } : null;
     case "maintenance":
-      return { name: "maintenance" };
+      return { name: "maintenance", view: maybe(q.get("view"), MAINTENANCE_VIEWS) };
     case "updates":
       return { name: "updates" };
     case "messages":
@@ -67,7 +108,7 @@ export function parseRoute(hash: string): Route | null {
     case "setup":
       return { name: "setup" };
     case "settings":
-      return { name: "settings" };
+      return { name: "settings", tab: pick(q.get("tab"), SETTINGS_TABS, "account") };
     default:
       return null;
   }
@@ -89,6 +130,22 @@ export function routeHash(route: Route): string {
       return `#/profit-and-loss?period=${route.period}`;
     case "renewals":
       return `#/renewals?days=${route.days}`;
+    case "unit":
+      return route.tab === "overview" ? `#/units/${route.id}` : `#/units/${route.id}?tab=${route.tab}`;
+    case "tenant":
+      return route.tab === "overview" ? `#/tenants/${route.id}` : `#/tenants/${route.id}?tab=${route.tab}`;
+    case "tenants":
+      return route.view ? `#/tenants?view=${route.view}` : "#/tenants";
+    case "charges":
+      return `#/rent-and-charges?month=${route.month}`;
+    case "payments":
+      return `#/payments?period=${route.period}${route.view ? `&view=${route.view}` : ""}`;
+    case "payment-rules":
+      return `#/payment-rules?tab=${route.tab}`;
+    case "maintenance":
+      return route.view ? `#/maintenance?view=${route.view}` : "#/maintenance";
+    case "settings":
+      return `#/settings?tab=${route.tab}`;
     default:
       return `#/${route.name}`;
   }
@@ -110,7 +167,11 @@ export type Dialog =
   | { kind: "endLease"; leaseId: number; label: string }
   | { kind: "addResident"; leaseId: number }
   | { kind: "attachReceipt"; leaseId: number; paymentId: number; label: string }
-  | { kind: "charge"; leaseId: number; label: string }
+  | { kind: "charge"; leaseId?: number; label?: string }
+  | { kind: "lateFeeRule"; propertyId?: number; unitId?: number }
+  | { kind: "reminderRule"; propertyId?: number; unitId?: number }
+  | { kind: "leaseDocument"; leaseId?: number; label?: string }
+  | { kind: "create" }
   | { kind: "expense"; propertyId?: number }
   | { kind: "renewal"; leaseId: number; label: string; residents: string[] }
   | { kind: "rejectReport"; payId: number; label: string }
@@ -265,8 +326,13 @@ const STATUS_LABELS: Record<string, string> = {
   current: "Paid up",
   owing: "Owes rent",
   submitted: "New",
+  in_review: "In review",
+  scheduled: "Scheduled",
   in_progress: "In progress",
-  resolved: "Resolved",
+  resolved: "Completed",
+  paid: "Paid",
+  due: "Due",
+  late: "Late",
 };
 
 export function StatusPill({ status }: { status: string }) {
@@ -397,3 +463,76 @@ export function useTableLabels(root: RefObject<HTMLElement | null>) {
 
 /** A check that fails in the browser, before anything is sent. */
 export class LocalError extends Error {}
+
+/** The tabs across the top of a page: each one is a link, so Back and reload keep the tab. */
+export function PageTabs<T extends string>({ label, tabs, active, href, counts }: {
+  label: string;
+  tabs: ReadonlyArray<readonly [T, string]>;
+  active: T | undefined;
+  href: (tab: T) => Route;
+  counts?: Partial<Record<T, number>>;
+}) {
+  const { go } = useManager();
+  return (
+    <nav className="mgr-page-tabs" aria-label={label}>
+      {tabs.map(([key, text]) => {
+        const on = key === active;
+        const to = href(key);
+        return (
+          <a
+            key={key}
+            href={routeHash(to)}
+            className={`mgr-page-tab${on ? " mgr-page-tab--active" : ""}`}
+            aria-current={on ? "page" : undefined}
+            onClick={(e) => {
+              e.preventDefault();
+              go(to);
+            }}
+          >
+            {text}
+            {counts && counts[key] !== undefined && <span className="mgr-tab__count">{counts[key]}</span>}
+          </a>
+        );
+      })}
+    </nav>
+  );
+}
+
+/** "Properties › Woodcrest Apartments › Unit 101" above a detail page. */
+export function Breadcrumbs({ trail }: { trail: Array<[string, Route | null]> }) {
+  const { go } = useManager();
+  return (
+    <nav className="mgr-crumbs" aria-label="Breadcrumb">
+      <ol>
+        {trail.map(([text, to], i) => (
+          <li key={i}>
+            {to && i < trail.length - 1 ? (
+              <a
+                href={routeHash(to)}
+                onClick={(e) => {
+                  e.preventDefault();
+                  go(to);
+                }}
+              >
+                {text}
+              </a>
+            ) : (
+              <span aria-current={i === trail.length - 1 ? "page" : undefined}>{text}</span>
+            )}
+          </li>
+        ))}
+      </ol>
+    </nav>
+  );
+}
+
+/** A summary card that filters the list under it ("View Paid"), like a tab with a number. */
+export function ViewCard({ label, value, note, active, onClick, tone }: { label: string; value: string; note?: string; active: boolean; onClick: () => void; tone?: "warn" | "good" }) {
+  return (
+    <button type="button" className={`mgr-viewcard${active ? " mgr-viewcard--active" : ""}`} aria-pressed={active} onClick={onClick}>
+      <span className="mgr-kpi__label">{label}</span>
+      <span className={`mgr-kpi__value${tone ? ` mgr-kpi__value--${tone}` : ""}`}>{value}</span>
+      <span className="mgr-viewcard__link">{note ?? `View ${label.toLowerCase()}`}</span>
+    </button>
+  );
+}
