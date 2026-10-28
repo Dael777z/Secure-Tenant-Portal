@@ -1,5 +1,5 @@
 import { useTenantData } from "../data/tenantData";
-import { formatCurrency } from "../components/formatCurrency";
+import { formatBalance, formatCurrency } from "../components/formatCurrency";
 
 export function LedgerPage() {
   const { ledger } = useTenantData();
@@ -26,7 +26,7 @@ export function LedgerPage() {
                 {entry.amount > 0 ? "+" : ""}
                 {formatCurrency(entry.amount)}
               </td>
-              <td data-label="Balance">{formatCurrency(entry.balanceAfter)}</td>
+              <td data-label="Balance">{formatBalance(entry.balanceAfter)}</td>
             </tr>
           ))}
         </tbody>

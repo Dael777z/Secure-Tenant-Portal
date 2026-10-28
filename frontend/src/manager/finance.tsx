@@ -699,7 +699,10 @@ function RecentPayments({ rows }: { rows: RecentPaymentRow[] }) {
                     </button>
                     <div className="mgr-muted">{r.propertyName}</div>
                   </td>
-                  <td className={`mgr-num${r.status === "refund" ? " mgr-owes" : ""}`}>{r.status === "refund" ? `−${money(r.amount)}` : money(r.amount)}</td>
+                  <td className={`mgr-num${r.status === "refund" ? " mgr-owes" : ""}`}>
+                    {r.status === "refund" ? `−${money(r.amount)}` : money(r.amount)}
+                    {r.ahead > 0 && r.status !== "prepaid" && <div className="mgr-muted">{money(r.ahead)} paid ahead</div>}
+                  </td>
                   <td>
                     <span className={`mgr-pill mgr-pill--${r.status}`}>{PAYMENT_STATUS[r.status]}</span>
                   </td>

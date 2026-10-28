@@ -123,6 +123,8 @@ export interface RecentPaymentRow {
     confirmation: string
     /** paid: covered the charge(s) it went to; partial: left part of one open; prepaid: nothing was due; refund: money back out. */
     status: "paid" | "partial" | "prepaid" | "refund"
+    /** Dollars of it not applied to a charge yet (paid ahead, held as credit). */
+    ahead: number
     /** The charge it was applied to first, if any. */
     forCharge: { kind: string; dueDate: string } | null
 }

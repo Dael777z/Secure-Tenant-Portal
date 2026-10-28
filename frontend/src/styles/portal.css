@@ -231,6 +231,11 @@ body {
   color: #f4cf7a;
 }
 
+.status-pill--paid {
+  background: rgba(63, 185, 80, 0.2);
+  color: #b7f0c3;
+}
+
 .home-actions {
   display: flex;
   gap: 12px;
@@ -1096,7 +1101,7 @@ body {
   }
 }
 
-@container portal-content (max-width: 610px) {
+@container portal-content (max-width: 680px) {
   .table-scroll {
     overflow-x: visible;
   }
@@ -1369,4 +1374,58 @@ html[data-text-size="xlarge"] .portal-main {
   .method-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* Pay rent: how much (the balance or more; extra is credit). */
+.pay-amount {
+  margin: 4px 0 12px;
+}
+.pay-amount-input {
+  position: relative;
+}
+.pay-amount-input span {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--portal-ice);
+  font-weight: 700;
+}
+.pay-amount-input .field-input {
+  padding-left: 24px;
+  font-size: 16px; /* 16px stops phones zooming in on focus */
+  font-weight: 700;
+}
+.pay-amount-input .field-input[aria-invalid="true"] {
+  border-color: var(--portal-red);
+}
+.pay-amount-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.pay-amount-choice {
+  font-family: var(--portal-font);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--portal-white);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 999px;
+  padding: 5px 10px;
+  cursor: pointer;
+  max-width: 100%;
+}
+.pay-amount-choice[aria-pressed="true"] {
+  background: var(--portal-accent);
+  border-color: var(--portal-accent);
+}
+.pay-amount-help {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--portal-ice);
+}
+.pay-amount-help--error {
+  color: #ff9b9b;
 }

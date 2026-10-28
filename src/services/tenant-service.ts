@@ -3,7 +3,7 @@ import { AppError } from "../types/errors"
 import type { BankAccountInput, BankItem } from "../types/inputs"
 import type { TenantStore } from "../types/stores"
 import { MANUAL_PAY_LABELS, type ManualPayMethod, type NotificationPrefs, type TenantReportedPayment } from "../types/settings"
-import type { LinkedBankAccount, MaintenanceRequest, Notice, TenantSummary } from "../types/tenant"
+import type { LinkedBankAccount, MaintenanceRequest, Notice, PayLimits, TenantSummary } from "../types/tenant"
 import { tenantConfirmation } from "../utils/confirmations"
 import { tenantIdOf } from "../utils/user-id"
 import { buildLedger, dueDates, formatDate, localDate } from "./ledger"
@@ -12,6 +12,11 @@ import { buildLedger, dueDates, formatDate, localDate } from "./ledger"
  * What the tenant pages read and write, always for the signed-in tenant
  * (row-level security enforces the same in the database).
  */
+
+/** How far ahead a tenant may pay: this many months of rent beyond the balance (held as credit). */
+export const PREPAY_MONTHS = 3
+/** The smallest payment when nothing is due (paying ahead). */
+const MIN_PREPAYMENT = 1
 
 const STATUS_FOR_UI: Record<string, MaintenanceRequest["status"]> = {
     submitted: "open",   // the tenant pages say "open"
@@ -89,6 +94,7 @@ export class TenantService {
             reportedPayments,
             notificationPrefs,
             currentBalance: balance,
+            payLimits: lease ? this.payLimits(balance, lease.monthlyRent) : null,
             rentDueDate,
             lateFeeGraceDate,
             ledger,
@@ -113,12 +119,30 @@ export class TenantService {
         if (waiting.length) throw new AppError("ALREADY_REPORTED", { method: waiting[0]!.method, amount: waiting[0]!.amount })
     }
 
-    /** Tenants pay the whole balance, never part of it (Summit, Oct 21). Returns the balance. */
-    private async requireFullBalance(leaseId: number, amount: number): Promise<number> {
-        const { balance } = await this.ledgerFor(leaseId)
-        if (balance <= 0) throw new AppError("NOTHING_DUE")
-        if (Math.abs(Math.round(amount * 100) - Math.round(balance * 100)) > 0) throw new AppError("AMOUNT_MUST_EQUAL_BALANCE", { balance })
-        return balance
+    /**
+     * What a tenant may pay now (Summit, Oct 21 + Oct 28): at least the whole
+     * balance (never part of it), and up to PREPAY_MONTHS of rent beyond it,
+     * kept as credit for the next rent. With nothing due, any amount from $1 up
+     * to that limit pays ahead. Credit already held counts toward the limit.
+     */
+    private payLimits(balance: number, monthlyRent: number): PayLimits {
+        const cents = (n: number) => Math.round(n * 100)
+        const credit = balance < 0 ? -balance : 0
+        const minimum = balance > 0 ? balance : MIN_PREPAYMENT
+        const maximum = Math.max(0, (cents(Math.max(balance, 0)) + cents(monthlyRent * PREPAY_MONTHS) - cents(credit)) / 100)
+        return { minimum, maximum, monthlyRent, credit, prepayMonths: PREPAY_MONTHS, canPay: maximum >= minimum }
+    }
+
+    /** Throws unless the amount is allowed (see payLimits). Returns the limits. */
+    private async requireAllowedAmount(lease: { id: number; monthlyRent: number }, amount: number): Promise<PayLimits> {
+        const { balance } = await this.ledgerFor(lease.id)
+        const limits = this.payLimits(balance, lease.monthlyRent)
+        const cents = Math.round(amount * 100)
+        if (cents < Math.round(limits.minimum * 100)) {
+            throw new AppError(balance > 0 ? "AMOUNT_BELOW_BALANCE" : "VALIDATION_ERROR", { balance, minimum: limits.minimum })
+        }
+        if (cents > Math.round(limits.maximum * 100)) throw new AppError("AMOUNT_ABOVE_LIMIT", { maximum: limits.maximum, prepayMonths: PREPAY_MONTHS })
+        return limits
     }
 
     private async maintenance(tID: number): Promise<MaintenanceRequest[]> {
@@ -197,7 +221,7 @@ export class TenantService {
         const key = input.idempotencyKey ? `tenant:${tID}:${input.idempotencyKey}` : null
         const earlier = key ? await this.db.findConfirmationByKey(lease.id, key) : null
         if (earlier) return { confirmation: earlier }
-        await this.requireFullBalance(lease.id, input.amount)
+        await this.requireAllowedAmount(lease, input.amount)
         await this.requireNoReportWaiting(lease.id)
 
         let method = "Test transfer (no bank linked)"
@@ -219,7 +243,7 @@ export class TenantService {
     }
 
     /**
-     * Cash App / Zelle: the tenant sent the full balance in their own app and
+     * Cash App / Zelle: the tenant sent the amount (the balance or more) in their own app and
      * says so. Recorded as pending; it counts once the office confirms it.
      */
     // logs payment.tenant_reported.succeeded { userId, method, amount, leaseId } or .failed { code }
@@ -235,7 +259,7 @@ export class TenantService {
             const key = input.idempotencyKey ? `tenant:${tID}:${input.idempotencyKey}` : null
             const earlier = key ? await this.db.findConfirmationByKey(lease.id, key) : null
             if (earlier) return { confirmation: earlier }
-            await this.requireFullBalance(lease.id, input.amount)
+            await this.requireAllowedAmount(lease, input.amount)
             await this.requireNoReportWaiting(lease.id)
             return this.db.recordPayment({
                 leaseId: lease.id,
@@ -277,6 +301,16 @@ export class TenantService {
                 title: `Rent due ${rentDueDate}`,
                 body: `Your balance of ${money(balance)} is due ${rentDueDate}. A late fee may apply after ${lateFeeGraceDate}.`,
                 nextStep: "Pay from the Pay rent page to avoid a late fee.",
+                timestamp: formatDate(new Date(), this.timeZone),
+                sortKey: Number.MAX_SAFE_INTEGER,
+            })
+        } else if (balance < 0) {
+            out.push({
+                id: "n_credit",
+                type: "payment",
+                title: `${money(-balance)} credit on your account`,
+                body: `You paid ahead. The credit goes toward your next rent, due ${rentDueDate}.`,
+                nextStep: "No action needed - it is applied automatically.",
                 timestamp: formatDate(new Date(), this.timeZone),
                 sortKey: Number.MAX_SAFE_INTEGER,
             })

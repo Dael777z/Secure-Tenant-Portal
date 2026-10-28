@@ -5,3 +5,8 @@ export function formatCurrency(amount: number): string {
     maximumFractionDigits: 2,
   })}`;
 }
+
+/** A running balance: a negative one is money paid ahead, shown as credit. */
+export function formatBalance(balance: number): string {
+  return balance < 0 ? `${formatCurrency(-balance)} credit` : formatCurrency(balance);
+}

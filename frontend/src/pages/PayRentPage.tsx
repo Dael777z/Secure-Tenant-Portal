@@ -22,17 +22,64 @@ const APP_NAMES: Record<ManualPayMethod, string> = { cashapp: "Cash App", zelle:
 
 const PROCESSING_FEE = 0; // No fee is charged to tenants today (see the implementation plan, A3).
 
+const round2 = (n: number) => Math.round(n * 100) / 100;
+/** "1,250.50" or "$950" → 1250.5; null if it isn't a dollar amount with at most two decimals. */
+function parseAmount(text: string): number | null {
+  const clean = text.replace(/[$,\s]/g, "");
+  if (!/^\d+(\.\d{1,2})?$/.test(clean)) return null;
+  const n = Number(clean);
+  return Number.isFinite(n) ? n : null;
+}
+
 export function PayRentPage() {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethodKind>("bank");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [paidJustNow, setPaidJustNow] = useState(false);
-  const { tenant, currentBalance, bankAccounts, plaidEnabled, testPayments, payOptions, reportedPayments, refresh } = useTenantData();
+  const { tenant, currentBalance, payLimits, bankAccounts, plaidEnabled, testPayments, payOptions, reportedPayments, refresh } = useTenantData();
   const [confirmation, setConfirmation] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Kept until this checkout succeeds: pressing Pay again (or a retry) reuses it.
   const [checkoutKey, setCheckoutKey] = useState(newCheckoutKey);
 
-  const total = currentBalance + PROCESSING_FEE;
+  // How much: at least the balance (no partial payments), up to a few months of rent ahead (credit).
+  const due = Math.max(currentBalance, 0);
+  const credit = Math.max(-currentBalance, 0);
+  const rent = payLimits?.monthlyRent ?? 0;
+  const maximum = payLimits?.maximum ?? 0;
+  const suggested = due > 0 ? due : Math.min(rent, maximum);
+  // null = use the suggested amount (it follows the balance after a payment).
+  const [amountText, setAmountText] = useState<string | null>(null);
+  const shownText = amountText ?? (suggested > 0 ? suggested.toFixed(2) : "");
+  const amount = parseAmount(shownText);
+  const amountProblem =
+    !payLimits || !payLimits.canPay
+      ? null
+      : amount === null
+        ? "Enter an amount in dollars, like 950.00."
+        : amount < payLimits.minimum
+          ? due > 0
+            ? `Pay at least the full balance of ${formatCurrency(due)}. Partial payments aren't accepted.`
+            : `The smallest payment is ${formatCurrency(payLimits.minimum)}.`
+          : amount > maximum
+            ? `The most you can pay now is ${formatCurrency(maximum)} (up to ${payLimits.prepayMonths} months of rent ahead).`
+            : null;
+  const valid = Boolean(payLimits?.canPay) && amount !== null && amountProblem === null;
+  const payingAhead = valid && amount !== null ? round2(amount - due) : 0;
+  const total = valid && amount !== null ? round2(amount + PROCESSING_FEE) : 0;
+  // One-tap amounts that fit under the limit.
+  const choices = (
+    due > 0
+      ? [
+          { label: "Amount due", value: due },
+          { label: "+ next month", value: round2(due + rent) },
+        ]
+      : [
+          { label: "1 month", value: rent },
+          { label: "2 months", value: round2(rent * 2) },
+          { label: "3 months", value: round2(rent * 3) },
+        ]
+  ).filter((c) => c.value > 0 && c.value <= maximum + 0.001);
+
   const manual = selectedMethod === "bank" ? null : selectedMethod;
   // The office's own handle for Cash App / Zelle (Settings on the manager side).
   const sendTo = manual ? { app: APP_NAMES[manual], handle: payOptions[manual] } : null;
@@ -46,7 +93,7 @@ export function PayRentPage() {
   const needsBankLink = selectedMethod === "bank" && plaidEnabled && !bankAccount;
   const unavailable = selectedMethod === "bank" && !plaidEnabled && !testPayments;
   const canPay =
-    total > 0 &&
+    valid &&
     !waiting &&
     (selectedMethod === "bank" ? !needsBankLink && !unavailable : Boolean(sendTo?.handle));
 
@@ -60,6 +107,7 @@ export function PayRentPage() {
     setConfirmation(result.confirmation);
     setPaidJustNow(true);
     setCheckoutKey(newCheckoutKey()); // the next payment is a new checkout
+    setAmountText(null); // back to the suggested amount for the new balance
     return refresh();
   }
 
@@ -67,10 +115,9 @@ export function PayRentPage() {
     setIsSubmitting(true);
     setPaidJustNow(false);
     setError(null);
-    const amount = Math.round(total * 100) / 100;
     const request = manual
-      ? tenantApi.reportPayment(manual, amount, checkoutKey) // "I've sent it"
-      : tenantApi.pay(amount, bankAccount?.id ?? null, checkoutKey);
+      ? tenantApi.reportPayment(manual, total, checkoutKey) // "I've sent it"
+      : tenantApi.pay(total, bankAccount?.id ?? null, checkoutKey);
     request
       .then(finish)
       .catch(async (caught) => {
@@ -122,7 +169,7 @@ export function PayRentPage() {
 
         {sendTo &&
           (sendTo.handle ? (
-            <ManualPayInstructions app={sendTo.app} handle={sendTo.handle} amount={formatCurrency(total)} reference={reference} />
+            <ManualPayInstructions app={sendTo.app} handle={sendTo.handle} amount={valid ? formatCurrency(total) : "Enter the amount first"} reference={reference} />
           ) : (
             <p className="method-note">The office isn't taking {sendTo.app} payments right now. Choose another method.</p>
           ))}
@@ -134,10 +181,72 @@ export function PayRentPage() {
         </h2>
         <div className="summary-amount">{formatCurrency(total)}</div>
 
+        {payLimits && payLimits.canPay && (
+          <div className="pay-amount">
+            <label className="field-label" htmlFor="pay-amount">
+              Amount to pay
+            </label>
+            <div className="pay-amount-input">
+              <span aria-hidden="true">$</span>
+              <input
+                id="pay-amount"
+                className="field-input"
+                inputMode="decimal"
+                autoComplete="off"
+                value={shownText}
+                onChange={(e) => {
+                  setAmountText(e.target.value);
+                  setPaidJustNow(false);
+                  setError(null);
+                }}
+                aria-invalid={amountProblem ? true : undefined}
+                aria-describedby="pay-amount-help"
+              />
+            </div>
+            {choices.length > 0 && (
+              <div className="pay-amount-choices" role="group" aria-label="Quick amounts">
+                {choices.map((c) => (
+                  <button
+                    key={c.label}
+                    type="button"
+                    className="pay-amount-choice"
+                    aria-pressed={amount !== null && Math.abs(amount - c.value) < 0.005}
+                    onClick={() => setAmountText(c.value.toFixed(2))}
+                  >
+                    {c.label} · {formatCurrency(c.value)}
+                  </button>
+                ))}
+              </div>
+            )}
+            <p id="pay-amount-help" className={amountProblem ? "pay-amount-help pay-amount-help--error" : "pay-amount-help"}>
+              {amountProblem ??
+                (due > 0
+                  ? `The full balance, or more to pay ahead (up to ${payLimits.prepayMonths} months of rent). Anything extra is credit toward your next rent.`
+                  : `Nothing is due. You can pay ahead up to ${formatCurrency(maximum)}; it's credit toward your next rent.`)}
+            </p>
+          </div>
+        )}
+        {payLimits && !payLimits.canPay && (
+          <p className="method-note">You're paid {payLimits.prepayMonths} months ahead, the most the portal takes. Nothing to pay right now.</p>
+        )}
+        {!payLimits && <p className="method-note">There's no active lease on your account yet.</p>}
+
         <div className="summary-row">
-          <span>Rent due</span>
-          <span>{formatCurrency(currentBalance)}</span>
+          <span>Balance due</span>
+          <span>{formatCurrency(due)}</span>
         </div>
+        {credit > 0 && (
+          <div className="summary-row">
+            <span>Credit on your account</span>
+            <span>{formatCurrency(credit)}</span>
+          </div>
+        )}
+        {payingAhead > 0 && (
+          <div className="summary-row">
+            <span>Paying ahead (credit)</span>
+            <span>{formatCurrency(payingAhead)}</span>
+          </div>
+        )}
         <div className="summary-row">
           <span>Processing fee</span>
           <span>{formatCurrency(PROCESSING_FEE)}</span>
@@ -171,7 +280,8 @@ export function PayRentPage() {
         )}
         {paidJustNow && !waiting && (
           <div className="pay-success-banner" role="status">
-            Payment submitted{confirmation ? ` (${confirmation})` : ""}. It now shows in your ledger.
+            Payment submitted{confirmation ? ` (${confirmation})` : ""}. It now shows in your ledger
+            {currentBalance < 0 ? `, with ${formatCurrency(-currentBalance)} credit toward your next rent` : ""}.
           </div>
         )}
         {paidJustNow && waiting && (
@@ -205,7 +315,7 @@ function ManualPayInstructions({ app, handle, amount, reference }: ManualPayInst
       <CopyRow label="Amount" value={amount} />
       <CopyRow label="Note / memo" value={reference} />
       <p className="method-note">
-        Send the full amount in {app} with the note above, then tap "I've sent" so the office can match it.
+        Send exactly this amount in {app} with the note above, then tap "I've sent" so the office can match it.
         Partial payments aren't accepted.
       </p>
     </div>

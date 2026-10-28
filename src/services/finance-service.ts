@@ -171,6 +171,8 @@ export class FinanceService {
                     method: p.method,
                     confirmation: p.confirmation,
                     status: p.direction === "refund" ? "refund" : touched.length === 0 ? "prepaid" : partial ? "partial" : "paid",
+                    // The part not yet applied to any charge: credit, until the next rent is billed.
+                    ahead: p.direction === "refund" ? 0 : item.unappliedCents / 100,
                     forCharge: first ? { kind: CHARGE_KIND_LABELS[first.charge.kind] ?? first.charge.kind, dueDate: first.charge.dueDate } : null,
                 })
             }

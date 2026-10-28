@@ -140,9 +140,11 @@ describe.skipIf(!hasDatabase)("HTTP API on a seeded database", () => {
     const owing = async (tenant: Client, extra = 40) => {
         let balance = (await tenant.get("/tenant/summary")).body.currentBalance as number
         if (balance <= 0) {
+            // Nothing owed (or credit from paying ahead): add a charge bigger than the credit.
             const admin = await signedIn(ADMIN)
             const row = (await admin.get("/manager/tenants")).body.tenants.find((x: { email: string }) => x.email === TENANT.email)
-            expect((await admin.post(`/manager/leases/${row.leaseId}/charges`, { kind: "utility", amount: extra, dueDate: "2026-10-01", description: "Water" })).status).toBe(201)
+            const amount = Math.round((extra - balance) * 100) / 100
+            expect((await admin.post(`/manager/leases/${row.leaseId}/charges`, { kind: "utility", amount, dueDate: "2026-10-01", description: "Water" })).status).toBe(201)
             balance = (await tenant.get("/tenant/summary")).body.currentBalance
         }
         return balance
@@ -159,13 +161,38 @@ describe.skipIf(!hasDatabase)("HTTP API on a seeded database", () => {
         expect((await tenant.post("/tenant/payments", { amount, idempotencyKey: "no spaces allowed" })).status).toBe(400)
     })
 
-    it("a tenant pays the whole balance, never part of it", async () => {
+    it("a tenant pays at least the balance, and may pay up to 3 months of rent ahead as credit", async () => {
         const tenant = await signedIn(TENANT)
         const amount = await owing(tenant)
-        expect(await tenant.post("/tenant/payments", { amount: Math.round((amount - 1) * 100) / 100 })).toMatchObject({ status: 409, body: { error: "AMOUNT_MUST_EQUAL_BALANCE" } })
-        expect(await tenant.post("/tenant/payments", { amount: amount + 1 })).toMatchObject({ status: 409, body: { error: "AMOUNT_MUST_EQUAL_BALANCE" } })
-        expect((await tenant.post("/tenant/payments", { amount })).status).toBe(201)
-        expect(await tenant.post("/tenant/payments", { amount: 5 })).toMatchObject({ status: 409, body: { error: "NOTHING_DUE" } })
+        const limits = (await tenant.get("/tenant/summary")).body.payLimits
+        expect(limits).toMatchObject({ minimum: amount, credit: 0, prepayMonths: 3, canPay: true })
+        expect(limits.maximum).toBeCloseTo(amount + 3 * limits.monthlyRent, 2)
+        const rent = limits.monthlyRent as number
+
+        // Part of the balance: refused. More than the limit: refused.
+        expect(await tenant.post("/tenant/payments", { amount: Math.round((amount - 1) * 100) / 100 })).toMatchObject({ status: 409, body: { error: "AMOUNT_BELOW_BALANCE" } })
+        expect(await tenant.post("/tenant/payments", { amount: Math.round((limits.maximum + 0.01) * 100) / 100 })).toMatchObject({ status: 409, body: { error: "AMOUNT_ABOVE_LIMIT" } })
+
+        // The balance plus $100 ahead: the $100 is credit.
+        expect((await tenant.post("/tenant/payments", { amount: Math.round((amount + 100) * 100) / 100, idempotencyKey: "prepay-1" })).status).toBe(201)
+        const after = (await tenant.get("/tenant/summary")).body
+        expect(after.currentBalance).toBeCloseTo(-100, 2)
+        expect(after.payLimits).toMatchObject({ minimum: 1, credit: 100, canPay: true })
+        expect(after.payLimits.maximum).toBeCloseTo(3 * rent - 100, 2)
+        expect(after.notices.find((n: { id: string }) => n.id === "n_credit")?.title).toBe("$100.00 credit on your account")
+
+        // The office sees the same credit (one ledger, two sides).
+        const admin = await signedIn(ADMIN)
+        const row = (await admin.get("/manager/tenants")).body.tenants.find((x: { email: string }) => x.email === TENANT.email)
+        expect((await admin.get(`/manager/leases/${row.leaseId}`)).body.balance).toBeCloseTo(-100, 2)
+
+        // With nothing due: at least $1, and up to the rest of the limit.
+        expect((await tenant.post("/tenant/payments", { amount: 0.5 })).status).toBe(400)
+        expect((await tenant.post("/tenant/payments", { amount: after.payLimits.maximum, idempotencyKey: "prepay-2" })).status).toBe(201)
+        const full = (await tenant.get("/tenant/summary")).body
+        expect(full.currentBalance).toBeCloseTo(-3 * rent, 2)
+        expect(full.payLimits).toMatchObject({ maximum: 0, canPay: false })
+        expect(await tenant.post("/tenant/payments", { amount: 1 })).toMatchObject({ status: 409, body: { error: "AMOUNT_ABOVE_LIMIT" } })
     })
 
     it("shows a tenant their own summary, and lets them pay and file a request", async () => {

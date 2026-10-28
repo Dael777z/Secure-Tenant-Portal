@@ -27,9 +27,9 @@ export const ERROR_STATUS = {
     PROPERTY_HAS_LEASES: 409,
     NOT_OFFICE_PAYMENT: 409,
     PAYMENT_ALREADY_REVERSED: 409,
-    // tenant payments (006): the full balance only, once per report
-    AMOUNT_MUST_EQUAL_BALANCE: 409,
-    NOTHING_DUE: 409,
+    // tenant payments: at least the balance, at most PREPAY_MONTHS of rent ahead; one report at a time
+    AMOUNT_BELOW_BALANCE: 409,
+    AMOUNT_ABOVE_LIMIT: 409,
     ALREADY_REPORTED: 409,
     METHOD_NOT_AVAILABLE: 409,
     // missing on this server

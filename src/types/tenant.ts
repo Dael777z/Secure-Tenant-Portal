@@ -49,6 +49,18 @@ export interface LinkedBankAccount {
     subtype: string | null
 }
 
+/** What a tenant may pay now: at least the balance, at most prepayMonths of rent beyond it. */
+export interface PayLimits {
+    minimum: number
+    maximum: number
+    monthlyRent: number
+    /** Credit already held (paid ahead), 0 if none. */
+    credit: number
+    prepayMonths: number
+    /** False once the tenant is already paid the full limit ahead. */
+    canPay: boolean
+}
+
 export interface TenantSummary {
     tenant: TenantProfile
     /** The tenant's own contact details (Settings). The email is their sign-in. */
@@ -58,7 +70,10 @@ export interface TenantSummary {
     /** Cash App / Zelle payments the tenant reported: waiting, and recent decisions. */
     reportedPayments: TenantReportedPayment[]
     notificationPrefs: NotificationPrefs
+    /** Negative when the tenant has paid ahead (credit). */
     currentBalance: number
+    /** What Pay rent accepts right now; null without an active lease. */
+    payLimits: PayLimits | null
     rentDueDate: string
     lateFeeGraceDate: string
     ledger: LedgerEntry[]

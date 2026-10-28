@@ -1,3 +1,4 @@
+import { formatCurrency } from "../components/formatCurrency";
 // The tenant API (src/routes/tenant.ts) and Dael's Plaid routes (src/routes/plaid.ts).
 import type { LedgerEntry, MaintenanceRequest, ManualPayMethod, Notice, Tenant } from "../types";
 import { apiFetch } from "./session";
@@ -27,6 +28,18 @@ export interface ReportedPayment {
   reason: string | null;
 }
 
+/** What Pay rent accepts right now: at least the balance, at most prepayMonths of rent beyond it. */
+export interface PayLimits {
+  minimum: number;
+  maximum: number;
+  monthlyRent: number;
+  /** Credit already held (paid ahead), 0 if none. */
+  credit: number;
+  prepayMonths: number;
+  /** False once the tenant is already paid the full limit ahead. */
+  canPay: boolean;
+}
+
 export interface TenantSummary {
   tenant: Tenant;
   /** The tenant's own contact details; the email is their sign-in. */
@@ -35,7 +48,9 @@ export interface TenantSummary {
   payOptions: { cashapp: string | null; zelle: string | null };
   reportedPayments: ReportedPayment[];
   notificationPrefs: NotificationPrefs;
+  /** Negative when the tenant has paid ahead (credit). */
   currentBalance: number;
+  payLimits: PayLimits | null;
   rentDueDate: string;
   lateFeeGraceDate: string;
   ledger: LedgerEntry[];
@@ -53,6 +68,10 @@ export interface ErrorDetails {
   plaidCode?: string;
   plaidType?: string;
   requestId?: string | null;
+  balance?: number;
+  minimum?: number;
+  maximum?: number;
+  prepayMonths?: number;
   message?: string | null;
 }
 
@@ -127,8 +146,16 @@ export function messageFor(error: unknown): string {
       const message = error.details?.message ?? "Plaid could not complete that. Please try again.";
       return error.details?.plaidCode ? `${message} (Plaid: ${error.details.plaidCode})` : message;
     }
-    if (error.code === "AMOUNT_MUST_EQUAL_BALANCE") return "Pay the full balance shown. Partial payments aren't accepted.";
-    if (error.code === "NOTHING_DUE") return "Nothing is due right now.";
+    if (error.code === "AMOUNT_BELOW_BALANCE") {
+      const owed = error.details?.balance;
+      return `Pay at least the full balance${owed ? ` of ${formatCurrency(owed)}` : ""}. Partial payments aren't accepted.`;
+    }
+    if (error.code === "AMOUNT_ABOVE_LIMIT") {
+      const max = error.details?.maximum;
+      return max && max > 0
+        ? `That's more than you can pay right now. The most is ${formatCurrency(max)} (up to ${error.details?.prepayMonths ?? 3} months of rent ahead).`
+        : "You're already paid as far ahead as the portal allows.";
+    }
     if (error.code === "ALREADY_REPORTED") return "Your last payment is still waiting for the office to confirm it. Once it's confirmed (or if it can't be matched) you'll see it here.";
     if (error.code === "METHOD_NOT_AVAILABLE") return "The office doesn't take that payment method right now. Choose another one.";
     if (error.code === "VALIDATION_ERROR") return "Check what you entered and try again.";

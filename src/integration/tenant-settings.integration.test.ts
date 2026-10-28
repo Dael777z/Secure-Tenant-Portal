@@ -108,11 +108,12 @@ describe.skipIf(!hasDatabase)("tenant settings and reported Cash App / Zelle pay
         expect(JSON.stringify((await lucia.get("/tenant/messages")).body)).toContain("We received your Zelle payment")
     })
 
-    it("only the full balance can be reported; a rejected report says why and can be sent again", async () => {
+    it("a report covers at least the balance; a rejected report says why and can be sent again", async () => {
         const james = await resident("james.johnson@example.com")
         const owed = (await james.get("/tenant/summary")).body.currentBalance as number
         expect(owed).toBeCloseTo(1820, 2)
-        expect(await james.post("/tenant/payments/report", { method: "cashapp", amount: 910 })).toMatchObject({ status: 409, body: { error: "AMOUNT_MUST_EQUAL_BALANCE" } })
+        expect(await james.post("/tenant/payments/report", { method: "cashapp", amount: 910 })).toMatchObject({ status: 409, body: { error: "AMOUNT_BELOW_BALANCE" } })
+        expect(await james.post("/tenant/payments/report", { method: "cashapp", amount: 99_999 })).toMatchObject({ status: 409, body: { error: "AMOUNT_ABOVE_LIMIT" } })
         expect((await james.post("/tenant/payments/report", { method: "venmo", amount: owed })).status).toBe(400)
         const sent = await james.post("/tenant/payments/report", { method: "cashapp", amount: owed, idempotencyKey: "report-james-1" })
         expect(sent.status).toBe(201)

@@ -1,6 +1,6 @@
 import type { PageKey } from "../types";
 import { useTenantData } from "../data/tenantData";
-import { formatCurrency } from "../components/formatCurrency";
+import { formatBalance, formatCurrency } from "../components/formatCurrency";
 
 interface HomePageProps {
   onNavigate: (page: PageKey) => void;
@@ -17,17 +17,25 @@ export function HomePage({ onNavigate }: HomePageProps) {
       <div>
         <section className="portal-panel" aria-labelledby="rent-due-heading">
           <div id="rent-due-heading" className="rent-due-label">
-            Rent Due
+            {currentBalance < 0 ? "Credit" : "Rent Due"}
           </div>
-          <div className="rent-due-amount">{formatCurrency(currentBalance)}</div>
+          <div className="rent-due-amount">{formatCurrency(Math.abs(currentBalance))}</div>
           <div className="rent-due-sub">
-            Due: {rentDueDate} - No late fee before {lateFeeGraceDate}
+            {currentBalance > 0
+              ? `Due: ${rentDueDate} - No late fee before ${lateFeeGraceDate}`
+              : currentBalance < 0
+                ? `Paid ahead. It goes toward your next rent, due ${rentDueDate}.`
+                : `Nothing due now. Next rent is due ${rentDueDate}.`}
           </div>
-          <span className="status-pill status-pill--due-soon">Due soon</span>
+          {currentBalance > 0 ? (
+            <span className="status-pill status-pill--due-soon">Due soon</span>
+          ) : (
+            <span className="status-pill status-pill--paid">{currentBalance < 0 ? "Paid ahead" : "Paid up"}</span>
+          )}
 
           <div className="home-actions">
             <button type="button" className="btn btn--primary" onClick={() => onNavigate("pay")}>
-              Pay Rent
+              {currentBalance > 0 ? "Pay Rent" : "Pay ahead"}
             </button>
             <button type="button" className="btn btn--outline" onClick={() => onNavigate("ledger")}>
               View Ledger
@@ -51,7 +59,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
                     {entry.amount > 0 ? "+" : ""}
                     {formatCurrency(entry.amount)}
                   </div>
-                  <div className="ledger-row-balance">bal {formatCurrency(entry.balanceAfter)}</div>
+                  <div className="ledger-row-balance">bal {formatBalance(entry.balanceAfter)}</div>
                 </div>
               </div>
             ))}

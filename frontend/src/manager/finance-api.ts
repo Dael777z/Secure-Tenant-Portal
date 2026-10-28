@@ -56,6 +56,8 @@ export interface RecentPaymentRow {
   method: string | null;
   confirmation: string;
   status: "paid" | "partial" | "prepaid" | "refund";
+  /** Not applied to a charge yet: paid ahead, held as credit. */
+  ahead: number;
   forCharge: { kind: string; dueDate: string } | null;
 }
 
