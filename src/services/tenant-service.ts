@@ -221,15 +221,15 @@ export class TenantService {
         const key = input.idempotencyKey ? `tenant:${tID}:${input.idempotencyKey}` : null
         const earlier = key ? await this.db.findConfirmationByKey(lease.id, key) : null
         if (earlier) return { confirmation: earlier }
-        await this.requireAllowedAmount(lease, input.amount)
-        await this.requireNoReportWaiting(lease.id)
-
+        // Someone else's bank account is "not found" whatever the amount, so check it first.
         let method = "Test transfer (no bank linked)"
         if (input.bankAccountId !== null) {
             const account = await this.db.findBankAccount(tID, input.bankAccountId)
             if (!account) throw new AppError("NOT_FOUND")
             method = `${account.name}${account.mask ? ` ${account.mask}` : ""}`
         }
+        await this.requireAllowedAmount(lease, input.amount)
+        await this.requireNoReportWaiting(lease.id)
 
         return this.db.recordPayment({
             leaseId: lease.id,

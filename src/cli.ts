@@ -1,6 +1,6 @@
 import { Pool } from "pg"
 
-import { configFromEnvironment } from "./config"
+import { configFromEnvironment, isLocalOrigin } from "./config"
 import { createStaffAccount } from "./db/admin"
 import { createPool } from "./db/pool"
 import { migrate, migrationStatus, setAppLogin, wipe } from "./db/migrate"
@@ -30,14 +30,16 @@ async function main(command = "help", ...flags: string[]) {
     
     const has = (word: string) => flags.includes(word) || flags.includes(`--${word}`)
 
-    const loadSample = !has("empty") && !(config.production && command === "setup")
+    // The sample data has public demo passwords: never on a production database, nor on an address others can reach.
+    const guarded = config.production || !isLocalOrigin(config.webOrigin)
+    const loadSample = !has("empty") && !(guarded && command === "setup")
 
     if (!["status", "migrate", "admin", "seed", "setup", "reset"].includes(command)) return console.log(HELP)
 
     if (!config.databaseAdminUrl) throw new Error("No owner login for the database: set POSTGRES_PASSWORD (or DATABASE_ADMIN_URL)")
 
-    if (config.production && (command === "reset" || (command === "seed" && loadSample)) && !has("allow-production")) {
-        throw new Error(`\`${command}\` with NODE_ENV=production needs --allow-production.`)
+    if (guarded && (command === "reset" || (command === "seed" && loadSample)) && !has("allow-production")) {
+        throw new Error(`\`${command}\` ${config.production ? "with NODE_ENV=production" : `on ${config.webOrigin} (not this machine)`} needs --allow-production.`)
     }
 
     if (command !== "status") await createDatabaseIfMissing(config.databaseAdminUrl)

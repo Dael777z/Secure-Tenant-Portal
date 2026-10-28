@@ -122,6 +122,12 @@ The tunnel publishes a stack at your hostname without opening any ports.
 4. `npm run cloudflare:prod` (or `cloudflare:dev`). The app is also still on
    localhost. `npm run docker:prod` takes the tunnel down again and keeps the app.
 
+   `cloudflare:dev` needs `JWT_ACCESS_SECRET` (32+ random characters) in `.env`, and
+   `TOKEN_ENCRYPTION_KEY` too if Plaid is on: development mode otherwise signs sessions
+   with a secret that is public in the source code, so the app refuses to start on a
+   public address without them. It also skips the sample data there (its demo passwords
+   are public); add a login with `db admin`.
+
 The hosted site is public: the portal's own login is the only gate. Give it a
 login with `npm run cloudflare:prod db admin ...`, or sample data with
 `npm run cloudflare:prod db seed` (see "Production data").

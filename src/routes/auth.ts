@@ -22,7 +22,8 @@ export function createAuthRouter(deps: { auth: AuthService; guard: Auth; config:
 
     // configure cookie policies
     const access = { httpOnly: true, secure: config.secureCookies, sameSite: "lax" as const, path: "/" }
-    const refresh = { ...access, sameSite: "strict" as const }
+    // The refresh cookie is only ever needed by /api/auth/refresh and /logout, so it is not sent anywhere else.
+    const refresh = { ...access, sameSite: "strict" as const, path: "/api/auth" }
 
     // add token cookies to the response based on cookie policies and TTL, takes JWT tokens.
     const setCookies = (res: Response, session: { accessToken: string; refreshToken: string }) => {

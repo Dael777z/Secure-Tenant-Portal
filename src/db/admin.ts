@@ -1,11 +1,14 @@
 import bcrypt from "bcrypt"
 import type { Pool } from "pg"
 
+import { isTooCommon } from "../utils/password"
+
 // the function associated with the npm run db admin command, useful when you do not use seeding.
 // `role`: 'maintenance_staff' for a maintenance login (npm run db admin <email> --maintenance).
 export async function createStaffAccount(pool: Pool, input: { email: string; name: string; password: string; bcryptRounds: number; role?: "admin" | "maintenance_staff" }): Promise<void> {
 
     if (input.password.length < 8) throw new Error("The password must be at least 8 characters.")
+    if (isTooCommon(input.password)) throw new Error("That password is too easy to guess. Choose a less common one.")
 
     const passwordHash = await bcrypt.hash(input.password, input.bcryptRounds)
     const client = await pool.connect()

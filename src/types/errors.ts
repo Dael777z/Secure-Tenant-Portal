@@ -36,6 +36,10 @@ export const ERROR_STATUS = {
     PLAID_NOT_CONFIGURED: 503,
     PLAID_ERROR: 502,
     RATE_LIMITED: 429,
+    // a password that is long enough but among the first an attacker would try
+    PASSWORD_TOO_COMMON: 400,
+    // a request body bigger than the server accepts
+    PAYLOAD_TOO_LARGE: 413,
 } as const
 
 export type AppErrorCode = keyof typeof ERROR_STATUS

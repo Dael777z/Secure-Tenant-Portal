@@ -54,6 +54,8 @@ services:
       PLAID_SECRET: ${PLAID_SECRET:-}
       PLAID_ENV: ${PLAID_ENV:-sandbox}
       PLAID_REDIRECT_URI: ${PLAID_REDIRECT_URI:-}
+    # A cap, so a flood of requests cannot take the whole machine with it.
+    mem_limit: ${APP_MEMORY_LIMIT:-768m}
     ports:
       - "127.0.0.1:${APP_PORT:-8080}:3000"
     depends_on:
