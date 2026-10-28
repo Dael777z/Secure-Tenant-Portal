@@ -199,19 +199,16 @@ function paymentHistory(lease: SeedLease, today: Date) {
     // map paid into a series of payment histories  that include the paid tuple aswell as the date of the payment and a random payment method
 }
 
-// Calculate due dates for sample leases
+// Rent due dates for a sample lease: the lease's start day each month (007), or
+// the month's last day when it is shorter, up to today or the lease end.
 function dueDates(lease: SeedLease, today: Date): string[] {
-    const out = [lease.since] // date of the start of the lease
-
-    const cursor = new Date(`${lease.since.slice(0, 8)}01T00:00:00Z`) // turn the lease start date into a Date object
-    for (;;) {
-        cursor.setUTCMonth(cursor.getUTCMonth() + 1) // start of lease + 1 month = cursor
-
-        const due = isoDate(cursor) // turn cursor Date into a due date string
-
-        if (cursor > today || (lease.until && due > lease.until)) return out // check if due date has passed today or lease end date dont include, return due dates.
-
-        out.push(due) // push new due date into the due dates array.
+    const [y, m, d] = lease.since.split("-").map(Number) as [number, number, number]
+    const out: string[] = []
+    for (let n = 0; ; n++) {
+        const last = new Date(Date.UTC(y, m - 1 + n + 1, 0)).getUTCDate()
+        const due = isoDate(new Date(Date.UTC(y, m - 1 + n, Math.min(d, last))))
+        if (new Date(`${due}T00:00:00Z`) > today || (lease.until && due > lease.until)) return out
+        out.push(due)
     }
 }
 

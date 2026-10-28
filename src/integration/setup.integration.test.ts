@@ -18,7 +18,7 @@ describe.skipIf(!hasDatabase)("database setup: migrate, seed, reset, startup che
     it("is fully migrated, and the app's login passes the startup check", async () => {
         const status = await migrationStatus(t.owner)
         expect(status.pending).toEqual([])
-        expect(status.applied.map((file) => file.name)).toEqual(["001_schema.sql", "002_portal.sql", "003_maintenance_staff.sql", "004_messages.sql", "005_finance.sql", "006_tenant_settings.sql"])
+        expect(status.applied.map((file) => file.name)).toEqual(["001_schema.sql", "002_portal.sql", "003_maintenance_staff.sql", "004_messages.sql", "005_finance.sql", "006_tenant_settings.sql", "007_rent_documents_images.sql"])
         await expect(checkDatabase(t.app)).resolves.toBeUndefined()
         expect(await migrate(t.owner)).toEqual([])   // nothing left to do
     })
@@ -62,7 +62,7 @@ describe.skipIf(!hasDatabase)("database setup: migrate, seed, reset, startup che
     it("reset: wipe, migrate and seed again from nothing", async () => {
         await wipe(t.owner)
         await expect(checkDatabase(t.app)).rejects.toThrow("no tables yet")
-        expect(await migrate(t.owner)).toEqual(["001_schema.sql", "002_portal.sql", "003_maintenance_staff.sql", "004_messages.sql", "005_finance.sql", "006_tenant_settings.sql"])
+        expect(await migrate(t.owner)).toEqual(["001_schema.sql", "002_portal.sql", "003_maintenance_staff.sql", "004_messages.sql", "005_finance.sql", "006_tenant_settings.sql", "007_rent_documents_images.sql"])
         expect((await seed(t.owner, { dataset: "clean", webOrigin: "x", bcryptRounds: 4 }))[0]).toBe("seeded: 2 staff, 1 properties, 4 units, 1 leases, 1 tenants")
         await expect(checkDatabase(t.app)).resolves.toBeUndefined()
     })

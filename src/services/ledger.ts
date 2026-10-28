@@ -89,12 +89,25 @@ export function buildLedger(charges: ChargeRecord[], payments: PaymentRecord[], 
 }
 
 
-export function dueDates(balance: number, today: Date): { rentDueDate: string; lateFeeGraceDate: string } {
-    const due = balance > 0
-        ? new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1))
-        : new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1))
+/** The day of month a lease bills rent on: its start day, or the month's last day when the month is shorter (007). */
+function rentDayIn(year: number, month: number, startDay: number): Date {
+    const last = new Date(Date.UTC(year, month + 1, 0)).getUTCDate()
+    return new Date(Date.UTC(year, month, Math.min(startDay, last)))
+}
+
+/**
+ * When rent is due and when a late fee could start (4 days later). Rent is due
+ * on the lease's start day each month (007): with a balance, the latest due day
+ * so far; paid up, the next one. Without a lease start, the 1st.
+ */
+export function dueDates(balance: number, today: Date, leaseStart?: string | null): { rentDueDate: string; lateFeeGraceDate: string } {
+    const startDay = leaseStart ? Number(leaseStart.slice(8, 10)) : 1
+    const day = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
+    let due = rentDayIn(day.getUTCFullYear(), day.getUTCMonth(), startDay)
+    if (balance > 0 && due > day) due = rentDayIn(day.getUTCFullYear(), day.getUTCMonth() - 1, startDay)
+    if (balance <= 0 && due <= day) due = rentDayIn(day.getUTCFullYear(), day.getUTCMonth() + 1, startDay)
     const grace = new Date(due)
-    grace.setUTCDate(5)
+    grace.setUTCDate(grace.getUTCDate() + 4)
     return {
         rentDueDate: due.toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" }),
         lateFeeGraceDate: grace.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }),

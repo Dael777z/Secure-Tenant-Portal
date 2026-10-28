@@ -72,7 +72,7 @@ export class TenantService {
             this.db.getNotificationPrefs(tID),
             lease ? this.db.listReportedPayments({ leaseId: lease.id }) : Promise.resolve([]),
         ])
-        const { rentDueDate, lateFeeGraceDate } = dueDates(balance, now)
+        const { rentDueDate, lateFeeGraceDate } = dueDates(balance, now, lease?.startDate ?? null)
         // Waiting ones, and decisions from the last 30 days.
         const recent = Date.now() - 30 * 86_400_000
         const reportedPayments: TenantReportedPayment[] = reported
