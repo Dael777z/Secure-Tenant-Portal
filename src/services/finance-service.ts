@@ -372,8 +372,9 @@ export class FinanceService {
             trend,
             properties: perProperty,
             maintenance: {
-                submitted: timings.filter((t) => t.status === "submitted").length,
-                inProgress: timings.filter((t) => t.status === "in_progress").length,
+                // Not started yet (new or in review), and started (scheduled or in progress) — 008's stages.
+                submitted: timings.filter((t) => t.status === "submitted" || t.status === "in_review").length,
+                inProgress: timings.filter((t) => t.status === "scheduled" || t.status === "in_progress").length,
                 resolved12m: resolved12.length,
                 avgResolutionDays: avgResolution,
                 oldestOpenDays: oldestOpen,

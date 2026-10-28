@@ -67,6 +67,18 @@ export function createTenantRouter(deps: { tenant: TenantService; guard: Auth; l
         res.json(prefs)
     })
 
+    // The signed lease PDF of the tenant's current lease (008).
+    router.get("/tenant/lease-document", ...guard.can("ledger:read:self"), async (req: ValidRequest, res) => {
+        const file = await tenant.leaseDocument(req.user!.id)
+        res.set({
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `inline; filename="${file.filename.replace(/"/g, "")}"`,
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
+        })
+        res.send(file.data)
+    })
+
     // create a maintenace request by tenant id
     router.post("/tenant/maintenance", limits.sensitive, ...guard.can("maintenance:create"), async (req: ValidRequest, res) => {
         const body = req.body as Record<string, unknown>

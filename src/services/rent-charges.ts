@@ -11,13 +11,17 @@ export class RentChargeService {
         private readonly db: Pick<LedgerStore, "generateRentCharges">,
         private readonly timeZone: string,
         private readonly logger: LogService = silentLogger,
+        /** Runs after each billing run (the late fee and reminder jobs, 008). Its failure is logged there, not here. */
+        private readonly afterRun?: () => Promise<unknown>,
     ) {}
 
     /** Add every rent charge that is due and missing. Returns how many were added. */
     // logs rent.charges.succeeded { added } or rent.charges.failed
     async run(): Promise<number> {
         const today = localDate(new Date(), this.timeZone)
-        return this.logger.flow("rent.charges", { today }, () => runAs(SYSTEM, () => this.db.generateRentCharges(today)), (added) => ({ added }))
+        const added = await this.logger.flow("rent.charges", { today }, () => runAs(SYSTEM, () => this.db.generateRentCharges(today)), (n) => ({ added: n }))
+        if (this.afterRun) await this.afterRun().catch(() => undefined)
+        return added
     }
 
     start(intervalMs = 6 * 60 * 60 * 1000): void {

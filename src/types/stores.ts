@@ -1,7 +1,11 @@
 import type { NotificationPrefs, OfficeSettingsRecord, ReportedPaymentRecord } from "./settings"
+import type {
+    LateFeeRuleRecord, LeaseDocumentFile, LeaseDocumentMeta, NewLateFeeRule, NewReminderRule, OfficeNotifications,
+    ReminderRuleRecord, ReminderSentRecord, StaffMember,
+} from "./operations"
 import type { ExpenseRecord, LeaseLocation, MaintenanceTiming, NewExpense, RenewalNoticeRecord } from "./finance"
 import type {
-    BankAccountInput, BankItem, CreatedLease, NewCharge, HashExpiry, LeaseChanges, LeaseTenantInput, NewLease,
+    BankAccountInput, BankItem, CreatedLease, NewCharge, HashExpiry, LeaseChanges, LeaseTenantInput, MaintenanceChange, NewLease,
     NewMaintenance, NewPayment, NewRefreshToken, NewTenant, PropertyInput, TenantChanges, UnitInput,
 } from "./inputs"
 import type {
@@ -124,6 +128,8 @@ export interface MaintenanceStore {
     listOpenRequestCounts(): Promise<OpenRequestCount[]>
     createMaintenance(input: NewMaintenance): Promise<{ id: number; createdAt: Date }>
     setMaintenanceStatus(id: number, status: MaintenanceState): Promise<void>
+    /** Stage, priority, type or scheduled day (008). NOT_FOUND when unknown or deleted. */
+    updateMaintenance(id: number, change: MaintenanceChange): Promise<void>
     deactivateMaintenance(mID: number): Promise<void>
 }
 
@@ -175,6 +181,7 @@ export type TenantStore =
     & Pick<LedgerStore, "listChargesForLease">
     & Pick<PaymentStore, "listPaymentsForLease" | "recordPayment" | "findConfirmationByKey">
     & Pick<MaintenanceStore, "listTenantMaintenance" | "createMaintenance">
+    & Pick<OperationsStore, "findLeaseDocumentMeta" | "findLeaseDocument" | "listRemindersSent">
     & BankStore
     & Pick<SettingsStore, "getOfficeSettings" | "getNotificationPrefs" | "saveNotificationPrefs" | "updateOwnProfile" | "listReportedPayments">
 
@@ -216,7 +223,48 @@ export type FinanceDataStore =
     & Pick<MessageStore, "sendMessage">
     & Pick<SettingsStore, "getOfficeSettings" | "updateOfficeSettings" | "listReportedPayments" | "reviewReportedPayment">
 
+/** RentRedi-style management (008): late fee rules, reminders, lease PDFs, the team, office notifications. Staff only, except where noted. */
+export interface OperationsStore {
+    /** Active rules only. */
+    listLateFeeRules(): Promise<LateFeeRuleRecord[]>
+    /** Replaces the active rule for the same scope. Returns the new rule's id. */
+    saveLateFeeRule(input: NewLateFeeRule): Promise<number>
+    /** NOT_FOUND unless it is active. */
+    retireLateFeeRule(ruleId: number): Promise<void>
+    listReminderRules(): Promise<ReminderRuleRecord[]>
+    saveReminderRule(input: NewReminderRule): Promise<number>
+    retireReminderRule(ruleId: number): Promise<void>
+    /** Newest first. A tenant sees only their own leases' reminders. */
+    listRemindersSent(filter?: { leaseId?: number; limit?: number }): Promise<ReminderSentRecord[]>
+    /** The nightly jobs (admin or system). Each returns how many rows it added; safe to repeat. */
+    applyLateFees(today: string, timeZone: string): Promise<number>
+    sendRentReminders(today: string, timeZone: string): Promise<number>
+    /** Several charges in one transaction (a repeating charge). NOT_FOUND for an unknown lease. Returns their ids. */
+    addCharges(rows: NewCharge[]): Promise<number[]>
+    listLeaseDocuments(): Promise<LeaseDocumentMeta[]>
+    /** A tenant can read their own lease's (row-level security). */
+    findLeaseDocumentMeta(leaseId: number): Promise<LeaseDocumentMeta | null>
+    findLeaseDocument(leaseId: number): Promise<LeaseDocumentFile | null>
+    /** Insert or replace the lease's PDF. */
+    saveLeaseDocument(leaseId: number, file: { filename: string; data: Buffer }): Promise<void>
+    /** Every receipt on file, without the file. */
+    listReceiptsMeta(): Promise<Array<{ leaseId: number; paymentId: number; filename: string; sizeBytes: number; uploadedAt: Date }>>
+    /** Active staff accounts. */
+    listStaff(): Promise<StaffMember[]>
+    getOfficeNotifications(): Promise<OfficeNotifications>
+    /** Property managers only (FORBIDDEN otherwise). */
+    saveOfficeNotifications(input: OfficeNotifications): Promise<void>
+}
+
+export type OperationsDataStore =
+    & OperationsStore
+    & Pick<PropertyStore, "listProperties" | "listUnits">
+    & Pick<LeaseStore, "listLeases" | "listLeaseResidents">
+    & Pick<LedgerStore, "listLeaseBalances">
+    & Pick<FinanceStore, "listAllCharges" | "listAllPayments" | "listLeaseLocations">
+    & Pick<MaintenanceStore, "listMaintenance">
+
 /** The whole database. */
 export type DatabaseInterface =
     & HealthStore & AccountStore & SessionStore & PropertyStore & PeopleStore
-    & LeaseStore & LedgerStore & PaymentStore & MaintenanceStore & BankStore & MessageStore & FinanceStore & SettingsStore
+    & LeaseStore & LedgerStore & PaymentStore & MaintenanceStore & BankStore & MessageStore & FinanceStore & SettingsStore & OperationsStore

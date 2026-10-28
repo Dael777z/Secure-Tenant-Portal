@@ -1,4 +1,5 @@
 import bcrypt from "bcrypt"
+import { createHash } from "node:crypto"
 import type { Pool, PoolClient } from "pg"
 
 import { newInvite } from "../../utils/tokens"
@@ -21,6 +22,14 @@ export interface SeedOptions {
     webOrigin: string
     bcryptRounds: number
     today?: Date // default to now()
+    /**
+     * 008: a late fee rule and a rent reminder rule for all properties (dated 45
+     * days back, so their fees and reminders show), and a signed lease PDF for
+     * the sample tenant. The CLI and the demo turn this on; tests leave it off.
+     */
+    rules?: boolean
+    /** For the late fee and reminder jobs (default America/Denver). */
+    timeZone?: string
 }
  
 export async function seed(pool: Pool, options: SeedOptions): Promise<string[]> {
@@ -41,6 +50,7 @@ export async function seed(pool: Pool, options: SeedOptions): Promise<string[]> 
         // generate_rent_charges only bills for an admin or 'system'.
         await client.query("SELECT set_config('app.user_type', 'system', true)")
         const report = await write(client, data, { staffHash, tenantHash, today, webOrigin: options.webOrigin })
+        if (options.rules) report.push(...(await writeRules(client, today, options.timeZone ?? "America/Denver")))
         await client.query("COMMIT")
         return report
     } catch (error) {
@@ -148,8 +158,10 @@ async function write(
             const tenantId = r.by === undefined ? null : tenants.get(r.by)
             if (tenantId === undefined) throw new Error(`seed data: maintenance filed by ${r.by}, who is not a tenant`)
             await client.query(
-                "INSERT INTO Maintenance_T (uID, tID, title, description, status, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
-                [unitId, tenantId, r.title, r.description ?? "", r.status, r.filed],
+                `INSERT INTO Maintenance_T (uID, tID, title, description, status, created_at, priority, request_type, scheduled_for)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+                [unitId, tenantId, r.title, r.description ?? "", r.status, r.filed, r.priority ?? "none", r.requestType ?? "other",
+                 r.scheduledIn === undefined ? null : isoDate(new Date(ctx.today.getTime() + r.scheduledIn * 86_400_000))],
             )
         }
 
@@ -213,6 +225,60 @@ function dueDates(lease: SeedLease, today: Date): string[] {
 }
 
 const isoDate = (d: Date) => d.toISOString().slice(0, 10)
+
+/** 008's sample rules, run once so their late fees and reminders are on the ledgers. */
+async function writeRules(client: PoolClient, today: Date, timeZone: string): Promise<string[]> {
+    const since = new Date(today.getTime() - 45 * 86_400_000)
+    await client.query(
+        `INSERT INTO Late_Fee_Rules (grace_days, first_amount, first_type, daily_amount, daily_type, max_amount, max_type, created_at)
+         VALUES (5, 50, 'flat', 10, 'flat', 100, 'flat', $1)`,
+        [since],
+    )
+    await client.query("INSERT INTO Rent_Reminder_Rules (days_before, repeat_after_due, created_at) VALUES (3, true, $1)", [since])
+    const day = today.toLocaleDateString("en-CA", { timeZone })
+    const fees = (await client.query<{ n: number }>("SELECT apply_late_fees($1::date, $2) AS n", [day, timeZone])).rows[0]!.n
+    const reminders = (await client.query<{ n: number }>("SELECT send_rent_reminders($1::date, $2) AS n", [day, timeZone])).rows[0]!.n
+
+    // The sample tenant's signed lease.
+    const lease = await client.query<{ id: number }>(
+        `SELECT lt.LeaseID AS id FROM Lease_Tenants lt JOIN Tenants t ON t.tID = lt.tID JOIN Lease l ON l.LeaseID = lt.LeaseID
+          WHERE t.Email = 'tenant@example.com' ORDER BY l.start_date DESC LIMIT 1`,
+    )
+    let docs = 0
+    if (lease.rows[0]) {
+        const pdf = samplePdf("Residential Lease Agreement (sample)")
+        await client.query(
+            `INSERT INTO Lease_Documents (LeaseID, filename, content_type, size_bytes, sha256_hex, data) VALUES ($1, $2, 'application/pdf', $3, $4, $5)`,
+            [lease.rows[0].id, "Signed lease - Unit 101.pdf", pdf.length, createHash("sha256").update(pdf).digest("hex"), pdf],
+        )
+        docs = 1
+    }
+    return [`rules: late fees (5-day grace, $50 then $10 a day, at most $100) and reminders (3 days before, daily while late): ${fees} fees, ${reminders} reminders, ${docs} lease PDF`]
+}
+
+/** A one-page PDF with a title line (valid enough for any viewer). */
+export function samplePdf(title: string): Buffer {
+    const text = title.replace(/[()\\]/g, "")
+    const objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+        "",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    const stream = `BT /F1 18 Tf 72 720 Td (${text}) Tj ET\nBT /F1 11 Tf 72 690 Td (Sample document for the demo. Not a real lease.) Tj ET`
+    objects[3] = `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`
+    let body = "%PDF-1.4\n"
+    const offsets: number[] = []
+    objects.forEach((o, i) => {
+        offsets.push(Buffer.byteLength(body))
+        body += `${i + 1} 0 obj\n${o}\nendobj\n`
+    })
+    const xref = Buffer.byteLength(body)
+    body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((n) => `${String(n).padStart(10, "0")} 00000 n \n`).join("")}`
+    body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+    return Buffer.from(body, "latin1")
+}
 
 // implement dates from interface
 function datesFrom(today: Date): Dates {

@@ -45,7 +45,7 @@ export interface LeaseLocation {
 export interface MaintenanceTiming {
     id: number
     unitId: number
-    status: "submitted" | "in_progress" | "resolved"
+    status: import("./records").MaintenanceState
     createdAt: Date
     /** When it last moved to resolved (Maintenance_Status_History); null while open. */
     resolvedAt: Date | null

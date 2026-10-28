@@ -18,7 +18,7 @@ describe.skipIf(!hasDatabase)("database setup: migrate, seed, reset, startup che
     it("is fully migrated, and the app's login passes the startup check", async () => {
         const status = await migrationStatus(t.owner)
         expect(status.pending).toEqual([])
-        expect(status.applied.map((file) => file.name)).toEqual(["001_schema.sql", "002_portal.sql", "003_maintenance_staff.sql", "004_messages.sql", "005_finance.sql", "006_tenant_settings.sql", "007_rent_documents_images.sql"])
+        expect(status.applied.map((file) => file.name)).toEqual(["001_schema.sql", "002_portal.sql", "003_maintenance_staff.sql", "004_messages.sql", "005_finance.sql", "006_tenant_settings.sql", "007_rent_documents_images.sql", "008_rentredi_parity.sql"])
         await expect(checkDatabase(t.app)).resolves.toBeUndefined()
         expect(await migrate(t.owner)).toEqual([])   // nothing left to do
     })
@@ -51,7 +51,7 @@ describe.skipIf(!hasDatabase)("database setup: migrate, seed, reset, startup che
         expect(report.join("\n")).toMatch(/nora\.brooks@example\.com: http:\/\/localhost:5173\/signup\?token=[0-9a-f]{64}/)
 
         const count = async (sql: string) => (await t.owner.query(sql)).rows[0].n as number
-        expect(await count("SELECT count(*)::int AS n FROM Maintenance_T")).toBe(6)
+        expect(await count("SELECT count(*)::int AS n FROM Maintenance_T")).toBe(8)
         // Owing leases: 101, 102, 104 (partial), 107, 111, A2.
         expect(await count("SELECT count(*)::int AS n FROM lease_balance WHERE balance > 0")).toBe(6)
         expect(await count("SELECT count(*)::int AS n FROM lease_balance WHERE balance < 0")).toBe(0)
@@ -62,7 +62,7 @@ describe.skipIf(!hasDatabase)("database setup: migrate, seed, reset, startup che
     it("reset: wipe, migrate and seed again from nothing", async () => {
         await wipe(t.owner)
         await expect(checkDatabase(t.app)).rejects.toThrow("no tables yet")
-        expect(await migrate(t.owner)).toEqual(["001_schema.sql", "002_portal.sql", "003_maintenance_staff.sql", "004_messages.sql", "005_finance.sql", "006_tenant_settings.sql", "007_rent_documents_images.sql"])
+        expect(await migrate(t.owner)).toEqual(["001_schema.sql", "002_portal.sql", "003_maintenance_staff.sql", "004_messages.sql", "005_finance.sql", "006_tenant_settings.sql", "007_rent_documents_images.sql", "008_rentredi_parity.sql"])
         expect((await seed(t.owner, { dataset: "clean", webOrigin: "x", bcryptRounds: 4 }))[0]).toBe("seeded: 2 staff, 1 properties, 4 units, 1 leases, 1 tenants")
         await expect(checkDatabase(t.app)).resolves.toBeUndefined()
     })

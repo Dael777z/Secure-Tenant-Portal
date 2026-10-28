@@ -66,7 +66,7 @@ async function main(command = "help", ...flags: string[]) {
             if (await setAppLogin(pool, config.databaseUrl)) console.log("portal_app: password set (APP_DB_PASSWORD)")
         }
         if (command !== "migrate" && loadSample) {
-            const report = await seed(pool, { dataset: has("clean") ? "clean" : "sample", webOrigin: config.webOrigin, bcryptRounds: config.bcryptRounds })
+            const report = await seed(pool, { dataset: has("clean") ? "clean" : "sample", webOrigin: config.webOrigin, bcryptRounds: config.bcryptRounds, rules: true, timeZone: config.timeZone })
             report.forEach((line) => console.log(line))
         }
     } finally {

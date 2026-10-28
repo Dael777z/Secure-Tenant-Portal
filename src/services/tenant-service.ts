@@ -1,6 +1,8 @@
 import { silentLogger, type LogService } from "../logging"
 import { AppError } from "../types/errors"
 import type { BankAccountInput, BankItem } from "../types/inputs"
+import type { LeaseDocumentFile, ReminderSentRecord } from "../types/operations"
+import type { MaintenancePriority, MaintenanceType } from "../types/records"
 import type { TenantStore } from "../types/stores"
 import { MANUAL_PAY_LABELS, type ManualPayMethod, type NotificationPrefs, type TenantReportedPayment } from "../types/settings"
 import type { LinkedBankAccount, MaintenanceRequest, Notice, PayLimits, TenantSummary } from "../types/tenant"
@@ -20,8 +22,19 @@ const MIN_PREPAYMENT = 1
 
 const STATUS_FOR_UI: Record<string, MaintenanceRequest["status"]> = {
     submitted: "open",   // the tenant pages say "open"
+    in_review: "open",   // 008: the office is looking at it
+    scheduled: "in_progress",
     in_progress: "in_progress",
     resolved: "resolved",
+}
+
+/** Juan's request form writes "Category: plumbing | Urgency: urgent | details" (008 stores both as fields). */
+const CATEGORY_TYPES: Record<string, MaintenanceType> = { plumbing: "plumbing", electrical: "electrical", appliance: "appliance", hvac: "hvac", other: "other" }
+const URGENCY_PRIORITIES: Record<string, MaintenancePriority> = { routine: "low", soon: "medium", urgent: "high" }
+export function typeAndPriority(description: string): { requestType: MaintenanceType; priority: MaintenancePriority } {
+    const category = /Category:\s*([a-z]+)/i.exec(description)?.[1]?.toLowerCase() ?? ""
+    const urgency = /Urgency:\s*([a-z]+)/i.exec(description)?.[1]?.toLowerCase() ?? ""
+    return { requestType: CATEGORY_TYPES[category] ?? "other", priority: URGENCY_PRIORITIES[urgency] ?? "none" }
 }
 
 export class TenantService {
@@ -65,12 +78,14 @@ export class TenantService {
             balance = built.balance
         }
 
-        const [maintenanceRequests, bankAccounts, office, notificationPrefs, reported] = await Promise.all([
+        const [maintenanceRequests, bankAccounts, office, notificationPrefs, reported, doc, reminders] = await Promise.all([
             this.maintenance(tID),
             this.bankAccounts(tID),
             this.db.getOfficeSettings(),
             this.db.getNotificationPrefs(tID),
             lease ? this.db.listReportedPayments({ leaseId: lease.id }) : Promise.resolve([]),
+            lease ? this.db.findLeaseDocumentMeta(lease.id) : Promise.resolve(null),
+            lease ? this.db.listRemindersSent({ leaseId: lease.id, limit: 10 }) : Promise.resolve([]),
         ])
         const { rentDueDate, lateFeeGraceDate } = dueDates(balance, now, lease?.startDate ?? null)
         // Waiting ones, and decisions from the last 30 days.
@@ -99,10 +114,19 @@ export class TenantService {
             lateFeeGraceDate,
             ledger,
             maintenanceRequests,
-            notices: this.notices(ledger, maintenanceRequests, balance, rentDueDate, lateFeeGraceDate),
+            notices: this.notices(ledger, maintenanceRequests, balance, rentDueDate, lateFeeGraceDate, reminders),
             bankAccounts,
             ...flags,
+            leaseDocument: doc ? { filename: doc.filename, uploadedOn: formatDate(doc.uploadedAt, this.timeZone) } : null,
         }
+    }
+
+    /** The signed lease PDF of the tenant's current lease (008). NOT_FOUND when there is none. */
+    async leaseDocument(userId: string): Promise<LeaseDocumentFile> {
+        const lease = await this.currentLease(tenantIdOf(userId))
+        const file = lease ? await this.db.findLeaseDocument(lease.id) : null
+        if (!file) throw new AppError("NOT_FOUND")
+        return file
     }
 
     private async ledgerFor(leaseId: number) {
@@ -164,7 +188,7 @@ export class TenantService {
         const tID = tenantIdOf(userId)
         const lease = await this.currentLease(tID)
         if (!lease) throw new AppError("NO_ACTIVE_LEASE")
-        const created = await this.db.createMaintenance({ unitId: lease.unitId, tenantId: tID, title: input.title, description: input.description })
+        const created = await this.db.createMaintenance({ unitId: lease.unitId, tenantId: tID, title: input.title, description: input.description, ...typeAndPriority(input.description) })
         return {
             id: `mr_${created.id}`,
             title: input.title,
@@ -290,6 +314,7 @@ export class TenantService {
         balance: number,
         rentDueDate: string,
         lateFeeGraceDate: string,
+        reminders: ReminderSentRecord[] = [],
     ): Notice[] {
         const money = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" })
         const out: Array<Notice & { sortKey: number }> = []
@@ -324,6 +349,19 @@ export class TenantService {
                 nextStep: "No action needed - your receipt is in the ledger.",
                 timestamp: entry.date,
                 sortKey: Date.parse(entry.date),
+            })
+        }
+        // Rent reminders the office's rule sent (008), the latest few.
+        const day = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" })
+        for (const r of reminders.slice(0, 3)) {
+            out.push({
+                id: `n_rem_${r.kind}_${r.dueDate}_${r.sentOn}`,
+                type: "due",
+                title: r.kind === "upcoming" ? `Rent coming up on ${day(r.dueDate)}` : r.kind === "due" ? "Rent is due today" : `Rent from ${day(r.dueDate)} is overdue`,
+                body: r.kind === "upcoming" ? `Your rent of ${money(r.amount)} is due ${day(r.dueDate)}.` : `${money(r.amount)} is still unpaid.`,
+                nextStep: r.kind === "upcoming" ? "Pay early from the Pay rent page, or set money aside." : "Pay from the Pay rent page to stop late fees.",
+                timestamp: day(r.sentOn),
+                sortKey: Date.parse(`${r.sentOn}T12:00:00Z`),
             })
         }
         for (const request of requests.filter((r) => r.status !== "open").slice(0, 5)) {

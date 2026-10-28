@@ -28,6 +28,11 @@ export const CHARGE_KIND_LABELS: Record<string, string> = {
     utility: "Utilities",
     deposit: "Security deposits",
     proration: "Prorated rent",
+    parking: "Parking",
+    hoa: "HOA fees",
+    repair: "Repairs billed to residents",
+    non_compliance: "Non-compliance fees",
+    misc_income: "Miscellaneous income",
     other: "Other charges",
 }
 

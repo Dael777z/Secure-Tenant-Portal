@@ -10,6 +10,7 @@ import { AuthService } from "./services/auth"
 import { FinanceService } from "./services/finance-service"
 import { ManagerService } from "./services/manager-service"
 import { MessageService } from "./services/message-service"
+import { OperationsService } from "./services/operations-service"
 import { createPlaidGateway, type PlaidGateway } from "./services/plaid"
 import { RentChargeService } from "./services/rent-charges"
 import { TenantService } from "./services/tenant-service"
@@ -51,7 +52,9 @@ export function createContainer(overrides: { config?: AppConfig; db?: DatabaseIn
             verboseErrors: !config.production,
         })
         : null
-    const rentCharges = new RentChargeService(db, config.timeZone, logger)
+    const operations = new OperationsService(db, config.timeZone, logger)
+    // After rent is billed: late fees, then rent reminders (008).
+    const rentCharges = new RentChargeService(db, config.timeZone, logger, () => operations.runDailyJobs())
 
     return {
         config,
@@ -62,6 +65,7 @@ export function createContainer(overrides: { config?: AppConfig; db?: DatabaseIn
         tenant: new TenantService(db, config.timeZone, logger),
         messages: new MessageService(db, config.timeZone),
         finance: new FinanceService(db, config.timeZone, logger),
+        operations,
         plaid,
         distRoot: overrides.distRoot,
         rentCharges,

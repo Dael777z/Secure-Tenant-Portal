@@ -5,7 +5,8 @@ import { receiptBody } from "../middleware/body"
 import type { RateLimits } from "../middleware/rate-limit"
 import type { ManagerService } from "../services/manager-service"
 import { AppError } from "../types/errors"
-import { MANUAL_CHARGE_KINDS, type ManualChargeKind } from "../types/inputs"
+import type { MaintenanceChange } from "../types/inputs"
+import { MAINTENANCE_PRIORITIES, MAINTENANCE_STATES, MAINTENANCE_TYPES } from "../types/records"
 import type { InviteResult } from "../types/manager"
 import type { ValidRequest } from "../types/access"
 import { date, id, money, person, receipt, text } from "./validate"
@@ -21,6 +22,12 @@ users:provision       add or change properties, units, tenants, leases
 ledger:adjust         record or reverse an office payment, add a charge, receipts
 maintenance:manage    the maintenance queue (the only thing maintenance staff may do)
 */
+
+/** One of the allowed values, or VALIDATION_ERROR. */
+function oneOf<T extends string>(value: unknown, allowed: readonly T[]): T {
+    if (typeof value !== "string" || !(allowed as readonly string[]).includes(value)) throw new AppError("VALIDATION_ERROR")
+    return value as T
+}
 
 export function createManagerRouter(deps: {
     manager: ManagerService
@@ -190,19 +197,7 @@ export function createManagerRouter(deps: {
         res.status(201).json({ confirmation })
     })
 
-    // A late fee, deposit, utility bill, proration or other charge (rent is billed automatically).
-    router.post("/manager/leases/:leaseId/charges", limits.sensitive, ...guard.can("ledger:adjust"), async (req, res) => {
-        const body = req.body as Record<string, unknown>
-        if (typeof body.kind !== "string" || !(MANUAL_CHARGE_KINDS as readonly string[]).includes(body.kind)) throw new AppError("VALIDATION_ERROR")
-        res.status(201).json({
-            id: await manager.addCharge(id(req.params.leaseId), {
-                kind: body.kind as ManualChargeKind,
-                amount: money(body.amount),
-                dueDate: date(body.dueDate)!,
-                description: text(body.description, 200, { optional: true }),
-            }),
-        })
-    })
+    // Charges (one or repeating) are added in routes/operations.ts (008).
 
     // Undo an office payment. Payments are never deleted: this adds a matching refund, shown as "Payment reversed".
     router.delete("/manager/leases/:leaseId/payments/:paymentId", ...guard.can("ledger:adjust"), async (req, res) => {
@@ -247,15 +242,21 @@ export function createManagerRouter(deps: {
                 unitId: id(body.unitId),
                 title: text(body.title, 120)!,
                 description: text(body.description, 4000, { optional: true }) ?? "",
+                priority: body.priority === undefined ? "none" : oneOf(body.priority, MAINTENANCE_PRIORITIES),
+                requestType: body.requestType === undefined ? "other" : oneOf(body.requestType, MAINTENANCE_TYPES),
             }),
         })
     })
 
-    // update the status of a maintenace request
+    // update a maintenance request: status (New, In review, Scheduled, In progress, Completed), priority, type, scheduled day
     router.put("/manager/maintenance/:requestId", ...guard.can("maintenance:manage"), async (req, res) => {
-        const status = (req.body as Record<string, unknown>).status
-        if (status !== "submitted" && status !== "in_progress" && status !== "resolved") throw new AppError("VALIDATION_ERROR")
-        await manager.setMaintenanceStatus(id(req.params.requestId), status)
+        const body = req.body as Record<string, unknown>
+        const change: MaintenanceChange = {}
+        if (body.status !== undefined) change.status = oneOf(body.status, MAINTENANCE_STATES)
+        if (body.priority !== undefined) change.priority = oneOf(body.priority, MAINTENANCE_PRIORITIES)
+        if (body.requestType !== undefined) change.requestType = oneOf(body.requestType, MAINTENANCE_TYPES)
+        if (body.scheduledFor !== undefined) change.scheduledFor = body.scheduledFor === null || body.scheduledFor === "" ? null : date(body.scheduledFor)
+        await manager.updateMaintenance(id(req.params.requestId), change)
         res.json({ ok: true })
     })
 

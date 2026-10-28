@@ -1,9 +1,9 @@
 import { currentIdentity } from "../db/identity"
 import { silentLogger, type LogMetadata, type LogService } from "../logging"
 import { AppError } from "../types/errors"
-import type { HashExpiry, LeaseChanges, NewCharge, NewLease, PropertyInput, TenantChanges, UnitInput } from "../types/inputs"
+import type { HashExpiry, LeaseChanges, MaintenanceChange, NewCharge, NewLease, PropertyInput, TenantChanges, UnitInput } from "../types/inputs"
 import type { CreatedLeaseResult, DashboardData, InviteResult, LeaseDetail, MaintenanceRow, PropertySummary, TenantRow, UnitRow, UpdateRow } from "../types/manager"
-import type { LeaseRecord, MaintenanceState, Receipt } from "../types/records"
+import type { LeaseRecord, MaintenancePriority, MaintenanceState, MaintenanceType, Receipt } from "../types/records"
 import type { ManagerStore } from "../types/stores"
 import { officeConfirmation } from "../utils/confirmations"
 import { newInvite, randomToken } from "../utils/tokens"
@@ -303,11 +303,11 @@ export class ManagerService {
     // return a list of maintenance ticket data
     async maintenance(): Promise<MaintenanceRow[]> {
         const rows = await this.db.listMaintenance()
-        return rows.map(({ createdAt, ...r }) => ({ ...r, submittedDate: formatDate(createdAt, this.timeZone) }))
+        return rows.map(({ createdAt, updatedAt, ...r }) => ({ ...r, submittedDate: formatDate(createdAt, this.timeZone), updatedAt: updatedAt.toISOString() }))
     }
 
     // create a new maintenace ticket attached to no tenant, but attached to a unit
-    createMaintenance(input: { unitId: number; title: string; description: string }): Promise<number> {
+    createMaintenance(input: { unitId: number; title: string; description: string; priority?: MaintenancePriority; requestType?: MaintenanceType }): Promise<number> {
         return this.change("maintenance.create", { unitId: input.unitId },
             async () => (await this.db.createMaintenance({ ...input, tenantId: null })).id, (requestId) => ({ requestId }))
     }
@@ -315,6 +315,13 @@ export class ManagerService {
     // change the status of a maintenance ticket
     setMaintenanceStatus(id: number, status: MaintenanceState): Promise<void> {
         return this.change("maintenance.status", { requestId: id, status }, () => this.db.setMaintenanceStatus(id, status))
+    }
+
+    /** Stage, priority, type or scheduled day (008). */
+    // logs maintenance.update.succeeded { requestId, ...change }
+    updateMaintenance(id: number, change: MaintenanceChange): Promise<void> {
+        if (Object.keys(change).length === 0) return Promise.reject(new AppError("VALIDATION_ERROR"))
+        return this.change("maintenance.update", { requestId: id, ...change }, () => this.db.updateMaintenance(id, change))
     }
 
     // ---- Retiring records (nothing is deleted; history stays on record)

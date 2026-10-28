@@ -84,4 +84,6 @@ export interface TenantSummary {
     plaidEnabled: boolean
     /** Development only: a payment without a linked bank account is recorded as a test transfer. Never in production. */
     testPayments: boolean
+    /** The signed lease on file (008), opened at GET /api/tenant/lease-document; null if none. */
+    leaseDocument: { filename: string; uploadedOn: string } | null
 }

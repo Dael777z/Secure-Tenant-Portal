@@ -35,6 +35,11 @@ const CHARGE_LABELS: Record<ChargeRecord["kind"], string> = {
     utility: "Utility charge",
     proration: "Prorated rent",
     other: "Charge",
+    parking: "Parking",
+    hoa: "HOA fee",
+    repair: "Repair charge",
+    non_compliance: "Non-compliance fee",
+    misc_income: "Charge",
 }
 
 export function buildLedger(charges: ChargeRecord[], payments: PaymentRecord[], timeZone?: string): {

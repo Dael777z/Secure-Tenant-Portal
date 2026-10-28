@@ -11,8 +11,9 @@ import type { RequestHandler } from "express"
 export const DEFAULT_BODY_LIMIT = "100kb"
 export const RECEIPT_BODY_LIMIT = "6mb"
 
-/** POST /manager/leases/:id/payments (a payment may carry a receipt) and PUT .../payments/:id/receipt. */
+/** POST /manager/leases/:id/payments (a payment may carry a receipt), PUT .../payments/:id/receipt and PUT .../document (the signed lease PDF). */
 const RECEIPT_ROUTES: Array<{ method: string; path: RegExp }> = [
+    { method: "PUT", path: /^\/api\/manager\/leases\/[^/]+\/document\/?$/ },
     { method: "POST", path: /^\/api\/manager\/leases\/[^/]+\/payments\/?$/ },
     { method: "PUT", path: /^\/api\/manager\/leases\/[^/]+\/payments\/[^/]+\/receipt\/?$/ },
 ]

@@ -95,7 +95,7 @@ export interface LeaseBalance {
     balance: number
 }
 
-export type ChargeKind = "rent" | "deposit" | "late_fee" | "utility" | "proration" | "other"
+export type ChargeKind = "rent" | "deposit" | "late_fee" | "utility" | "proration" | "other" | "parking" | "hoa" | "repair" | "non_compliance" | "misc_income"
 
 export interface ChargeRecord {
     id: number
@@ -140,16 +140,28 @@ export interface Receipt {
 
 // Maintenance
 
-export type MaintenanceState = "submitted" | "in_progress" | "resolved"
+/** New → In review → Scheduled → In progress → Completed (resolved). 008 added the two middle stages. */
+export type MaintenanceState = "submitted" | "in_review" | "scheduled" | "in_progress" | "resolved"
+export const MAINTENANCE_STATES: readonly MaintenanceState[] = ["submitted", "in_review", "scheduled", "in_progress", "resolved"]
+export type MaintenancePriority = "none" | "low" | "medium" | "high" | "emergency"
+export const MAINTENANCE_PRIORITIES: readonly MaintenancePriority[] = ["none", "low", "medium", "high", "emergency"]
+export type MaintenanceType = "appliance" | "plumbing" | "electrical" | "hvac" | "pest" | "locks" | "property" | "other"
+export const MAINTENANCE_TYPES: readonly MaintenanceType[] = ["appliance", "plumbing", "electrical", "hvac", "pest", "locks", "property", "other"]
 
 export interface MaintenanceRecord {
     id: number
     title: string
     description: string
     status: MaintenanceState
+    priority: MaintenancePriority
+    requestType: MaintenanceType
+    /** YYYY-MM-DD */
+    scheduledFor: string | null
     createdAt: Date
+    updatedAt: Date
     unitId: number
     unitNum: string
+    propertyId: number
     propertyName: string
     tenantName: string | null
 }

@@ -54,8 +54,12 @@ export interface SeedRequest {
     by?: string
     title: string
     description?: string
-    status: "submitted" | "in_progress" | "resolved"
+    status: "submitted" | "in_review" | "scheduled" | "in_progress" | "resolved"
     filed: string
+    priority?: "none" | "low" | "medium" | "high" | "emergency"
+    requestType?: "appliance" | "plumbing" | "electrical" | "hvac" | "pest" | "locks" | "property" | "other"
+    /** Days from today (scheduled requests). */
+    scheduledIn?: number
 }
 
 // Seeded property
@@ -156,11 +160,13 @@ export const sample = (dates: Dates): SeedData => {
                 "112": VACANT,
             },
             maintenance: [
-                { unit: "101", by: "tenant@example.com", title: "Kitchen faucet leaking", description: "Steady drip under the sink, worse in the morning.", status: "in_progress", filed: daysAgo(17) },
-                { unit: "101", by: "tenant@example.com", title: "Dishwasher clogged", description: "Water pools at the bottom after a full cycle.", status: "resolved", filed: daysAgo(62) },
-                { unit: "106", by: "priya.sharma@example.com", title: "No heat, apartment is 52 degrees", description: "The heater turns on but blows cold air.", status: "submitted", filed: daysAgo(12, 7) },
-                { unit: "103", by: "aisha.okafor@example.com", title: "Front door deadbolt sticking", description: "Hard to lock from outside.", status: "resolved", filed: daysAgo(15, 15) },
-                { unit: "110", by: "chen.wei@example.com", title: "Bathroom fan is loud", description: "Rattles when it is on.", status: "submitted", filed: daysAgo(10, 18) },
+                { unit: "101", by: "tenant@example.com", title: "Kitchen faucet leaking", description: "Steady drip under the sink, worse in the morning.", status: "in_progress", filed: daysAgo(17), priority: "medium", requestType: "plumbing" },
+                { unit: "101", by: "tenant@example.com", title: "Dishwasher clogged", description: "Water pools at the bottom after a full cycle.", status: "resolved", filed: daysAgo(62), priority: "low", requestType: "appliance" },
+                { unit: "106", by: "priya.sharma@example.com", title: "No heat, apartment is 52 degrees", description: "The heater turns on but blows cold air.", status: "submitted", filed: daysAgo(12, 7), priority: "emergency", requestType: "hvac" },
+                { unit: "103", by: "aisha.okafor@example.com", title: "Front door deadbolt sticking", description: "Hard to lock from outside.", status: "resolved", filed: daysAgo(15, 15), priority: "medium", requestType: "locks" },
+                { unit: "110", by: "chen.wei@example.com", title: "Bathroom fan is loud", description: "Rattles when it is on.", status: "submitted", filed: daysAgo(10, 18), priority: "low", requestType: "electrical" },
+                { unit: "104", title: "Gutter over the entry is sagging", description: "Seen on the walk-through; water spills onto the steps when it rains.", status: "in_review", filed: daysAgo(4, 9), priority: "medium", requestType: "property" },
+                { unit: "109", title: "Annual pest treatment", description: "Quarterly service for the building; this unit is next.", status: "scheduled", filed: daysAgo(6, 11), priority: "low", requestType: "pest", scheduledIn: 3 },
             ],
             expenses: [
                 ...everyMonth(dates, 12, 6, (n) => ({ category: "utilities", amount: 365 + ((n * 37) % 90), vendor: "City of Las Cruces Utilities", description: "Water, sewer and trash" })),
@@ -189,7 +195,7 @@ export const sample = (dates: Dates): SeedData => {
                 A6: VACANT,
             },
             maintenance: [
-                { unit: "A3", title: "Water heater leaking into hallway", description: "Reported by the office after inspection.", status: "in_progress", filed: daysAgo(11) },
+                { unit: "A3", title: "Water heater leaking into hallway", description: "Reported by the office after inspection.", status: "in_progress", filed: daysAgo(11), priority: "high", requestType: "plumbing" },
             ],
             expenses: [
                 ...everyMonth(dates, 12, 7, (n) => ({ category: "utilities", amount: 228 + ((n * 23) % 60), vendor: "Town of Mesilla", description: "Water and trash" })),
