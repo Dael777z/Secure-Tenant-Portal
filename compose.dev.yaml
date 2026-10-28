@@ -1,0 +1,26 @@
+# Development overrides for compose.yaml (npm run docker:dev / cloudflare:dev).
+# Every setting has a default, so .env is optional. The database is published on
+# localhost, so npm run dev, npm run db and npm test use this same Postgres.
+services:
+  db:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-portal-dev-only}
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+
+  migrate:
+    command: ["node", "dist/server/cli.js", "setup"]
+    environment:
+      NODE_ENV: development
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-portal-dev-only}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-summit-dev-only}
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+
+  app:
+    environment:
+      NODE_ENV: development
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-summit-dev-only}
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
+    ports: !override
+      - "127.0.0.1:${APP_PORT:-3000}:3000"

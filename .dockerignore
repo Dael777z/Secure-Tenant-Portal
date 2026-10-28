@@ -1,0 +1,12 @@
+.git
+node_modules
+dist
+logs
+local
+docs
+.env
+.env.*
+*.log
+coverage
+src/**/*.test.ts
+src/integration
