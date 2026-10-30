@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { SessionUser } from "../api/auth";
 import { managerApi, type StaffProfile } from "./api";
 import { DialogHost } from "./dialogs";
+import { MessagesPage } from "./messages";
 import {
   DashboardPage,
   LeasePage,
@@ -20,6 +21,7 @@ import { ManagerContext, initials, parseRoute, routeHash, type Dialog, type Mana
 import "./manager.css";
 
 const ROLE_LABELS: Record<string, string> = {
+  admin: "Property Manager",
   property_manager: "Property Manager",
   maintenance_staff: "Maintenance",
   platform_admin: "Administrator",
@@ -37,6 +39,7 @@ const NAV: NavItem[] = [
   { label: "Properties", route: { name: "properties" }, matches: ["properties", "property"], permission: "ledger:read:property" },
   { label: "Rent Roll", route: { name: "rent-roll" }, matches: ["rent-roll", "lease"], permission: "ledger:read:property" },
   { label: "Tenants", route: { name: "tenants" }, matches: ["tenants"], permission: "ledger:read:property" },
+  { label: "Messages", route: { name: "messages" }, matches: ["messages"], permission: "messages:manage" },
   { label: "Maintenance", route: { name: "maintenance" }, matches: ["maintenance"], permission: "maintenance:manage" },
   { label: "Updates", route: { name: "updates" }, matches: ["updates"], permission: "ledger:read:property" },
 ];
@@ -58,10 +61,22 @@ export function ManagerApp({ user, onLogout }: { user: SessionUser; onLogout: ()
   const [toast, setToast] = useState<string | null>(null);
   const [profile, setProfile] = useState<StaffProfile | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [unreadMessages, setUnreadMessages] = useState(0);
 
   useEffect(() => {
     managerApi.me().then(setProfile, () => setProfile(null));
   }, []);
+
+  // The Messages badge: conversations waiting on the office, checked every 20 seconds.
+  const canMessage = can("messages:manage");
+  const refreshUnread = useCallback(() => {
+    if (canMessage) managerApi.unreadMessages().then(setUnreadMessages, () => undefined);
+  }, [canMessage]);
+  useEffect(() => {
+    refreshUnread();
+    const timer = setInterval(() => document.visibilityState === "visible" && refreshUnread(), 20_000);
+    return () => clearInterval(timer);
+  }, [refreshUnread]);
 
   // Keep the route in the URL hash so Back, Forward and reload work.
   useEffect(() => {
@@ -136,6 +151,11 @@ export function ManagerApp({ user, onLogout }: { user: SessionUser; onLogout: ()
                   }}
                 >
                   {n.label}
+                  {n.route.name === "messages" && unreadMessages > 0 && (
+                    <span className="mgr-nav__badge" aria-label={`${unreadMessages} unread`}>
+                      {unreadMessages}
+                    </span>
+                  )}
                 </a>
               );
             })}
@@ -167,6 +187,7 @@ export function ManagerApp({ user, onLogout }: { user: SessionUser; onLogout: ()
             {route.name === "tenants" && <TenantsPage />}
             {route.name === "lease" && <LeasePage id={route.id} />}
             {route.name === "maintenance" && <MaintenancePage />}
+            {route.name === "messages" && <MessagesPage tenantId={route.tenantId} onUnreadChange={refreshUnread} />}
             {route.name === "updates" && <UpdatesPage />}
           </main>
         </div>

@@ -1,6 +1,5 @@
-// What the tenant API returns: the shapes Juan's pages already use
-// (frontend/src/types/index.ts), so the pages need no new types. Dates come
-// pre-formatted the way his mock data writes them ("Oct 1, 2026").
+// What the tenant API returns. These match frontend/src/types/index.ts; dates
+// come formatted for display ("Oct 1, 2026").
 
 export interface TenantProfile {
     id: string
@@ -15,7 +14,7 @@ export interface LedgerEntry {
     date: string
     description: string
     method: string | null
-    /** Juan's convention: charges negative, payments positive. */
+    /** Charges negative, payments positive. */
     amount: number
     /** What was owed after this line. */
     balanceAfter: number
@@ -57,6 +56,14 @@ export interface TenantSummary {
     maintenanceRequests: MaintenanceRequest[]
     notices: Notice[]
     bankAccounts: LinkedBankAccount[]
-    /** False when PLAID_CLIENT_ID / PLAID_SECRET are not set: payments are recorded as a demo transfer. */
+    /** False when PLAID_CLIENT_ID / PLAID_SECRET are not set. */
     plaidEnabled: boolean
+    /** Development only: a payment without a linked bank account is recorded as a test transfer. Never in production. */
+    testPayments: boolean
+    /** Cash App Pay through Stripe (006): false when STRIPE_SECRET_KEY / STRIPE_PUBLISHABLE_KEY are not set. */
+    cashAppEnabled: boolean
+    /** For Stripe.js in the browser; null when Stripe is off. */
+    stripePublishableKey: string | null
+    /** The processing fee Cash App Pay adds (2.9% = 290 basis points, + fixed cents); null when it is off. */
+    cashAppFee: { basisPoints: number; fixedCents: number } | null
 }

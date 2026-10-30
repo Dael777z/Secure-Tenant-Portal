@@ -41,7 +41,7 @@ export interface Notice {
   timestamp: string;
 }
 
-export type PaymentMethodKind = "bank" | "card" | "wallet" | "other";
+export type PaymentMethodKind = "bank" | "cashapp" | "card" | "wallet" | "other";
 
 export interface PaymentMethodOption {
   kind: PaymentMethodKind;

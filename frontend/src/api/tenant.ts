@@ -19,10 +19,45 @@ export interface TenantSummary {
   notices: Notice[];
   bankAccounts: LinkedBankAccount[];
   plaidEnabled: boolean;
+  /** Development only: paying without a linked bank records a test transfer. */
+  testPayments: boolean;
+  /** Cash App Pay through Stripe; false when the server has no Stripe keys. */
+  cashAppEnabled: boolean;
+  /** For Stripe.js; null when Stripe is off. */
+  stripePublishableKey: string | null;
+  /** The processing fee Cash App Pay adds; null when it is off. */
+  cashAppFee: { basisPoints: number; fixedCents: number } | null;
 }
 
+/** A Cash App payment's place on the ledger: only "completed" is on the balance. */
+export type CashAppStatus = "pending" | "completed" | "failed";
+
+/** Extra facts some errors carry; PLAID_ERROR has plaid's code, request id and a message. */
+export interface ErrorDetails {
+  operation?: string;
+  plaidCode?: string;
+  stripeCode?: string | null;
+  plaidType?: string;
+  requestId?: string | null;
+  message?: string | null;
+}
+
+/** A message between the tenant and the office (src/routes/messages.ts). Times are ISO strings. */
+export interface OfficeMessage {
+  id: number;
+  from: "tenant" | "office";
+  /** The manager who wrote it; null for the tenant's own messages. */
+  senderName: string | null;
+  body: string;
+  sentAt: string;
+  /** The receipt: when the other side opened the conversation. */
+  readAt: string | null;
+}
+
+export const MESSAGE_MAX_LENGTH = 2000;
+
 export class ApiError extends Error {
-  constructor(public readonly code: string, public readonly status: number) {
+  constructor(public readonly code: string, public readonly status: number, public readonly details?: ErrorDetails) {
     super(code);
   }
 }
@@ -30,16 +65,37 @@ export class ApiError extends Error {
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await apiFetch(`/api${path}`, init);
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError((body as { error?: string }).error ?? "UNKNOWN", res.status);
+  if (!res.ok) {
+    const { error, details } = body as { error?: string; details?: ErrorDetails };
+    throw new ApiError(error ?? "UNKNOWN", res.status, details);
+  }
   return body as T;
 }
 
 export const tenantApi = {
   summary: () => call<TenantSummary>("/tenant/summary"),
-  pay: (amount: number, bankAccountId: string | null) =>
-    call<{ confirmation: string }>("/tenant/payments", { method: "POST", body: JSON.stringify({ amount, bankAccountId }) }),
+  /** `checkoutKey`: one per checkout, so a double click or a retry is recorded once. */
+  pay: (amount: number, bankAccountId: string | null, checkoutKey: string) =>
+    call<{ confirmation: string }>("/tenant/payments", {
+      method: "POST",
+      body: JSON.stringify({ amount, bankAccountId, idempotencyKey: checkoutKey }),
+    }),
+  /** Start (or, with the same key, pick up again) a Cash App checkout for `amount` toward rent; the server adds the fee. */
+  startCashApp: (amount: number, checkoutKey: string) =>
+    call<{ paymentIntentId: string; clientSecret: string; fee: number; total: number }>("/tenant/payments/cashapp", {
+      method: "POST",
+      body: JSON.stringify({ amount, idempotencyKey: checkoutKey }),
+    }),
+  /** Ask the server to read the payment from Stripe now (instead of waiting for Stripe's webhook). */
+  refreshCashApp: (paymentIntentId: string) =>
+    call<{ status: CashAppStatus; confirmation: string }>(`/tenant/payments/cashapp/${encodeURIComponent(paymentIntentId)}/refresh`, { method: "POST" }),
   newMaintenanceRequest: (title: string, description: string) =>
     call<MaintenanceRequest>("/tenant/maintenance", { method: "POST", body: JSON.stringify({ title, description }) }),
+  /** The conversation with the office; `unread` counts the office's messages not opened yet. */
+  messages: () => call<{ messages: OfficeMessage[]; unread: number }>("/tenant/messages"),
+  sendMessage: (body: string) => call<OfficeMessage>("/tenant/messages", { method: "POST", body: JSON.stringify({ body }) }),
+  /** The receipt: the office sees its messages were read. */
+  markMessagesRead: () => call<{ marked: number }>("/tenant/messages/read", { method: "POST" }),
   // Dael's two Plaid calls, same paths as his prototype.
   createLinkToken: () => call<{ link_token: string }>("/create_link_token", { method: "POST" }),
   exchangeAndGetAuth: (publicToken: string) =>
@@ -51,8 +107,19 @@ export function messageFor(error: unknown): string {
     if (error.status === 401) return "Your session ended. Sign in again.";
     if (error.code === "NO_ACTIVE_LEASE") return "There is no active lease on your account yet. Contact the office.";
     if (error.code === "PLAID_NOT_CONFIGURED") return "Bank linking is not set up on this server yet.";
-    if (error.code === "PLAID_ERROR") return "Plaid could not complete that. Please try again.";
+    if (error.code === "PLAID_ERROR") {
+      // plaid's own message when it gave one, and its code so the server log can be matched up
+      const message = error.details?.message ?? "Plaid could not complete that. Please try again.";
+      return error.details?.plaidCode ? `${message} (Plaid: ${error.details.plaidCode})` : message;
+    }
+    if (error.code === "STRIPE_NOT_CONFIGURED") return "Cash App Pay is not set up on this server yet.";
+    if (error.code === "STRIPE_ERROR") {
+      const message = error.details?.message ?? "Cash App Pay could not start. Please try again.";
+      return error.details?.stripeCode ? `${message} (Stripe: ${error.details.stripeCode})` : message;
+    }
+    if (error.code === "CHECKOUT_AMOUNT_CHANGED") return "The amount changed. Please press Pay again.";
     if (error.code === "VALIDATION_ERROR") return "Check what you entered and try again.";
+    if (error.code === "RATE_LIMITED") return "Too many messages at once. Wait a few minutes and try again.";
   }
   return "Something went wrong. Please try again.";
 }

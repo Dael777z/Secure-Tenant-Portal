@@ -1,30 +1,43 @@
-import { env } from "./config/env"
-import { createApp } from "./create-app"
-import { createDatabase, createLogger, createManagerStore, createPlaid, createTenantStore } from "./utils/init"
-import type { DatabaseInterface } from "./types/interfaces"
+import { existsSync } from "node:fs"
 import { resolve } from "node:path"
 
-const distRoot = resolve(__dirname, "..")
+import { createContainer, type Container } from "./container"
+import { createApp } from "./create-app"
 
-const database: DatabaseInterface = createDatabase()
-const logger = createLogger()
-const tenantStore = createTenantStore()
-const plaid = createPlaid()
-const managerStore = createManagerStore(database)
-const app = createApp({ database, logger, distRoot, tenantStore, plaid, managerStore })
+/**
+ * Start the server: build everything (container.ts), check the database,
+ * listen, and keep rent charges current. Database setup is not done here;
+ * the app's login cannot change the schema. That is `npm run db setup`
+ * (which `npm run dev` runs first).
+ */
+async function main() {
+    // The built frontend sits next to the built server (dist/ and dist/server/). In development Vite serves it.
+    const builtFrontend = resolve(__dirname, "..")
+    let container: Container | undefined
+    try {
+        container = createContainer({ distRoot: existsSync(resolve(builtFrontend, "index.html")) ? builtFrontend : undefined })
+        await container.checkDatabase()
+    } catch (error) {
+        console.error(`\n  Cannot start: ${(error as Error).message}\n`)
+        await container?.close()
+        process.exit(1)
+    }
+    const { config, logger } = container
 
-const server = app.listen(env.port, "0.0.0.0", () => {
-  logger.info("server.started", {
-    address: `0.0.0.0:${env.port}`,
-    database: env.databaseUrl ? "postgres" : "memory",
-    plaid: plaid ? env.plaidEnv : "off",
-  })
-});
-
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.on(signal, () => {
-    server.close(() => {
-        logger.info("server.stopped")
+    const server = createApp(container).listen(config.port, "0.0.0.0", () => {
+        logger.info("server.started", { port: config.port, mode: config.mode, plaid: container.plaid ? config.plaidEnv : "off", cashApp: container.stripePayments.publishableKey ? (config.stripeSecretKey.includes("_test_") ? "test" : "live") : "off", email: container.notifications.enabled ? "resend" : "off", frontend: container.distRoot ? "built" : "vite" })
     })
-})
+    // Bill the months that came due while the app was down, then keep doing it.
+    container.rentCharges.start()
+    // Rent, past-due and lease-ending emails, checked every hour (only when email is on).
+    container.notifications.start()
+
+    const stop = () => server.close(() => {
+        logger.info("server.stopped")
+        void container!.close()
+    })
+    process.once("SIGINT", stop)
+    process.once("SIGTERM", stop)
 }
+
+void main()

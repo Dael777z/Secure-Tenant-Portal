@@ -11,6 +11,8 @@ import { TenantDataProvider, useTenantData } from "./data/tenantData";
 import { currentUser, login, logout, type SessionUser } from "./api/auth";
 import { SESSION_CHECK } from "./api/session";
 import { ManagerApp } from "./manager/ManagerApp";
+import { isPlaidOAuthReturn } from "./components/PlaidLinkButton";
+import { isCashAppReturn } from "./components/cashApp";
 import "./styles/portal.css";
 
 const pageTitles: Record<PageKey, string> = {
@@ -27,7 +29,9 @@ export default function App() {
   // tenant's own lease, ledger, requests and notices from /api/tenant/summary.
   const [user, setUser] = useState<SessionUser | null>(null);
   const [checked, setChecked] = useState(false);
-  const [activePage, setActivePage] = useState<PageKey>("home");
+  // back from a bank's own sign-in page (plaid oauth): finish linking on the pay page
+  // or back from Cash App: show the payment's result on the pay page
+  const [activePage, setActivePage] = useState<PageKey>(isPlaidOAuthReturn() || isCashAppReturn() ? "pay" : "home");
 
   useEffect(() => {
     currentUser()
@@ -50,7 +54,7 @@ export default function App() {
 
   async function handleLogin(email: string, password: string) {
     setUser(await login(email, password));
-    setActivePage("home");
+    setActivePage(isPlaidOAuthReturn() || isCashAppReturn() ? "pay" : "home");
   }
 
   async function handleLogout() {

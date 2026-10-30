@@ -25,11 +25,11 @@ database. Nothing on the frontend changed.
 
 ## Run it (any OS, by hand)
 
-1. Start Postgres. With Docker: `npm run db:up`. That starts `docker-compose.db.yml`: Postgres 16 on localhost:5432, with a `portal` database and a `portal_test` database. Any local Postgres works too.
-2. Copy `.env.example` to `.env`. Fill in `JWT_ACCESS_SECRET` and `SEED_ADMIN_PASSWORD`. The `DATABASE_URL` and `TEST_DATABASE_URL` values already match `db:up`.
+1. Copy `.env.example` to `.env` and use `npm run docker:dev`. This starts the app and Postgres without publishing the database port.
+2. Run `npm run docker:seed` to load sample users and data. The same `.env` also configures direct host development when needed.
 3. `npm install`
-4. `npm run db:migrate`: builds the tables. It is safe to run again.
-5. `npm run db:seed`: adds a manager login (`SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`), a maintenance login, and the demo portfolio (see "Demo data" under the manager side). With `SEED_TENANT_PASSWORD` set, `tenant@example.com` can sign in right away; without it, the tenant is invited and signs up first.
+4. `npm run db:migrate`: builds the tables for a directly configured database. It is safe to run again.
+5. `npm run db:seed`: adds a manager login (`SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`), a maintenance login, and the demo portfolio when `DEV=1`. With `SEED_TENANT_PASSWORD` set, `tenant@example.com` can sign in right away; without it, the tenant is invited and signs up first.
 6. `npm run dev`, then in Insomnia:
    - `POST /api/auth/signup` `{"email":"tenant@example.com","password":"…"}` returns 201. Any other email returns 403.
    - `POST /api/auth/login`, then `GET /api/auth/me`, as in Scott's demo.
@@ -94,7 +94,7 @@ This is built on the two branches above. It joins Scott's skeleton, Angel's sche
 
 ### Run it
 
-As above (`db:up`, `.env`, `db:migrate`, `db:seed`), then:
+As above (`docker:dev`, `.env`, and explicit `docker:seed`), then:
 
 1. Sign up the seeded tenant, either with Insomnia (`POST /api/auth/signup` `{"email":"tenant@example.com","password":"…"}`) or with curl.
 2. `npm run dev`, open http://localhost:5173 and sign in.

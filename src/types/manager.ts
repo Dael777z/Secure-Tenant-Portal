@@ -1,4 +1,4 @@
-// What the manager API returns. Money is in dollars, as in Angel's NUMERIC columns.
+// What the manager API returns. Money is in dollars.
 import type { LedgerEntry } from "./tenant"
 
 export interface PropertySummary {
@@ -88,4 +88,22 @@ export interface DashboardData {
     openMaintenance: number
     recentActivity: Array<{ kind: "payment" | "maintenance"; title: string; detail: string; when: string; at: string }>
     updates: UpdateRow[]
+}
+
+/**
+ * A sign-up invitation. The token is only ever returned here, when it is made
+ * (the database keeps its hash); routes/manager.ts adds the ready-made link.
+ */
+export interface InviteResult {
+    tenantId: number
+    email: string
+    inviteToken: string
+    /** ISO timestamp; after this the link stops working. */
+    expiresAt: string
+}
+
+export interface CreatedLeaseResult {
+    id: number
+    /** One per new tenant the lease added. */
+    invites: InviteResult[]
 }

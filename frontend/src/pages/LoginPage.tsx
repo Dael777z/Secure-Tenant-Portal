@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { loginMessage } from "../api/auth";
-import { SignUpForm } from "../components/SignUpForm";
+import { inviteTokenFromUrl, SignUpForm } from "../components/SignUpForm";
 
 interface LoginPageProps {
     /** Signs in against the backend; rejects with an AuthError on failure. */
@@ -13,7 +13,8 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [signingUp, setSigningUp] = useState(false);
+  // Opened from a sign-up link: start on "Create your account".
+  const [signingUp, setSigningUp] = useState(() => inviteTokenFromUrl() !== null);
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();

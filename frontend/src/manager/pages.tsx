@@ -2,10 +2,10 @@
 // Lease, Maintenance and Updates. Ported from the resident-portal reference
 // views (manager-dashboard, -portfolio, -rentroll, -directory, -maintenance,
 // -exceptions), cut down to what the team's schema stores.
-import { useMemo, useState } from "react";
-import { managerApi, receiptUrl, type RequestStatus, type UnitRow, type UpdateRow } from "./api";
+import { useEffect, useMemo, useState } from "react";
+import { managerApi, receiptUrl, type RequestStatus, type TenantRow, type UnitRow, type UpdateRow } from "./api";
 import type { LedgerEntry } from "../types";
-import { Empty, Kpi, Loading, PageHeader, StatusPill, isoDate, money, percent, timeAgo, useLoad, useManager } from "./ui";
+import { Empty, Kpi, Loading, LocalError, PageHeader, StatusPill, isoDate, money, percent, timeAgo, useLoad, useManager } from "./ui";
 
 /* ------------------------------------------------------------------ *
  * Quick actions — the common jobs, one click from any screen
@@ -394,7 +394,38 @@ export function RentRollPage({ filter }: { filter?: "owing" | "current" | "vacan
  * ------------------------------------------------------------------ */
 
 export function TenantsPage() {
-  const { go, open, can } = useManager();
+  const { go, open, can, changed } = useManager();
+
+  // Tenants sign up from a link the office sends them. A new link replaces the old one.
+  async function copySignUpLink(t: TenantRow) {
+    try {
+      const { inviteLink } = await managerApi.newSignUpLink(t.id);
+      await navigator.clipboard.writeText(inviteLink);
+      changed(`Sign-up link for ${t.name} copied. Send it to ${t.email}; any earlier link stops working.`);
+    } catch {
+      changed(`Could not copy a sign-up link for ${t.name}. Try again.`);
+    }
+  }
+
+  // A signed-up tenant who cannot sign in. Their password stops working once this runs.
+  function resetSignIn(t: TenantRow) {
+    open({
+      kind: "confirm",
+      title: "Reset sign-in",
+      body: `Reset ${t.name}'s sign-in? Their current password stops working and they are signed out everywhere. You get a link to send them so they can choose a new password.`,
+      confirmLabel: "Reset and copy link",
+      run: async () => {
+        const { inviteLink } = await managerApi.resetSignIn(t.id);
+        try {
+          await navigator.clipboard.writeText(inviteLink);
+        } catch {
+          // The reset is done; keep the dialog open with the link so it can be copied by hand.
+          throw new LocalError(`Sign-in reset, but the link could not be copied. Send ${t.email} this link: ${inviteLink}`);
+        }
+      },
+      done: `Sign-in reset for ${t.name}. The link is copied; send it to ${t.email}.`,
+    });
+  }
   const { data, error } = useLoad(() => managerApi.tenants());
   const [search, setSearch] = useState("");
   const q = search.trim().toLowerCase();
@@ -452,6 +483,21 @@ export function TenantsPage() {
                             Lease
                           </button>
                         )}
+                        {can("messages:manage") && (
+                          <button type="button" className="mgr-btn mgr-btn--secondary mgr-btn--small" onClick={() => go({ name: "messages", tenantId: t.id })}>
+                            Message
+                          </button>
+                        )}
+                        {can("users:provision") && !t.signedUp && (
+                          <button type="button" className="mgr-btn mgr-btn--secondary mgr-btn--small" onClick={() => void copySignUpLink(t)}>
+                            Copy sign-up link
+                          </button>
+                        )}
+                        {can("users:provision") && t.signedUp && (
+                          <button type="button" className="mgr-btn mgr-btn--ghost mgr-btn--small" onClick={() => resetSignIn(t)}>
+                            Reset sign-in
+                          </button>
+                        )}
                         {can("users:provision") && (
                           <button type="button" className="mgr-btn mgr-btn--ghost mgr-btn--small" onClick={() => open({ kind: "editTenant", id: t.id, name: t.name, phone: t.phone })}>
                             Edit
@@ -465,7 +511,7 @@ export function TenantsPage() {
                               open({
                                 kind: "confirm",
                                 title: "Delete tenant",
-                                body: `Delete ${t.name} (${t.email})? Their account and sign-in go. Payments and requests from past leases stay on record without their name.`,
+                                body: `Delete ${t.name} (${t.email})? Their sign-in stops working; their payments and requests stay on record.`,
                                 confirmLabel: "Delete tenant",
                                 run: () => managerApi.deleteTenant(t.id),
                                 done: `${t.name} deleted.`,
@@ -545,7 +591,6 @@ export function LeasePage({ id }: { id: number }) {
 
   if (!data) return <Loading error={error} />;
   const label = `Unit ${data.unitNum} - ${data.propertyName}`;
-  const hasPayments = data.ledger.some((e) => e.id.startsWith("payment-"));
   const ended = data.endDate !== null && data.endDate < new Date().toISOString().slice(0, 10);
 
   async function remove(tenantId: number) {
@@ -576,9 +621,14 @@ export function LeasePage({ id }: { id: number }) {
         actions={
           <>
             {can("ledger:adjust") && (
-              <button type="button" className="mgr-btn mgr-btn--primary" onClick={() => open({ kind: "payment", leaseId: id })}>
-                Record a payment
-              </button>
+              <>
+                <button type="button" className="mgr-btn mgr-btn--primary" onClick={() => open({ kind: "payment", leaseId: id })}>
+                  Record a payment
+                </button>
+                <button type="button" className="mgr-btn mgr-btn--secondary" onClick={() => open({ kind: "charge", leaseId: id, label })}>
+                  Add a charge
+                </button>
+              </>
             )}
             {can("users:provision") && !ended && (
               <>
@@ -589,25 +639,6 @@ export function LeasePage({ id }: { id: number }) {
                   End lease
                 </button>
               </>
-            )}
-            {can("users:provision") && !hasPayments && (
-              <button
-                type="button"
-                className="mgr-btn mgr-btn--danger-ghost"
-                onClick={() =>
-                  open({
-                    kind: "confirm",
-                    title: "Delete lease",
-                    body: `Delete this lease on ${label}? Use this for a lease entered by mistake: it has no payments yet. Its residents stay in Tenants.`,
-                    confirmLabel: "Delete lease",
-                    run: () => managerApi.deleteLease(id),
-                    done: "Lease deleted. The unit is vacant again.",
-                    after: { name: "rent-roll" },
-                  })
-                }
-              >
-                Delete lease
-              </button>
             )}
           </>
         }
@@ -702,11 +733,29 @@ const NEXT_STATUS: Record<RequestStatus, Array<[RequestStatus, string]>> = {
 };
 
 export function MaintenancePage() {
-  const { open, changed } = useManager();
+  const { open, changed, can } = useManager();
   const { data, error } = useLoad(() => managerApi.maintenance());
   const [filter, setFilter] = useState<"open" | RequestStatus | "all">("open");
   const [busy, setBusy] = useState<number | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
+  // Property managers only: maintenance staff do not get these emails.
+  const isManager = can("ledger:read:property");
+  const [emailMe, setEmailMe] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (isManager) managerApi.me().then((me) => setEmailMe(me.notifyMaintenance), () => setEmailMe(null));
+  }, [isManager]);
+
+  async function toggleEmails(on: boolean) {
+    setEmailMe(on);
+    setFailed(null);
+    try {
+      await managerApi.setMaintenanceEmails(on);
+      changed(on ? "You'll get an email when a resident files a request." : "Maintenance emails are off.");
+    } catch {
+      setEmailMe(!on);
+      setFailed("That setting did not save. Try again.");
+    }
+  }
 
   const requests = (data?.requests ?? []).filter((r) =>
     filter === "all" ? true : filter === "open" ? r.status !== "resolved" : r.status === filter,
@@ -741,9 +790,16 @@ export function MaintenancePage() {
         title="Maintenance"
         subtitle="Requests from residents and the office. Status changes show up in the resident's portal."
         actions={
-          <button type="button" className="mgr-btn mgr-btn--primary" onClick={() => open({ kind: "maintenance" })}>
-            + New request
-          </button>
+          <>
+            {emailMe !== null && (
+              <label className="mgr-check">
+                <input type="checkbox" checked={emailMe} onChange={(e) => void toggleEmails(e.target.checked)} /> Email me new requests
+              </label>
+            )}
+            <button type="button" className="mgr-btn mgr-btn--primary" onClick={() => open({ kind: "maintenance" })}>
+              + New request
+            </button>
+          </>
         }
       />
       <div className="mgr-toolbar">

@@ -1,7 +1,7 @@
 // Every add/edit form on the manager side, opened as a dialog from the quick
 // actions bar or from a screen. Each one closes and refreshes on success.
 import { useRef, useState, type FormEvent } from "react";
-import { managerApi, PAYMENT_METHODS, RECEIPT_ACCEPT, readReceipt, type NewPerson, type ReceiptUpload, type UnitRow } from "./api";
+import { CHARGE_KINDS, managerApi, PAYMENT_METHODS, type ChargeKind, RECEIPT_ACCEPT, readReceipt, type NewPerson, type ReceiptUpload, type UnitRow } from "./api";
 import { Field, LocalError, Modal, money, todayIso, useLoad, useManager, useSubmit, type Dialog } from "./ui";
 
 type Props<K extends Dialog["kind"]> = Extract<Dialog, { kind: K }> & { onClose: () => void };
@@ -30,6 +30,8 @@ export function DialogHost({ dialog, onClose }: { dialog: Dialog; onClose: () =>
       return <AddResidentDialog {...dialog} onClose={onClose} />;
     case "attachReceipt":
       return <AttachReceiptDialog {...dialog} onClose={onClose} />;
+    case "charge":
+      return <ChargeDialog {...dialog} onClose={onClose} />;
     case "confirm":
       return <ConfirmDialog {...dialog} onClose={onClose} />;
   }
@@ -120,7 +122,7 @@ function NewLeaseDialog({ unitId, onClose }: Props<"lease">) {
   const createdId = useRef(0);
   const { busy, error, run } = useSubmit(() => {
     onClose();
-    changed("Lease created.");
+    changed("Lease created. Send new residents their sign-up link from Tenants.");
     if (createdId.current) go({ name: "lease", id: createdId.current });
   });
 
@@ -430,7 +432,7 @@ function InviteTenantDialog({ onClose }: Props<"tenant">) {
   const [person, setPerson] = useState<NewPerson>({ name: "", email: "", phone: "" });
   const { busy, error, run } = useSubmit(() => {
     onClose();
-    changed(`${person.name.trim()} invited. Add them to a lease from New lease.`);
+    changed(`${person.name.trim()} invited. Copy their sign-up link from Tenants, and add them to a lease from New lease.`);
   });
   return (
     <Modal title="Invite tenant" onClose={onClose}>
@@ -448,7 +450,7 @@ function InviteTenantDialog({ onClose }: Props<"tenant">) {
         <Field label="Full name">
           <input value={person.name} onChange={(e) => setPerson({ ...person, name: e.target.value })} required maxLength={255} />
         </Field>
-        <Field label="Email" hint="They sign up with this address and choose their own password.">
+        <Field label="Email" hint="They sign in with this address. Send them the sign-up link from Tenants to choose a password.">
           <input type="email" value={person.email} onChange={(e) => setPerson({ ...person, email: e.target.value })} required maxLength={255} />
         </Field>
         <Field label="Phone (optional)">
@@ -566,6 +568,54 @@ function RentDialog({ leaseId, monthlyRent, onClose }: Props<"rent">) {
         </Field>
         <ErrorText error={error} />
         <Actions busy={busy} label="Save rent" onClose={onClose} />
+      </form>
+    </Modal>
+  );
+}
+
+function ChargeDialog({ leaseId, label, onClose }: Props<"charge">) {
+  const { changed } = useManager();
+  const [kind, setKind] = useState<ChargeKind>("late_fee");
+  const [amount, setAmount] = useState("");
+  const [due, setDue] = useState(todayIso());
+  const [note, setNote] = useState("");
+  const kindLabel = CHARGE_KINDS.find((k) => k.kind === kind)?.label ?? "Charge";
+  const { busy, error, run } = useSubmit(() => {
+    onClose();
+    changed(`${kindLabel} added to ${label}.`);
+  });
+  return (
+    <Modal title="Add a charge" onClose={onClose}>
+      <form
+        className="mgr-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void run(() =>
+            managerApi.addCharge(leaseId, { kind, amount: parseMoney(amount, "the amount"), dueDate: due, description: note.trim() || null }),
+          );
+        }}
+      >
+        <p className="mgr-muted">{label}. Rent is billed automatically each month; use this for everything else.</p>
+        <Field label="Kind">
+          <select value={kind} onChange={(e) => setKind(e.target.value as ChargeKind)}>
+            {CHARGE_KINDS.map((k) => (
+              <option key={k.kind} value={k.kind}>
+                {k.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Amount">
+          <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="25.00" required />
+        </Field>
+        <Field label="Due date">
+          <input type="date" value={due} onChange={(e) => setDue(e.target.value)} required />
+        </Field>
+        <Field label="Note on the statement" hint="Optional. Shown on the ledger, e.g. “Late fee, October”.">
+          <input value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} />
+        </Field>
+        <ErrorText error={error} />
+        <Actions busy={busy} label="Add charge" onClose={onClose} />
       </form>
     </Modal>
   );
