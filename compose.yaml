@@ -1,0 +1,84 @@
+# Portal's containers. Normally started through npm (scripts/portal.mjs), which picks
+# the project, settings file and overrides:
+#   npm run docker:prod / cloudflare:prod   this file          project portal-prod   .env.prod
+#   npm run docker:dev  / cloudflare:dev    + compose.dev.yaml project portal-dev    .env (optional)
+# By hand: docker compose -p portal-prod --env-file .env.prod up -d --build
+
+x-app: &app
+  build: .
+  environment: &app-env
+    NODE_ENV: production
+    DB_HOST: db
+    POSTGRES_USER: ${POSTGRES_USER:-portal}
+    POSTGRES_DB: ${POSTGRES_DB:-portal}
+    APP_DB_PASSWORD: ${APP_DB_PASSWORD:-}
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-portal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      POSTGRES_DB: ${POSTGRES_DB:-portal}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # creates database & attempts to run migration using the cli interface
+  migrate:
+    <<: *app
+    command: ["node", "dist/server/cli.js", "migrate"]
+    environment:
+      <<: *app-env
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:8080}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    <<: *app
+    environment:
+      <<: *app-env
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:8080}
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
+      PLAID_CLIENT_ID: ${PLAID_CLIENT_ID:-}
+      PLAID_SECRET: ${PLAID_SECRET:-}
+      PLAID_ENV: ${PLAID_ENV:-sandbox}
+      PLAID_REDIRECT_URI: ${PLAID_REDIRECT_URI:-}
+    # A cap, so a flood of requests cannot take the whole machine with it.
+    mem_limit: ${APP_MEMORY_LIMIT:-768m}
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Cloudflare Tunnel: an outbound connection that serves the public hostname from
+  # http://app:3000 (set that as the hostname's service in the Cloudflare dashboard).
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["cloudflare"]
+    command: ["tunnel", "--no-autoupdate", "run", "--token-file", "/run/secrets/tunnel_token"]
+    secrets:
+      - tunnel_token
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+
+secrets:
+  tunnel_token:
+    environment: CLOUDFLARE_TUNNEL_TOKEN
+
+volumes:
+  db-data:

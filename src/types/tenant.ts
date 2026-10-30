@@ -1,6 +1,7 @@
-// What the tenant API returns: the shapes Juan's pages already use
-// (frontend/src/types/index.ts), so the pages need no new types. Dates come
-// pre-formatted the way his mock data writes them ("Oct 1, 2026").
+import type { NotificationPrefs, TenantReportedPayment } from "./settings"
+
+// What the tenant API returns. These match frontend/src/types/index.ts; dates
+// come formatted for display ("Oct 1, 2026").
 
 export interface TenantProfile {
     id: string
@@ -15,7 +16,7 @@ export interface LedgerEntry {
     date: string
     description: string
     method: string | null
-    /** Juan's convention: charges negative, payments positive. */
+    /** Charges negative, payments positive. */
     amount: number
     /** What was owed after this line. */
     balanceAfter: number
@@ -48,15 +49,41 @@ export interface LinkedBankAccount {
     subtype: string | null
 }
 
+/** What a tenant may pay now: at least the balance, at most prepayMonths of rent beyond it. */
+export interface PayLimits {
+    minimum: number
+    maximum: number
+    monthlyRent: number
+    /** Credit already held (paid ahead), 0 if none. */
+    credit: number
+    prepayMonths: number
+    /** False once the tenant is already paid the full limit ahead. */
+    canPay: boolean
+}
+
 export interface TenantSummary {
     tenant: TenantProfile
+    /** The tenant's own contact details (Settings). The email is their sign-in. */
+    contact: { email: string; phone: string | null }
+    /** Where to send Cash App / Zelle payments; null when the office has not set one up. */
+    payOptions: { cashapp: string | null; zelle: string | null }
+    /** Cash App / Zelle payments the tenant reported: waiting, and recent decisions. */
+    reportedPayments: TenantReportedPayment[]
+    notificationPrefs: NotificationPrefs
+    /** Negative when the tenant has paid ahead (credit). */
     currentBalance: number
+    /** What Pay rent accepts right now; null without an active lease. */
+    payLimits: PayLimits | null
     rentDueDate: string
     lateFeeGraceDate: string
     ledger: LedgerEntry[]
     maintenanceRequests: MaintenanceRequest[]
     notices: Notice[]
     bankAccounts: LinkedBankAccount[]
-    /** False when PLAID_CLIENT_ID / PLAID_SECRET are not set: payments are recorded as a demo transfer. */
+    /** False when PLAID_CLIENT_ID / PLAID_SECRET are not set. */
     plaidEnabled: boolean
+    /** Development only: a payment without a linked bank account is recorded as a test transfer. Never in production. */
+    testPayments: boolean
+    /** The signed lease on file (008), opened at GET /api/tenant/lease-document; null if none. */
+    leaseDocument: { filename: string; uploadedOn: string } | null
 }

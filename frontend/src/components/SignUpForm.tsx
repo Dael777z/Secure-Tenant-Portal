@@ -1,6 +1,7 @@
-// "Create your account" for a resident the office has already added (invite-only
-// sign-up, agreed 10/1): they choose a password for the email on their lease,
-// then are signed in. Uses the backend's POST /api/auth/signup.
+// "Create your account" for a resident the leasing office has invited. The
+// office sends a sign-up link (/signup?token=...); the token in it says who the
+// resident is, so they only choose a password, then are signed in.
+// Uses the backend's POST /api/auth/signup { token, password }.
 import { useState } from "react";
 import type { FormEvent } from "react";
 
@@ -10,17 +11,23 @@ interface SignUpFormProps {
   onBack: () => void;
 }
 
+/** The invite token from the sign-up link, if the page was opened from one. */
+export function inviteTokenFromUrl(): string | null {
+  return new URLSearchParams(window.location.search).get("token");
+}
+
 function signUpMessage(status: number, code: string | undefined): string {
   if (code === "SIGNUP_NOT_ALLOWED") {
-    return "We couldn't create an account for that email. Use the email the leasing office has for you, or sign in if you already set a password.";
+    return "This sign-up link has expired or was already used. Ask the leasing office for a new one, or sign in if you already set a password.";
   }
-  if (status === 400) return "Enter your email and a password of at least 8 characters.";
+  if (code === "PASSWORD_TOO_COMMON") return "That password is too easy to guess. Choose a less common one, such as a few words strung together.";
+  if (status === 400) return "Choose a password of at least 8 characters.";
   if (status === 403) return "This page could not be verified. Reload it and try again.";
   return "We could not reach the server. Check your connection and try again.";
 }
 
 export function SignUpForm({ onLogin, onBack }: SignUpFormProps) {
-  const [email, setEmail] = useState("");
+  const [token] = useState(inviteTokenFromUrl);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
@@ -29,7 +36,7 @@ export function SignUpForm({ onLogin, onBack }: SignUpFormProps) {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
-    if (!email.trim() || password.length < 8) return setError("Enter your email and a password of at least 8 characters.");
+    if (password.length < 8) return setError("Choose a password of at least 8 characters.");
     if (password !== confirm) return setError("The two passwords don't match.");
 
     setBusy(true);
@@ -38,14 +45,16 @@ export function SignUpForm({ onLogin, onBack }: SignUpFormProps) {
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify({ token, password }),
       });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
+      const body = (await res.json().catch(() => ({}))) as { error?: string; email?: string };
+      if (!res.ok || !body.email) {
         setError(signUpMessage(res.status, body.error));
         return;
       }
-      await onLogin(email.trim(), password);
+      // The link has done its job; keep the token out of the address bar and history.
+      window.history.replaceState(null, "", "/");
+      await onLogin(body.email, password);
     } catch {
       setError(signUpMessage(0, undefined));
     } finally {
@@ -53,17 +62,26 @@ export function SignUpForm({ onLogin, onBack }: SignUpFormProps) {
     }
   }
 
+  if (!token) {
+    return (
+      <>
+        <h2 className="login-form-heading">Create your account</h2>
+        <p className="login-footnote">
+          Accounts are set up by the leasing office. Open the sign-up link they sent you, or ask them for a new one.
+        </p>
+        <p className="login-footnote">
+          Already have a password?{" "}
+          <button type="button" className="link-button link-button--dark" onClick={onBack}>Sign in</button>
+        </p>
+      </>
+    );
+  }
+
   return (
     <>
       <h2 className="login-form-heading">Create your account</h2>
-      <p className="login-footnote">
-        For residents the leasing office has added to a lease. Use the email they have for you and choose a password.
-      </p>
+      <p className="login-footnote">Choose a password for your resident account.</p>
       <form onSubmit={handleSubmit} noValidate>
-        <div className="form-group">
-          <label className="field-label field-label--dark" htmlFor="signup-email">Email address</label>
-          <input id="signup-email" type="email" className="field-input field-input--light" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" />
-        </div>
         <div className="form-group">
           <label className="field-label field-label--dark" htmlFor="signup-password">Password (8 or more characters)</label>
           <input id="signup-password" type="password" className="field-input field-input--light" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />

@@ -1,4 +1,4 @@
-// What the manager API returns. Money is in dollars, as in Angel's NUMERIC columns.
+// What the manager API returns. Money is in dollars.
 import type { LedgerEntry } from "./tenant"
 
 export interface PropertySummary {
@@ -58,16 +58,23 @@ export interface MaintenanceRow {
     id: number
     title: string
     description: string
-    status: "submitted" | "in_progress" | "resolved"
+    status: import("./records").MaintenanceState
+    priority: import("./records").MaintenancePriority
+    requestType: import("./records").MaintenanceType
+    /** YYYY-MM-DD */
+    scheduledFor: string | null
     submittedDate: string
+    /** ISO time of the last change. */
+    updatedAt: string
     unitId: number
     unitNum: string
+    propertyId: number
     propertyName: string
     tenantName: string | null
 }
 
 export interface UpdateRow {
-    kind: "overdue" | "maintenance_new" | "not_signed_up"
+    kind: "overdue" | "maintenance_new" | "not_signed_up" | "payment_reported"
     title: string
     detail: string
     leaseId: number | null
@@ -88,4 +95,22 @@ export interface DashboardData {
     openMaintenance: number
     recentActivity: Array<{ kind: "payment" | "maintenance"; title: string; detail: string; when: string; at: string }>
     updates: UpdateRow[]
+}
+
+/**
+ * A sign-up invitation. The token is only ever returned here, when it is made
+ * (the database keeps its hash); routes/manager.ts adds the ready-made link.
+ */
+export interface InviteResult {
+    tenantId: number
+    email: string
+    inviteToken: string
+    /** ISO timestamp; after this the link stops working. */
+    expiresAt: string
+}
+
+export interface CreatedLeaseResult {
+    id: number
+    /** One per new tenant the lease added. */
+    invites: InviteResult[]
 }

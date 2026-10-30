@@ -1,2 +1,2 @@
-*.cmd text eol=crlf
-*.ps1 text eol=crlf
+# Migrations are checksummed; keep their line endings the same on every machine.
+*.sql text eol=lf
