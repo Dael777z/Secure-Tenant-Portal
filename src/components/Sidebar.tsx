@@ -33,6 +33,13 @@ const icons: Record<PageKey, ReactElement> = {
       <path d="M13.7 21a2 2 0 01-3.4 0" />
     </svg>
   ),
+  documents: (
+    <svg className="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M6 3h9l4 4v14H6z" />
+      <path d="M14 3v5h5" />
+      <path d="M9 13h7M9 17h7" />
+    </svg>
+  ),
   settings: (
     <svg className="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
       <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" />
@@ -47,6 +54,7 @@ const navItems: { key: PageKey; label: string }[] = [
   { key: "ledger", label: "Ledger" },
   { key: "maintenance", label: "Maintenance" },
   { key: "notices", label: "Notices" },
+  { key: "documents", label: "Documents"},
   { key: "settings", label: "Settings" },
 ];
 

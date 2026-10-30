@@ -50,7 +50,7 @@ export function MaintenancePage() {
           + New Request
         </button>
         <button type="button" className="maintenance-action maintenance-action--secondary" aria-pressed={view === "text"} onClick={() => setView("text")}>
-          Text Property Management 
+          Message Property Management 
         </button>
 
         {requests.map((req) => (
@@ -140,11 +140,14 @@ function NewRequestForm({ onSubmit, onCancel }: NewRequestFormProps) {
           value={category}
           onChange={(e) => setCategory(e.target.value)}
         >
-          <option value="plumbing">Plumbing</option>
-          <option value="electrical">Electrical</option>
-          <option value="appliance">Appliance</option>
-          <option value="hvac">Heating / Cooling</option>
-          <option value="other">Other</option>
+          <option value="Appliance">Appliance</option>
+          <option value="Electricity">Electricity</option>
+          <option value="Heat/AC">Heating/AC</option>
+          <option value="Property">Property</option>
+          <option value="Security">Security</option>
+          <option value="Sidewalk/Parking">Sidewalk/Parking</option>
+          <option value="Water">Water</option>
+          <option value="Other">Other</option>
         </select>
       </div>
 

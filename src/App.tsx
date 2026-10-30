@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { PageKey } from "./types";
 import { Sidebar } from "./components/Sidebar";
 import { LoginPage } from "./pages/LoginPage";
@@ -7,8 +7,10 @@ import { PayRentPage } from "./pages/PayRentPage";
 import { LedgerPage } from "./pages/LedgerPage";
 import { MaintenancePage } from "./pages/MaintenancePage";
 import { NoticesPage } from "./pages/NoticesPage";
+import { DocumentsPage } from "./pages/DocumentsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { mockTenant } from "./data/mockData";
+import { applyTextSize, getTextSize } from "./components/textSize";
 import "./styles/portal.css";
 
 const pageTitles: Record<PageKey, string> = {
@@ -17,6 +19,7 @@ const pageTitles: Record<PageKey, string> = {
   ledger: "Ledger View",
   maintenance: "Maintenance",
   notices: "Notices",
+  documents: "Documents",
   settings: "Settings",
 };
 
@@ -24,6 +27,9 @@ const pageTitles: Record<PageKey, string> = {
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [activePage, setActivePage] = useState<PageKey>("home");
+
+  // Re-apply the text size this device saved in Settings.
+  useEffect(() => applyTextSize(getTextSize(), false), []);
 
   if (!isAuthenticated) {
     return ( 
@@ -48,6 +54,7 @@ export default function App() {
           {activePage === "ledger" && <LedgerPage />}
           {activePage === "maintenance" && <MaintenancePage />}
           {activePage === "notices" && <NoticesPage />}
+          {activePage === "documents" && <DocumentsPage />}
           {activePage === "settings" && <SettingsPage />}
         </div>
       </main>
