@@ -3,14 +3,16 @@
 // views (manager-dashboard, -portfolio, -rentroll, -directory, -maintenance,
 // -exceptions), cut down to what the team's schema stores.
 import { useMemo, useState } from "react";
-import { managerApi, receiptUrl, REQUEST_PRIORITIES, REQUEST_STATUSES, REQUEST_TYPES, type MaintenanceRow, type RequestStatus, type TenantRow, type UnitRow, type UpdateRow } from "./api";
+import { isClosedRequest, managerApi, receiptUrl, REQUEST_PRIORITIES, REQUEST_STATUSES, REQUEST_TYPES, type MaintenanceRow, type RequestStatus, type TenantRow, type UnitRow, type UpdateRow } from "./api";
 import { downloadCsv } from "./finance-api";
 import { MoreMenu, tenantStages, type TenantStage } from "./ops";
 import type { LedgerEntry } from "../types";
 import { financeApi } from "./finance-api";
 import { GettingStarted } from "./onboarding";
+import { MaintenanceSummaryCard } from "./maintenance-detail";
+import { PropertyDetailsCard } from "./office";
 import { SortTh, useSort } from "./sort";
-import { Breadcrumbs, Empty, Kpi, Loading, LocalError, PageHeader, StatusPill, ViewCard, isoDate, money, percent, timeAgo, todayIso, useLoad, useManager, type MaintenanceView, type TenantView } from "./ui";
+import { Breadcrumbs, Empty, Kpi, Loading, LocalError, PageHeader, StatusPill, ViewCard, isoDate, money, percent, routeHash, timeAgo, todayIso, useLoad, useManager, type MaintenanceView, type TenantView } from "./ui";
 
 /* ------------------------------------------------------------------ *
  * Quick actions — the common jobs, one click from any screen
@@ -107,6 +109,9 @@ export function DashboardPage({ name }: { name: string }) {
               </div>
               <UpdateList updates={data.updates.slice(0, 5)} compact />
             </section>
+          </div>
+          <div className="mgr-columns mgr-columns--dashboard-lower">
+            <MaintenanceSummaryCard />
           </div>
         </>
       )}
@@ -229,6 +234,7 @@ export function PropertyPage({ id }: { id: number }) {
         <Kpi label="Monthly rent" value={money(property.monthlyRent, false)} note="From active leases" />
         <Kpi label="Outstanding" value={money(property.outstanding, false)} tone={property.outstanding > 0 ? "warn" : undefined} />
       </div>
+      <PropertyDetailsCard propertyId={id} />
       <section className="mgr-card">
         <h2 className="mgr-h2">Units</h2>
         <UnitTable units={units.data} showProperty={false} />
@@ -850,6 +856,7 @@ const NEXT_STATUS: Record<RequestStatus, Array<[RequestStatus, string]>> = {
   scheduled: [["in_progress", "Start work"], ["resolved", "Mark completed"]],
   in_progress: [["resolved", "Mark completed"]],
   resolved: [["in_progress", "Reopen"]],
+  rejected: [["in_review", "Reopen"]],
 };
 
 export function MaintenancePage({ view = "open" }: { view?: MaintenanceView }) {
@@ -864,7 +871,7 @@ export function MaintenancePage({ view = "open" }: { view?: MaintenanceView }) {
   const [expanded, setExpanded] = useState(true);
 
   const all = data?.requests ?? [];
-  const inView = (r: MaintenanceRow, v: MaintenanceView) => (v === "all" ? true : v === "open" ? r.status !== "resolved" : r.status === v);
+  const inView = (r: MaintenanceRow, v: MaintenanceView) => (v === "all" ? true : v === "open" ? !isClosedRequest(r.status) : r.status === v);
   const count = (v: MaintenanceView) => all.filter((r) => inView(r, v)).length;
   const properties = [...new Map(all.map((r) => [r.propertyId, r.propertyName])).entries()];
   const requests = all
@@ -982,7 +989,17 @@ export function MaintenancePage({ view = "open" }: { view?: MaintenanceView }) {
             <article key={r.id} className={`mgr-card mgr-request mgr-request--${r.status}`}>
               <div className="mgr-request__main">
                 <div className="mgr-request__title">
-                  <h2 className="mgr-h3">{r.title}</h2>
+                  <h2 className="mgr-h3">
+                    <a
+                      href={routeHash({ name: "maintenance-detail", id: r.id })}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        go({ name: "maintenance-detail", id: r.id });
+                      }}
+                    >
+                      {r.title}
+                    </a>
+                  </h2>
                   <StatusPill status={r.status} />
                   {r.priority !== "none" && <span className={`mgr-pill mgr-pill--prio-${r.priority}`}>{PRIORITY_TEXT[r.priority]}</span>}
                   <span className="mgr-pill mgr-pill--vacant">{TYPE_TEXT[r.requestType]}</span>
@@ -1052,6 +1069,9 @@ export function MaintenancePage({ view = "open" }: { view?: MaintenanceView }) {
                 )}
               </div>
               <div className="mgr-row-actions">
+                <button type="button" className="mgr-btn mgr-btn--small mgr-btn--primary" onClick={() => go({ name: "maintenance-detail", id: r.id })}>
+                  Open
+                </button>
                 {NEXT_STATUS[r.status].map(([status, label], i) => (
                   <button
                     key={status}

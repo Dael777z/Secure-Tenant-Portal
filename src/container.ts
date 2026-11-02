@@ -14,6 +14,10 @@ import { OperationsService } from "./services/operations-service"
 import { createPlaidGateway, type PlaidGateway } from "./services/plaid"
 import { RentChargeService } from "./services/rent-charges"
 import { TenantService } from "./services/tenant-service"
+import { LeasingService } from "./services/leasing-service"
+import { MaintenanceDetailService } from "./services/maintenance-detail-service"
+import { NoticesService } from "./services/notices-service"
+import { OfficeService } from "./services/office-service"
 import type { DatabaseInterface } from "./types/stores"
 
 /**
@@ -66,6 +70,10 @@ export function createContainer(overrides: { config?: AppConfig; db?: DatabaseIn
         messages: new MessageService(db, config.timeZone),
         finance: new FinanceService(db, config.timeZone, logger),
         operations,
+        office: new OfficeService(db.additions, config.timeZone, logger),
+        maintenanceDetail: new MaintenanceDetailService(db.additions, config.timeZone, logger),
+        notices: new NoticesService(db.additions, db, config.timeZone, logger),
+        leasing: new LeasingService(db.additions, logger),
         plaid,
         distRoot: overrides.distRoot,
         rentCharges,

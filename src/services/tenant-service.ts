@@ -26,6 +26,7 @@ const STATUS_FOR_UI: Record<string, MaintenanceRequest["status"]> = {
     scheduled: "in_progress",
     in_progress: "in_progress",
     resolved: "resolved",
+    rejected: "resolved",   // 009: the office closed it without work; it leaves the open list
 }
 
 /** Juan's request form writes "Category: plumbing | Urgency: urgent | details" (008 stores both as fields). */

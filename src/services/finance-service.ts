@@ -6,7 +6,7 @@ import type {
     MonthTrend, NewExpense, PropertyPerformance, RecentPaymentRow, ResidentContact,
 } from "../types/finance"
 import { EXPENSE_CATEGORIES } from "../types/finance"
-import type { ChargeRecord, LeaseRecord, PaymentRecord } from "../types/records"
+import { isClosedState, type ChargeRecord, type LeaseRecord, type PaymentRecord } from "../types/records"
 import type { FinanceDataStore } from "../types/stores"
 import { MANUAL_PAY_LABELS, type OfficeSettings, type ReportedPaymentRecord, type ReportedPaymentRow } from "../types/settings"
 import { parseUserId } from "../utils/user-id"
@@ -293,7 +293,7 @@ export class FinanceService {
         const avgResolution = resolved12.length
             ? Math.round((resolved12.reduce((s, t) => s + (t.resolvedAt!.getTime() - t.createdAt.getTime()), 0) / resolved12.length / 86_400_000) * 10) / 10
             : null
-        const openTimings = timings.filter((t) => t.status !== "resolved")
+        const openTimings = timings.filter((t) => !isClosedState(t.status))
         const oldestOpen = openTimings.length ? Math.max(...openTimings.map((t) => daysBetween(localDay(t.createdAt, this.timeZone), today))) : null
 
         // Month by month.

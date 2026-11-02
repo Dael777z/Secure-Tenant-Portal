@@ -1,0 +1,276 @@
+/* The public "Homes for rent" page at /listings (no sign-in). */
+.pub {
+  --pub-ink: var(--s-text);
+  --pub-muted: var(--s-text-muted);
+  --pub-line: var(--s-line);
+  --pub-bg: var(--s-canvas);
+  --pub-card: var(--s-surface);
+  --pub-accent: var(--s-navy-fill);
+  --pub-accent-hover: var(--s-primary-hover);
+  --pub-link: var(--s-link);
+  --pub-tag: var(--s-info-soft);
+  --pub-ok: var(--s-success-text);
+  --pub-err: var(--s-danger-text);
+  background: var(--pub-bg);
+  min-height: 100vh;
+  color: var(--pub-ink);
+  font-family: var(--s-font);
+  line-height: 1.5;
+}
+:is(html:has(.pub), body:has(.pub)) {
+  background: var(--s-canvas);
+}
+.pub-wrap {
+  max-width: 1080px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  margin: 0 auto;
+}
+.pub-head {
+  background: var(--s-sidebar-bg);
+  color: #fff;
+  padding-block: 40px 36px;
+}
+.pub-eyebrow {
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #c7d4e3;
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.pub-head h1 {
+  text-wrap: balance;
+  margin: 0;
+  font-size: clamp(28px, 5vw, 40px);
+  line-height: 1.1;
+}
+.pub-lede {
+  color: #dbe4ef;
+  max-width: 60ch;
+  margin: 10px 0 0;
+}
+.pub-main {
+  padding-block: 28px 12px;
+}
+.pub-empty {
+  text-align: center;
+  color: var(--pub-muted);
+  padding: 48px 0;
+}
+.pub-list {
+  grid-template-columns: repeat(auto-fill, minmax(min(460px, 100%), 1fr));
+  gap: 20px;
+  display: grid;
+}
+.pub-card {
+  background: var(--pub-card);
+  border: 1px solid var(--pub-line);
+  border-radius: 12px;
+  flex-direction: column;
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+}
+.pub-photo {
+  aspect-ratio: 16/10;
+  background: var(--pub-tag);
+  max-width: 100%;
+  position: relative;
+}
+.pub-photo img {
+  object-fit: cover;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.pub-photo__none {
+  height: 100%;
+  color: var(--pub-muted);
+  place-items: center;
+  font-size: 14px;
+  display: grid;
+}
+.pub-photo__nav {
+  color: #fff;
+  background: #0f1926b3;
+  border-radius: 999px;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  font-size: 12.5px;
+  display: flex;
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+}
+.pub-photo__nav button {
+  color: #fff;
+  cursor: pointer;
+  background: #ffffff26;
+  border: 0;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  font-size: 18px;
+  line-height: 1;
+}
+.pub-body {
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 18px 20px 20px;
+  display: flex;
+}
+.pub-price {
+  font-variant-numeric: tabular-nums;
+  font-size: 24px;
+  font-weight: 800;
+}
+.pub-price span {
+  color: var(--pub-muted);
+  font-size: 14px;
+  font-weight: 500;
+}
+.pub-body h2 {
+  text-wrap: balance;
+  margin: 0;
+  font-size: 18px;
+}
+.pub-meta,
+.pub-avail {
+  color: var(--pub-muted);
+  margin: 0;
+  font-size: 14px;
+}
+.pub-avail {
+  color: var(--pub-ok);
+  font-weight: 600;
+}
+.pub-desc {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 4px 0 0;
+}
+.pub-tags {
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+}
+.pub-tags li {
+  background: var(--pub-tag);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12.5px;
+}
+.pub-btn {
+  font: inherit;
+  border: 1px solid var(--pub-accent);
+  background: var(--pub-accent);
+  color: #fff;
+  cursor: pointer;
+  border-radius: 8px;
+  align-self: flex-start;
+  margin-top: 8px;
+  padding: 10px 16px;
+  font-weight: 700;
+}
+.pub-btn:hover {
+  background: var(--pub-accent-hover);
+}
+.pub-btn:focus-visible,
+.pub-form input:focus-visible,
+.pub-form textarea:focus-visible,
+.pub-photo__nav button:focus-visible {
+  outline: 2px solid var(--s-focus);
+  outline-offset: 2px;
+}
+.pub-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.pub-btn--ghost {
+  color: var(--pub-link);
+  background: 0 0;
+}
+.pub-btn--ghost:hover {
+  background: var(--pub-tag);
+}
+.pub-form {
+  border-top: 1px solid var(--pub-line);
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 14px;
+  display: flex;
+}
+.pub-form label {
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+}
+.pub-form input,
+.pub-form textarea {
+  font: inherit;
+  border: 1px solid var(--s-line-strong);
+  background: var(--pub-card);
+  color: var(--pub-ink);
+  border-radius: 8px;
+  width: 100%;
+  padding: 9px 10px;
+  font-weight: 400;
+}
+.pub-form__row {
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  gap: 10px;
+  display: grid;
+}
+.pub-form__actions {
+  justify-content: flex-end;
+  gap: 8px;
+  display: flex;
+}
+.pub-form__actions .pub-btn {
+  margin-top: 0;
+}
+.pub-hp {
+  width: 1px;
+  height: 1px;
+  position: absolute;
+  left: -10000px;
+  overflow: hidden;
+}
+.pub-error {
+  color: var(--pub-err);
+  margin: 0;
+  font-size: 14px;
+}
+.pub-fine {
+  color: var(--pub-muted);
+  margin: 0;
+  font-size: 12px;
+}
+.pub-sent {
+  background: var(--s-success-soft);
+  color: var(--pub-ok);
+  border-radius: 8px;
+  margin: 8px 0 0;
+  padding: 12px 14px;
+  font-weight: 600;
+}
+.pub-foot {
+  color: var(--pub-muted);
+  padding-block: 20px 36px;
+  font-size: 12.5px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pub-btn {
+    transition: background-color 0.12s;
+  }
+}

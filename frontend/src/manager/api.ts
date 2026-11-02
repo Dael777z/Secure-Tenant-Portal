@@ -88,15 +88,18 @@ export async function readReceipt(file: File): Promise<ReceiptUpload> {
 /** Where the browser opens a stored receipt (the sign-in cookie goes along). */
 export const receiptUrl = (leaseId: number, paymentId: number) => `/api/manager/leases/${leaseId}/payments/${paymentId}/receipt`;
 
-/** New → In review → Scheduled → In progress → Completed (008). */
-export type RequestStatus = "submitted" | "in_review" | "scheduled" | "in_progress" | "resolved";
+/** New → In review → Scheduled → In progress → Completed (008), or Rejected (009: closed without work). */
+export type RequestStatus = "submitted" | "in_review" | "scheduled" | "in_progress" | "resolved" | "rejected";
 export const REQUEST_STATUSES: Array<[RequestStatus, string]> = [
   ["submitted", "New"],
   ["in_review", "In review"],
   ["scheduled", "Scheduled"],
   ["in_progress", "In progress"],
   ["resolved", "Completed"],
+  ["rejected", "Rejected"],
 ];
+/** Completed or rejected: off the open queue. */
+export const isClosedRequest = (status: string) => status === "resolved" || status === "rejected";
 export type RequestPriority = "none" | "low" | "medium" | "high" | "emergency";
 export const REQUEST_PRIORITIES: Array<[RequestPriority, string]> = [
   ["none", "No priority"],
@@ -299,8 +302,20 @@ export function managerMessage(error: unknown): string {
     if (error.code === "TENANT_ALREADY_SIGNED_UP") return "This tenant has already signed up; they can sign in.";
     if (error.code === "TENANT_NOT_SIGNED_UP") return "This tenant has not signed up yet. Copy their sign-up link instead.";
     if (error.code === "PAYMENT_ALREADY_REVERSED") return "That payment was already undone.";
-    if (error.code === "RATE_LIMITED") return "Too many messages at once. Wait a few minutes and try again.";
+    if (error.code === "RATE_LIMITED") return "Too many attempts in a short time. Wait a few minutes and try again.";
     if (error.code === "RECEIPT_INVALID") return "The receipt must be a JPEG, PNG or WebP photo, or a PDF, of at most 4 MB.";
+    // 009
+    if (error.code === "LAST_ADMIN") return "This is the only active property manager. Make someone else a property manager first.";
+    if (error.code === "SELF_CHANGE_FORBIDDEN") return "You can't change your own role or deactivate yourself. Ask another property manager.";
+    if (error.code === "STAFF_NOT_SIGNED_UP") return "This teammate hasn't signed up yet. Make a new sign-up link instead.";
+    if (error.code === "STAFF_ALREADY_SIGNED_UP") return "This teammate has already signed up; they can sign in.";
+    if (error.code === "FILE_INVALID") return "That file type isn't allowed. Upload a PDF, or a JPEG, PNG or WebP photo.";
+    if (error.code === "FILE_TOO_LARGE") return "That file is too large. Documents can be up to 10 MB and photos up to 5 MB.";
+    if (error.code === "NAME_IN_USE") return "Another portfolio already has that name.";
+    if (error.code === "NO_RECIPIENTS") return "Nobody there is on a current lease, so there is no one to send this to.";
+    if (error.code === "LISTING_EXISTS") return "That unit already has a listing. Open it from the Listings page, or end it first.";
+    if (error.code === "LISTING_NOT_EDITABLE") return "That listing can't change that way: an ended listing is kept as history, and a published one is ended rather than removed.";
+    if (error.code === "ALREADY_RECORDED") return "This request's cost is already recorded as an expense.";
   }
   return "We could not reach the server. Check your connection and try again.";
 }

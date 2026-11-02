@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import type { PageKey, Tenant } from "../types";
+import { Brand, ThemeSwitch } from "../theme/Brand";
 
 // Simple inline icons
 const icons: Record<PageKey, ReactElement> = {
@@ -27,6 +28,11 @@ const icons: Record<PageKey, ReactElement> = {
       <path d="M17.5 3.5l3 3-2 2-3-3z" />
     </svg>
   ),
+  documents: (
+    <svg className="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M3 6a2 2 0 012-2h4l2 2h8a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+    </svg>
+  ),
   notices: (
     <svg className="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
       <path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
@@ -41,11 +47,18 @@ const icons: Record<PageKey, ReactElement> = {
   ),
 };
 
+/** "Good morning" / "Good afternoon" / "Good evening", by the device's clock. */
+function greeting(): string {
+  const hour = new Date().getHours();
+  return hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+}
+
 const navItems: { key: PageKey; label: string }[] = [
   { key: "home", label: "Home" },
   { key: "pay", label: "Pay rent" },
   { key: "ledger", label: "Ledger" },
   { key: "maintenance", label: "Maintenance" },
+  { key: "documents", label: "Documents" },
   { key: "notices", label: "Notices" },
   { key: "settings", label: "Settings" },
 ];
@@ -60,12 +73,15 @@ interface SidebarProps {
 export function Sidebar({ tenant, activePage, onNavigate, onLogout }: SidebarProps) {
   return (
     <aside className="portal-sidebar" aria-label="Resident portal navigation">
+      <div className="portal-brand">
+        <Brand sub="Resident portal" size={32} />
+      </div>
       <div className="portal-greeting">
         <div className="portal-avatar" aria-hidden="true">
           {tenant.initials}
         </div>
         <div className="portal-greeting-text">
-          <div className="portal-greeting-hi">Good morning,</div>
+          <div className="portal-greeting-hi">{greeting()},</div>
           <div className="portal-greeting-name">{tenant.name}</div>
         </div>
       </div>
@@ -98,7 +114,8 @@ export function Sidebar({ tenant, activePage, onNavigate, onLogout }: SidebarPro
         ))}
       </nav>
 
-      <div className="portal-sidebar-footer" style={{ marginTop: "auto", paddingTop: "1rem" }}>
+      <div className="portal-sidebar-footer">
+        <ThemeSwitch />
         <button
           type="button"
           className="portal-nav-item"

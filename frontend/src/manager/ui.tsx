@@ -29,7 +29,17 @@ export type Route =
   | { name: "performance" }
   | { name: "renewals"; days: number }
   | { name: "setup" }
-  | { name: "settings"; tab: SettingsTab };
+  | { name: "settings"; tab: SettingsTab }
+  // 009
+  | { name: "maintenance-detail"; id: number }
+  | { name: "team" }
+  | { name: "activity" }
+  | { name: "portfolios" }
+  | { name: "reports" }
+  | { name: "compliance" }
+  | { name: "notices" }
+  | { name: "listings" }
+  | { name: "listing"; id: number };
 
 export const UNIT_TABS = ["overview", "leases", "performance", "documents", "charges", "chats"] as const;
 export type UnitTab = (typeof UNIT_TABS)[number];
@@ -41,9 +51,10 @@ export const PAYMENT_VIEWS = ["paid", "partial", "ahead", "returns"] as const;
 export type PaymentView = (typeof PAYMENT_VIEWS)[number];
 export const RULES_TABS = ["late-fees", "reminders", "order"] as const;
 export type RulesTab = (typeof RULES_TABS)[number];
-export const SETTINGS_TABS = ["account", "payment-options", "notifications", "team"] as const;
+/** "team" is its own page now (009): #/settings?tab=team opens it. */
+export const SETTINGS_TABS = ["account", "payment-options", "notifications"] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
-export const MAINTENANCE_VIEWS = ["open", "submitted", "in_review", "scheduled", "in_progress", "resolved", "all"] as const;
+export const MAINTENANCE_VIEWS = ["open", "submitted", "in_review", "scheduled", "in_progress", "resolved", "rejected", "all"] as const;
 export type MaintenanceView = (typeof MAINTENANCE_VIEWS)[number];
 
 const pick = <T extends string>(value: string | null, allowed: readonly T[], fallback: T): T =>
@@ -90,7 +101,7 @@ export function parseRoute(hash: string): Route | null {
     case "leases":
       return Number.isInteger(n) && n > 0 ? { name: "lease", id: n } : null;
     case "maintenance":
-      return { name: "maintenance", view: maybe(q.get("view"), MAINTENANCE_VIEWS) };
+      return Number.isInteger(n) && n > 0 ? { name: "maintenance-detail", id: n } : { name: "maintenance", view: maybe(q.get("view"), MAINTENANCE_VIEWS) };
     case "updates":
       return { name: "updates" };
     case "messages":
@@ -108,7 +119,16 @@ export function parseRoute(hash: string): Route | null {
     case "setup":
       return { name: "setup" };
     case "settings":
-      return { name: "settings", tab: pick(q.get("tab"), SETTINGS_TABS, "account") };
+      return q.get("tab") === "team" ? { name: "team" } : { name: "settings", tab: pick(q.get("tab"), SETTINGS_TABS, "account") };
+    case "team":
+    case "activity":
+    case "portfolios":
+    case "reports":
+    case "compliance":
+    case "notices":
+      return { name: head };
+    case "listings":
+      return Number.isInteger(n) && n > 0 ? { name: "listing", id: n } : { name: "listings" };
     default:
       return null;
   }
@@ -142,6 +162,10 @@ export function routeHash(route: Route): string {
       return `#/payments?period=${route.period}${route.view ? `&view=${route.view}` : ""}`;
     case "payment-rules":
       return `#/payment-rules?tab=${route.tab}`;
+    case "maintenance-detail":
+      return `#/maintenance/${route.id}`;
+    case "listing":
+      return `#/listings/${route.id}`;
     case "maintenance":
       return route.view ? `#/maintenance?view=${route.view}` : "#/maintenance";
     case "settings":
@@ -330,6 +354,7 @@ const STATUS_LABELS: Record<string, string> = {
   scheduled: "Scheduled",
   in_progress: "In progress",
   resolved: "Completed",
+  rejected: "Rejected",
   paid: "Paid",
   due: "Due",
   late: "Late",

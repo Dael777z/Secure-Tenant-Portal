@@ -1,6 +1,6 @@
 //Shared domain types for the tenant side Resident Portal
 
-export type PageKey = "home" | "pay" | "ledger" | "maintenance" | "notices" | "settings";
+export type PageKey = "home" | "pay" | "ledger" | "maintenance" | "documents" | "notices" | "settings";
 
 export interface Tenant {
   id: string;

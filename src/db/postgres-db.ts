@@ -20,7 +20,9 @@ import { isStaffRole, type Role } from "../types/access"
 import { AppError } from "../types/errors"
 import { OFFICE_PAYMENT_PREFIX, reversalConfirmation } from "../utils/confirmations"
 import { adminId, parseUserId, tenantId } from "../utils/user-id"
-import { currentIdentity, SYSTEM, settingsFor, type Identity } from "./identity"
+import { currentIdentity, SYSTEM, type Identity } from "./identity"
+import { PostgresAdditions } from "./postgres-additions"
+import { inTransaction } from "./transaction"
 import { createHash } from "node:crypto"
 
 /**
@@ -81,29 +83,16 @@ const roleOf = (type: UserType, adminRole: string | null): Role => {
 }
 
 export class PostgresDatabase implements DatabaseInterface {
-    constructor(private readonly pool: Pool) {}
+    /** The 009 screens' queries (office tools, maintenance detail, leasing, notices, documents). */
+    readonly additions: PostgresAdditions
+
+    constructor(private readonly pool: Pool) {
+        this.additions = new PostgresAdditions(pool)
+    }
 
     /** Run `work` in one transaction as `as` (by default, whoever the current request is for). */
-    private async tx<T>(work: (client: PoolClient) => Promise<T>, as: Identity = currentIdentity()): Promise<T> {
-        const client = await this.pool.connect()
-        let broken = false
-        try {
-            await client.query("BEGIN")
-            const [type, id, role] = settingsFor(as)
-            // `true`: local to this transaction, so a pooled connection never carries an identity to the next caller.
-            await client.query(
-                "SELECT set_config('app.user_type', $1, true), set_config('app.user_id', $2, true), set_config('app.user_role', $3, true)",
-                [type, id, role],
-            )
-            const result = await work(client)
-            await client.query("COMMIT")
-            return result
-        } catch (error) {
-            try { await client.query("ROLLBACK") } catch { broken = true }
-            throw error
-        } finally {
-            client.release(broken)
-        }
+    private tx<T>(work: (client: PoolClient) => Promise<T>, as: Identity = currentIdentity()): Promise<T> {
+        return inTransaction(this.pool, work, as)
     }
 
     private query<R extends QueryResultRow>(sql: string, params: unknown[] = [], as?: Identity): Promise<QueryResult<R>> {
@@ -131,9 +120,19 @@ export class PostgresDatabase implements DatabaseInterface {
         // One UPDATE checks the token, its expiry and the tenant's state, so two racing requests cannot both win.
         const signup = await this.query<{ tid: number | null }>("SELECT auth_complete_signup($1, $2) AS tid", [tokenHash, passwordHash])
         const tid = signup.rows[0]?.tid
-        if (!tid) return null
+        if (!tid) {
+            // A teammate's invitation (009) uses the same link and page.
+            const staff = await this.query<{ admin_id: number; email: string; role: string }>("SELECT admin_id, email, role FROM auth_complete_staff_signup($1, $2)", [tokenHash, passwordHash])
+            const row = staff.rows[0]
+            return row ? { id: adminId(row.admin_id), email: row.email, passwordHash, role: roleOf("admin", row.role), mfaEnabled: false } : null
+        }
         const { rows } = await this.query<{ email: string }>("SELECT Email AS email FROM Tenants WHERE tID = $1", [tid], { type: "tenant", id: tid })
         return { id: tenantId(tid), email: rows[0]?.email ?? "", passwordHash, role: "tenant", mfaEnabled: false }
+    }
+
+    /** A sign-in or team change for the Activity page (009). Never fails the caller's request. */
+    async recordSecurityEvent(actor: string | null, action: string, summary: string, details: Record<string, unknown> | null = null): Promise<void> {
+        await this.additions.recordSecurityEvent(actor, action, summary, details)
     }
 
     async findStaffProfile(adminID: number): Promise<StaffProfile | null> {
@@ -654,7 +653,7 @@ export class PostgresDatabase implements DatabaseInterface {
                     p.pID AS "propertyId", p.Name AS "propertyName", t.Name AS "tenantName"
              FROM Maintenance_T m JOIN Units u ON u.uID = m.uID JOIN Property p ON p.pID = u.pID LEFT JOIN Tenants t ON t.tID = m.tID
              WHERE m.deactivated_at IS NULL
-             ORDER BY (m.status = 'resolved'), m.created_at DESC, m.mID DESC`,
+             ORDER BY (m.status IN ('resolved', 'rejected')), m.created_at DESC, m.mID DESC`,
         )
         return rows
     }
@@ -673,7 +672,7 @@ export class PostgresDatabase implements DatabaseInterface {
 
     async listOpenRequestCounts(): Promise<OpenRequestCount[]> {
         const { rows } = await this.query<OpenRequestCount>(
-            `SELECT uID AS "unitId", count(*)::int AS count FROM Maintenance_T WHERE status <> 'resolved' AND deactivated_at IS NULL GROUP BY uID`,
+            `SELECT uID AS "unitId", count(*)::int AS count FROM Maintenance_T WHERE status NOT IN ('resolved', 'rejected') AND deactivated_at IS NULL GROUP BY uID`,
         )
         return rows
     }

@@ -17,6 +17,10 @@ import { createOperationsRouter } from "./routes/operations"
 import { createMessageRouter } from "./routes/messages"
 import { createPlaidRouter } from "./routes/plaid"
 import { createTenantRouter } from "./routes/tenant"
+import { createLeasingRouter } from "./routes/leasing"
+import { createMaintenanceDetailRouter } from "./routes/maintenance-detail"
+import { createNoticesRouter } from "./routes/notices"
+import { createOfficeRouter } from "./routes/office"
 import type { AuthService } from "./services/auth"
 import type { ManagerService } from "./services/manager-service"
 import type { MessageService } from "./services/message-service"
@@ -24,6 +28,10 @@ import type { FinanceService } from "./services/finance-service"
 import type { OperationsService } from "./services/operations-service"
 import type { PlaidGateway } from "./services/plaid"
 import type { TenantService } from "./services/tenant-service"
+import type { LeasingService } from "./services/leasing-service"
+import type { MaintenanceDetailService } from "./services/maintenance-detail-service"
+import type { NoticesService } from "./services/notices-service"
+import type { OfficeService } from "./services/office-service"
 import type { HealthStore } from "./types/stores"
 
 /** Everything the Express app needs, handed in (container.ts builds the real ones). */
@@ -41,6 +49,14 @@ export interface AppDependencies {
     finance: FinanceService
     /** RentRedi-style management (008). */
     operations: OperationsService
+    /** 009: team, activity, portfolios, details, compliance, reports, search. */
+    office: OfficeService
+    /** 009: one maintenance request in detail, its photos and cost. */
+    maintenanceDetail: MaintenanceDetailService
+    /** 009: notices to residents, and documents. */
+    notices: NoticesService
+    /** 009: listings, leads and the public listings page. */
+    leasing: LeasingService
     /** Null when Plaid is not configured: the bank-link routes answer 503. */
     plaid: PlaidGateway | null
     /** The built frontend (index.html and assets). Leave out when Vite serves it (development, tests). */
@@ -87,6 +103,11 @@ export function createApp(deps: AppDependencies): Application {
     app.use("/api", createTenantRouter({ tenant: deps.tenant, guard, limits, plaidEnabled: deps.plaid !== null, testPayments: !config.production }))
     // Before the manager router, so /manager/leases/expiring is not read as a lease id.
     app.use("/api", createFinanceRouter({ finance: deps.finance, guard, limits }))
+    // 009, before the manager router: /manager/maintenance/summary and /manager/documents/all are not ids.
+    app.use("/api", createOfficeRouter({ office: deps.office, guard, limits, webOrigin: config.webOrigin }))
+    app.use("/api", createMaintenanceDetailRouter({ maintenance: deps.maintenanceDetail, guard, limits }))
+    app.use("/api", createNoticesRouter({ notices: deps.notices, guard, limits }))
+    app.use("/api", createLeasingRouter({ leasing: deps.leasing, guard, limits }))
     // Before the manager router too: /manager/leases/:id/charges (repeating charges) and the 008 screens.
     app.use("/api", createOperationsRouter({ operations: deps.operations, guard, limits }))
     app.use("/api", createManagerRouter({ manager: deps.manager, guard, limits, webOrigin: config.webOrigin }))

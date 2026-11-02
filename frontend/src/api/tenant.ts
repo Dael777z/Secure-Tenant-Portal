@@ -91,6 +91,56 @@ export interface OfficeMessage {
 
 export const MESSAGE_MAX_LENGTH = 2000;
 
+/** A document in the tenant's Documents page: their signed lease, or one the office shared (009). */
+export interface TenantDocument {
+  id: number;
+  kind: "document" | "lease_pdf";
+  title: string;
+  filename: string;
+  uploadedAt: string;
+  href: string;
+}
+export interface DocumentGroup {
+  category: "lease" | "inspection" | "insurance" | "notice" | "receipt" | "other";
+  label: string;
+  documents: TenantDocument[];
+}
+
+/** A notice the office wrote to the tenant (009). */
+export interface OfficeNotice {
+  id: number;
+  template: string;
+  subject: string;
+  body: string;
+  createdAt: string;
+  readAt: string | null;
+}
+
+/** A photo on one of the tenant's maintenance requests (009). */
+export interface RequestPhoto {
+  id: number;
+  filename: string;
+  href: string;
+}
+
+export const PHOTO_ACCEPT = "image/jpeg,image/png,image/webp";
+export const PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+/** "mr_12" (how the summary names requests) → 12. */
+export const requestNumber = (id: string) => Number(id.replace(/^mr_/, ""));
+
+/** A photo as { filename, data } (base64) for the upload routes. Throws a message to show when it can't be sent. */
+export async function readPhoto(file: File): Promise<{ filename: string; data: string }> {
+  if (/\.(heic|heif)$/i.test(file.name) || /heic|heif/i.test(file.type)) {
+    throw new Error("iPhone HEIC photos can't be uploaded. On the iPhone, set Camera → Formats → Most Compatible, or upload a screenshot of the photo.");
+  }
+  if (!PHOTO_ACCEPT.split(",").includes(file.type)) throw new Error("Upload a JPEG, PNG or WebP photo.");
+  if (file.size > PHOTO_MAX_BYTES) throw new Error("That photo is over 5 MB. Take a smaller photo or crop it.");
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return { filename: file.name, data: btoa(binary) };
+}
+
 export class ApiError extends Error {
   constructor(public readonly code: string, public readonly status: number, public readonly details?: ErrorDetails) {
     super(code);
@@ -127,6 +177,18 @@ export const tenantApi = {
     call<NotificationPrefs>("/tenant/notifications", { method: "PUT", body: JSON.stringify(prefs) }),
   newMaintenanceRequest: (title: string, description: string) =>
     call<MaintenanceRequest>("/tenant/maintenance", { method: "POST", body: JSON.stringify({ title, description }) }),
+  /** 009: the signed lease and what the office shared, grouped by kind. */
+  documents: () => call<{ groups: DocumentGroup[] }>("/tenant/documents").then((r) => r.groups),
+  /** 009: notices the office wrote (rent and payment notices are on the Notices page already). */
+  officeNotices: () => call<{ notices: OfficeNotice[] }>("/tenant/notices").then((r) => r.notices),
+  markNoticeRead: (id: number) => call<{ ok: true }>(`/tenant/notices/${id}/read`, { method: "POST" }),
+  /** 009: photos on these requests, by request number. */
+  requestPhotos: (ids: number[]) =>
+    ids.length
+      ? call<{ attachments: Record<string, RequestPhoto[]> }>(`/tenant/maintenance/attachments?ids=${ids.join(",")}`).then((r) => r.attachments)
+      : Promise.resolve({} as Record<string, RequestPhoto[]>),
+  addRequestPhoto: (id: number, photo: { filename: string; data: string }) =>
+    call<{ id: number }>(`/tenant/maintenance/${id}/attachments`, { method: "POST", body: JSON.stringify(photo) }),
   /** The conversation with the office; `unread` counts the office's messages not opened yet. */
   messages: () => call<{ messages: OfficeMessage[]; unread: number }>("/tenant/messages"),
   sendMessage: (body: string) => call<OfficeMessage>("/tenant/messages", { method: "POST", body: JSON.stringify({ body }) }),
@@ -161,7 +223,10 @@ export function messageFor(error: unknown): string {
     if (error.code === "ALREADY_REPORTED") return "Your last payment is still waiting for the office to confirm it. Once it's confirmed (or if it can't be matched) you'll see it here.";
     if (error.code === "METHOD_NOT_AVAILABLE") return "The office doesn't take that payment method right now. Choose another one.";
     if (error.code === "VALIDATION_ERROR") return "Check what you entered and try again.";
-    if (error.code === "RATE_LIMITED") return "Too many messages at once. Wait a few minutes and try again.";
+    if (error.code === "RATE_LIMITED") return "Too many attempts in a short time. Wait a few minutes and try again.";
+    if (error.code === "FILE_INVALID") return "That photo couldn't be read. Upload a JPEG, PNG or WebP photo.";
+    if (error.code === "FILE_TOO_LARGE") return "That photo is over 5 MB. Take a smaller photo or crop it.";
+    if (error.code === "NOT_FOUND") return "That request or document is no longer available.";
   }
   return "Something went wrong. Please try again.";
 }

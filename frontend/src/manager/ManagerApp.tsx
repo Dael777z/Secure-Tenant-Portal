@@ -9,7 +9,7 @@ import { DialogHost } from "./dialogs";
 import { FinancePage, PerformancePage, ProfitLossPage, RenewalsPage } from "./finance";
 import { MessagesPage } from "./messages";
 import { SetupPage } from "./onboarding";
-import { DocumentsPage, PaymentRulesPage, PaymentsPage, RentChargesPage, SettingsPage, TenantPage, UnitPage } from "./ops";
+import { PaymentRulesPage, PaymentsPage, RentChargesPage, SettingsPage, TenantPage, UnitPage } from "./ops";
 import {
   DashboardPage,
   LeasePage,
@@ -21,6 +21,15 @@ import {
   UpdatesPage,
 } from "./pages";
 import { ManagerContext, initials, parseRoute, routeHash, useTableLabels, type Dialog, type ManagerContextValue, type Route } from "./ui";
+// 009
+import { ListingPage, ListingsPage, NoticesPage } from "./comms";
+import { DocumentsHub } from "./documents-hub";
+import { MaintenanceDetailPage } from "./maintenance-detail";
+import { CompliancePage, PortfoliosPage, ReportsPage } from "./office";
+import { SearchButton, SearchDialog, useSearchShortcut } from "./search";
+import { ActivityPage, TeamPage } from "./team";
+import { Brand, ThemeSwitch } from "../theme/Brand";
+import "./additions.css";
 import "./manager.css";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -53,6 +62,7 @@ const NAV: NavFolder[] = [
     items: [
       { label: "Units", route: { name: "rent-roll" }, matches: ["rent-roll", "unit", "lease"], permission: "ledger:read:property" },
       { label: "Properties", route: { name: "properties" }, matches: ["properties", "property", "setup"], permission: "ledger:read:property" },
+      { label: "Portfolios", route: { name: "portfolios" }, matches: ["portfolios"], permission: "ledger:read:property" },
       { label: "Documents", route: { name: "documents" }, matches: ["documents"], permission: "ledger:read:property" },
     ],
   },
@@ -69,19 +79,36 @@ const NAV: NavFolder[] = [
     items: [
       { label: "Finance", route: { name: "finance", period: "this-month" }, matches: ["finance"], permission: "ledger:read:property" },
       { label: "Profit & Loss", route: { name: "pnl", period: "ytd" }, matches: ["pnl"], permission: "ledger:read:property" },
+      { label: "Reports", route: { name: "reports" }, matches: ["reports"], permission: "ledger:read:property" },
     ],
   },
   { label: "Tenants", items: [{ label: "Tenants", route: { name: "tenants" }, matches: ["tenants", "tenant"], permission: "ledger:read:property" }] },
-  { label: "Maintenance", items: [{ label: "Maintenance", route: { name: "maintenance" }, matches: ["maintenance"], permission: "maintenance:manage" }] },
-  { label: "Leasing", items: [{ label: "Lease renewals", route: { name: "renewals", days: 90 }, matches: ["renewals"], permission: "ledger:read:property" }] },
+  { label: "Maintenance", items: [{ label: "Maintenance", route: { name: "maintenance" }, matches: ["maintenance", "maintenance-detail"], permission: "maintenance:manage" }] },
+  {
+    label: "Leasing",
+    items: [
+      { label: "Lease renewals", route: { name: "renewals", days: 90 }, matches: ["renewals"], permission: "ledger:read:property" },
+      { label: "Listings", route: { name: "listings" }, matches: ["listings", "listing"], permission: "ledger:read:property" },
+    ],
+  },
   {
     label: "Communications",
     items: [
       { label: "Messages", route: { name: "messages" }, matches: ["messages"], permission: "messages:manage" },
       { label: "Updates", route: { name: "updates" }, matches: ["updates"], permission: "ledger:read:property" },
+      { label: "Notices", route: { name: "notices" }, matches: ["notices"], permission: "messages:manage" },
     ],
   },
-  { label: "Settings", items: [{ label: "Settings", route: { name: "settings", tab: "account" }, matches: ["settings"], permission: "ledger:read:property" }] },
+  {
+    label: "Settings",
+    items: [
+      // Everyone on staff has an account page; the office's own settings tabs check the permission inside.
+      { label: "Settings", route: { name: "settings", tab: "account" }, matches: ["settings"], permission: "maintenance:manage" },
+      { label: "Team", route: { name: "team" }, matches: ["team"], permission: "users:provision" },
+      { label: "Activity", route: { name: "activity" }, matches: ["activity"], permission: "users:provision" },
+      { label: "Compliance", route: { name: "compliance" }, matches: ["compliance"], permission: "ledger:read:property" },
+    ],
+  },
 ];
 
 /** "Rent & Charges" opens on this month. */
@@ -106,6 +133,14 @@ export function ManagerApp({ user, onLogout }: { user: SessionUser; onLogout: ()
   const [menuOpen, setMenuOpen] = useState(false);
   const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
   const [unreadMessages, setUnreadMessages] = useState(0);
+  // 009: search (the sidebar button, the top bar on phones, "/" or Ctrl/⌘+K).
+  const [searching, setSearching] = useState(false);
+  const openSearch = useCallback(() => {
+    setMenuOpen(false);
+    setSearching(true);
+  }, []);
+  const closeSearch = useCallback(() => setSearching(false), []);
+  useSearchShortcut(openSearch);
   const shellRef = useRef<HTMLDivElement>(null);
   useTableLabels(shellRef);
 
@@ -196,12 +231,9 @@ export function ManagerApp({ user, onLogout }: { user: SessionUser; onLogout: ()
       <div className="mgr-shell" ref={shellRef}>
         <aside className={`mgr-sidebar${menuOpen ? " mgr-sidebar--open" : ""}`} aria-label="Manager navigation">
           <div className="mgr-brand">
-            <span className="mgr-brand__mark" aria-hidden="true">SP</span>
-            <span>
-              <strong>Secure Tenant Portal</strong>
-              <span className="mgr-brand__sub">{can("ledger:read:property") ? "Manager workspace" : "Maintenance workspace"}</span>
-            </span>
+            <Brand sub={can("ledger:read:property") ? "Manager workspace" : "Maintenance workspace"} />
           </div>
+          <SearchButton onOpen={openSearch} />
           {canCreate && (
             <button type="button" className="mgr-create-btn" onClick={() => setDialog({ kind: "create" })}>
               + Create new
@@ -271,6 +303,7 @@ export function ManagerApp({ user, onLogout }: { user: SessionUser; onLogout: ()
               <span>{ROLE_LABELS[user.role] ?? user.role}</span>
             </span>
           </div>
+          <ThemeSwitch className="mgr-sidebar__theme" />
           <button type="button" className="mgr-signout" onClick={onLogout}>
             Sign out
           </button>
@@ -281,7 +314,8 @@ export function ManagerApp({ user, onLogout }: { user: SessionUser; onLogout: ()
             <button type="button" className="mgr-menu-toggle" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>
               ☰ Menu
             </button>
-            <span className="mgr-topbar__title">Secure Tenant Portal</span>
+            <span className="mgr-topbar__title">Summit Realty</span>
+            <SearchButton onOpen={openSearch} compact />
           </div>
           <main className="mgr-content" id="main">
             {activeFolder && activeFolder.items.length > 1 && (
@@ -295,7 +329,7 @@ export function ManagerApp({ user, onLogout }: { user: SessionUser; onLogout: ()
             {route.name === "property" && <PropertyPage id={route.id} />}
             {route.name === "rent-roll" && <RentRollPage filter={route.filter} />}
             {route.name === "unit" && <UnitPage id={route.id} tab={route.tab} />}
-            {route.name === "documents" && <DocumentsPage />}
+            {route.name === "documents" && <DocumentsHub />}
             {route.name === "tenants" && <TenantsPage view={route.view} />}
             {route.name === "tenant" && <TenantPage id={route.id} tab={route.tab} />}
             {route.name === "lease" && <LeasePage id={route.id} />}
@@ -303,6 +337,13 @@ export function ManagerApp({ user, onLogout }: { user: SessionUser; onLogout: ()
             {route.name === "payments" && <PaymentsPage period={route.period} view={route.view} />}
             {route.name === "payment-rules" && <PaymentRulesPage tab={route.tab} />}
             {route.name === "maintenance" && <MaintenancePage view={route.view} />}
+            {route.name === "maintenance-detail" && <MaintenanceDetailPage id={route.id} />}
+            {route.name === "portfolios" && <PortfoliosPage />}
+            {route.name === "reports" && <ReportsPage />}
+            {route.name === "compliance" && <CompliancePage />}
+            {route.name === "notices" && <NoticesPage />}
+            {route.name === "listings" && <ListingsPage />}
+            {route.name === "listing" && <ListingPage id={route.id} />}
             {route.name === "messages" && <MessagesPage tenantId={route.tenantId} onUnreadChange={refreshUnread} />}
             {route.name === "updates" && <UpdatesPage />}
             {route.name === "finance" && <FinancePage period={route.period} />}
@@ -311,9 +352,12 @@ export function ManagerApp({ user, onLogout }: { user: SessionUser; onLogout: ()
             {route.name === "renewals" && <RenewalsPage days={route.days} />}
             {route.name === "setup" && <SetupPage />}
             {route.name === "settings" && <SettingsPage tab={route.tab} />}
+            {route.name === "team" && <TeamPage />}
+            {route.name === "activity" && <ActivityPage />}
           </main>
         </div>
         {dialog && <DialogHost dialog={dialog} onClose={() => setDialog(null)} />}
+        {searching && <SearchDialog onClose={closeSearch} onlyMaintenance={!can("ledger:read:property")} />}
         {toast && (
           <div className="mgr-toast" role="status">
             {toast}

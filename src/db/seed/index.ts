@@ -51,6 +51,7 @@ export async function seed(pool: Pool, options: SeedOptions): Promise<string[]> 
         await client.query("SELECT set_config('app.user_type', 'system', true)")
         const report = await write(client, data, { staffHash, tenantHash, today, webOrigin: options.webOrigin })
         if (options.rules) report.push(...(await writeRules(client, today, options.timeZone ?? "America/Denver")))
+        if (options.rules) report.push(...(await writeAdditions(client, today)))
         await client.query("COMMIT")
         return report
     } catch (error) {
@@ -254,6 +255,68 @@ async function writeRules(client: PoolClient, today: Date, timeZone: string): Pr
         docs = 1
     }
     return [`rules: late fees (5-day grace, $50 then $10 a day, at most $100) and reminders (3 days before, daily while late): ${fees} fees, ${reminders} reminders, ${docs} lease PDF`]
+}
+
+/**
+ * 009's sample: a portfolio with the Woodcrest building in it, city/state/ZIP for
+ * both buildings, unit 108 listed with two people asking about it, a notice the
+ * office sent, renters insurance on file for the sample tenant, and the faucet
+ * request assigned to the maintenance teammate with a note.
+ */
+async function writeAdditions(client: PoolClient, today: Date): Promise<string[]> {
+    const ago = (days: number) => new Date(today.getTime() - days * 86_400_000)
+    const manager = (await client.query<{ id: number }>("SELECT admin_id AS id FROM Admin WHERE role = 'admin' ORDER BY admin_id LIMIT 1")).rows[0]?.id ?? null
+    const fixer = (await client.query<{ id: number }>("SELECT admin_id AS id FROM Admin WHERE role = 'maintenance_staff' ORDER BY admin_id LIMIT 1")).rows[0]?.id ?? null
+    const portfolio = await client.query<{ id: number }>(
+        "INSERT INTO Portfolios (name, entity_name, created_by) VALUES ('Woodcrest Holdings', 'Woodcrest Holdings LLC (sample)', $1) RETURNING portfolio_id AS id",
+        [manager],
+    )
+    await client.query("UPDATE Property SET portfolio_id = $1, city = 'Las Cruces', state = 'NM', zip = '88011' WHERE Name = 'Woodcrest Apartments'", [portfolio.rows[0]!.id])
+    await client.query("UPDATE Property SET city = 'Mesilla', state = 'NM', zip = '88046' WHERE Name = 'Mesilla Court'")
+
+    const unit = await client.query<{ id: number }>(
+        "SELECT u.uID AS id FROM Units u JOIN Property p ON p.pID = u.pID WHERE p.Name = 'Woodcrest Apartments' AND u.UnitNum = '108'",
+    )
+    let listings = 0
+    if (unit.rows[0]) {
+        const available = new Date(today.getTime() + 9 * 86_400_000).toISOString().slice(0, 10)
+        const listing = await client.query<{ id: number }>(
+            `INSERT INTO Listings (uID, status, title, description, asking_rent, available_on, beds, baths, sqft, amenities, pets, created_by, created_at, published_at)
+             VALUES ($1, 'active', 'Bright 1-bedroom with balcony',
+                     'Second-floor corner unit with a private balcony, new kitchen floors and a large closet. Laundry room on every floor.',
+                     975, $2, 1, 1, 640, ARRAY['Balcony', 'Laundry in building', 'Off-street parking'], 'Cats OK', $3, $4, $5) RETURNING listingID AS id`,
+            [unit.rows[0].id, available, manager, ago(6), ago(5)],
+        )
+        await client.query(
+            `INSERT INTO Leads (listingID, name, email, phone, message, source, status, created_at) VALUES
+                 ($1, 'Jordan Park', 'jordan.park@example.com', NULL, 'Is parking included in the rent?', 'website', 'new', $2),
+                 ($1, 'Maria Lopez', NULL, '(575) 555-0177', 'Called the office; wants to see it on Saturday.', 'manual', 'contacted', $3)`,
+            [listing.rows[0]!.id, ago(1), ago(3)],
+        )
+        listings = 1
+    }
+
+    const notice = await client.query(
+        `INSERT INTO Notifications_Sent (tID, LeaseID, template, subject, body, created_by, created_at, sent_at)
+         SELECT DISTINCT ON (lt.tID) lt.tID, l.LeaseID, 'manual', 'Parking lot repaving Thursday',
+                'The north lot will be repaved on Thursday from 8am to 4pm. Please park on Woodcrest Drive that day. Cars left in the lot may be moved.',
+                $1, $2, $2
+         FROM Lease l JOIN Lease_Tenants lt ON lt.LeaseID = l.LeaseID JOIN Units u ON u.uID = l.uID JOIN Property p ON p.pID = u.pID
+         WHERE p.Name = 'Woodcrest Apartments' AND l.start_date <= $3::date AND (l.end_date IS NULL OR l.end_date >= $3::date)
+         ORDER BY lt.tID, l.start_date DESC`,
+        [manager, ago(2), today.toISOString().slice(0, 10)],
+    )
+    await client.query(
+        `INSERT INTO Tenant_Details (tID, insurance_status, insurance_expires, emergency_contact_name, emergency_contact_phone, updated_by)
+         SELECT tID, 'on_file', $1::date, 'Sam Tenant', '(575) 555-0190', $2 FROM Tenants WHERE Email = 'tenant@example.com'`,
+        [new Date(today.getTime() + 200 * 86_400_000).toISOString().slice(0, 10), manager],
+    )
+    const faucet = await client.query<{ id: number }>("SELECT mID AS id FROM Maintenance_T WHERE title = 'Kitchen faucet leaking' LIMIT 1")
+    if (faucet.rows[0] && fixer !== null) {
+        await client.query("UPDATE Maintenance_T SET assigned_to = $2, labor_cost = 85 WHERE mID = $1", [faucet.rows[0].id, fixer])
+        await client.query("INSERT INTO Maintenance_Notes (mID, admin_id, body, created_at) VALUES ($1, $2, 'Cartridge ordered; back Thursday to replace it.', $3)", [faucet.rows[0].id, fixer, ago(2)])
+    }
+    return [`009 sample: 1 portfolio, ${listings} listing with 2 leads, a notice to ${notice.rowCount} Woodcrest residents, renters insurance for the sample tenant, the faucet request assigned`]
 }
 
 /** A one-page PDF with a title line (valid enough for any viewer). */

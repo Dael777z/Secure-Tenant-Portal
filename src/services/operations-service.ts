@@ -6,7 +6,7 @@ import type {
     ChargesView, ChargeViewRow, DocumentRow, FeeType, LateFeeRuleRow, LeaseDocumentFile, NewLateFeeRule, NewReminderRule,
     OfficeNotifications, ReminderRuleRow, ReminderSentRow, RuleScope, ScopeLabel, StaffMember, UnitDetail, UnitLeaseRow, UnitRuleRow,
 } from "../types/operations"
-import type { LeaseRecord, PaymentRecord, PropertyRecord, UnitRecord } from "../types/records"
+import { isClosedState, type LeaseRecord, type PaymentRecord, type PropertyRecord, type UnitRecord } from "../types/records"
 import type { OperationsDataStore } from "../types/stores"
 import { OFFICE_PAYMENT_PREFIX } from "../utils/confirmations"
 import { CHARGE_KIND_LABELS, LATE_AFTER_DAYS, addDays, allocate, cents, dollars, localDay } from "./finance"
@@ -294,7 +294,7 @@ export class OperationsService {
             const end = l.endDate && l.endDate < today ? l.endDate : today
             return end > start ? n + Math.round((Date.parse(end) - Date.parse(start)) / (30.44 * 86_400_000)) : n
         }, 0)
-        const open = requests.filter((m) => m.unitId === unitId && m.status !== "resolved")
+        const open = requests.filter((m) => m.unitId === unitId && !isClosedState(m.status))
         return {
             id: u.id, unitNum: u.unitNum, propertyId: u.propertyId, propertyName: u.propertyName, address: property?.address ?? "",
             leaseId: current?.id ?? null,

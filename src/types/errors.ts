@@ -40,6 +40,18 @@ export const ERROR_STATUS = {
     PASSWORD_TOO_COMMON: 400,
     // a request body bigger than the server accepts
     PAYLOAD_TOO_LARGE: 413,
+    // 009: team, files, portfolios, notices, listings, maintenance costs
+    LAST_ADMIN: 409,
+    SELF_CHANGE_FORBIDDEN: 409,
+    STAFF_NOT_SIGNED_UP: 409,
+    STAFF_ALREADY_SIGNED_UP: 409,
+    FILE_INVALID: 400,
+    FILE_TOO_LARGE: 413,
+    NAME_IN_USE: 409,
+    NO_RECIPIENTS: 409,
+    LISTING_EXISTS: 409,
+    LISTING_NOT_EDITABLE: 409,
+    ALREADY_RECORDED: 409,
 } as const
 
 export type AppErrorCode = keyof typeof ERROR_STATUS

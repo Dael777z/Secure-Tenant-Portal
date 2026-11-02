@@ -3,7 +3,7 @@ import { silentLogger, type LogMetadata, type LogService } from "../logging"
 import { AppError } from "../types/errors"
 import type { HashExpiry, LeaseChanges, MaintenanceChange, NewCharge, NewLease, PropertyInput, TenantChanges, UnitInput } from "../types/inputs"
 import type { CreatedLeaseResult, DashboardData, InviteResult, LeaseDetail, MaintenanceRow, PropertySummary, TenantRow, UnitRow, UpdateRow } from "../types/manager"
-import type { LeaseRecord, MaintenancePriority, MaintenanceState, MaintenanceType, Receipt } from "../types/records"
+import { isClosedState, type LeaseRecord, type MaintenancePriority, type MaintenanceState, type MaintenanceType, type Receipt } from "../types/records"
 import type { ManagerStore } from "../types/stores"
 import { officeConfirmation } from "../utils/confirmations"
 import { newInvite, randomToken } from "../utils/tokens"
@@ -456,7 +456,7 @@ export class ManagerService {
             collectedThisMonth: Math.round(collectedThisMonth * 100) / 100,
             outstanding: Math.round(units.reduce((sum, u) => sum + Math.max(0, u.balance), 0) * 100) / 100,
             overdueAccounts: units.filter((u) => u.status === "owing").length,
-            openMaintenance: maintenance.filter((m) => m.status !== "resolved").length,
+            openMaintenance: maintenance.filter((m) => !isClosedState(m.status)).length,
             recentActivity: activity,
             updates: updates.slice(0, 6),
         }

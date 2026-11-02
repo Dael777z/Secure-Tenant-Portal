@@ -34,6 +34,8 @@ export interface AccountStore {
     /** Use up an open invitation (by token hash) and set the password. Null if none matches. */
     completeSignup(tokenHash: string, passwordHash: string): Promise<UserRecord | null>
     findStaffProfile(adminId: number): Promise<StaffProfile | null>
+    /** A sign-in for the Activity page and the Team's "last sign-in" (009). Optional so test doubles can leave it out. */
+    recordSecurityEvent?(actor: string | null, action: string, summary: string, details?: Record<string, unknown> | null): Promise<void>
 }
 
 export interface SessionStore {
@@ -264,7 +266,11 @@ export type OperationsDataStore =
     & Pick<FinanceStore, "listAllCharges" | "listAllPayments" | "listLeaseLocations">
     & Pick<MaintenanceStore, "listMaintenance">
 
+/** The 009 queries (office tools, maintenance detail, documents, notices, listings): see db/postgres-additions.ts. */
+export type AdditionsStore = import("../db/postgres-additions").PostgresAdditions
+
 /** The whole database. */
 export type DatabaseInterface =
     & HealthStore & AccountStore & SessionStore & PropertyStore & PeopleStore
     & LeaseStore & LedgerStore & PaymentStore & MaintenanceStore & BankStore & MessageStore & FinanceStore & SettingsStore & OperationsStore
+    & { readonly additions: AdditionsStore }

@@ -2,8 +2,10 @@
 // & Returns, Payment Rules (late fees, reminders, payment order), the unit and
 // tenant pages with their tabs, Documents, Settings, and their dialogs.
 // Every number comes from the API; the browser only filters and sorts.
+import { DocumentsHub } from "./documents-hub";
+import { TenantDetailsCard } from "./office";
 import { useMemo, useState, type ReactNode } from "react";
-import { managerApi, readReceipt, receiptUrl, RECEIPT_MAX_BYTES, type ReceiptUpload, type TenantRow, type UnitRow } from "./api";
+import { isClosedRequest, managerApi, readReceipt, receiptUrl, RECEIPT_MAX_BYTES, type ReceiptUpload, type TenantRow, type UnitRow } from "./api";
 import { downloadCsv, financeApi, type FinancePeriod, type RecentPaymentRow } from "./finance-api";
 import { PaymentOptionsPage, ReportedPayments } from "./finance";
 import {
@@ -1311,12 +1313,12 @@ export function UnitPage({ id, tab }: { id: number; tab: UnitTab }) {
                 Open queue
               </button>
             </div>
-            {data.maintenance.filter((m) => m.status !== "resolved").length === 0 ? (
+            {data.maintenance.filter((m) => !isClosedRequest(m.status)).length === 0 ? (
               <Empty>No open requests.</Empty>
             ) : (
               <ul className="mgr-mini-list">
                 {data.maintenance
-                  .filter((m) => m.status !== "resolved")
+                  .filter((m) => !isClosedRequest(m.status))
                   .map((m) => (
                     <li key={m.id}>
                       <span>{m.title}</span>
@@ -1402,7 +1404,12 @@ export function UnitPage({ id, tab }: { id: number; tab: UnitTab }) {
           <Kpi label="Balance now" value={money(current?.balance ?? 0)} tone={(current?.balance ?? 0) > 0 ? "warn" : undefined} note={current ? "Current lease" : "No current lease"} />
         </div>
       )}
-      {tab === "documents" && <LeaseDocuments leases={data.leases} label={label} />}
+      {tab === "documents" && (
+        <>
+          <LeaseDocuments leases={data.leases} label={label} />
+          <DocumentsHub scope="unit" scopeId={id} label={label} />
+        </>
+      )}
       {tab === "charges" && (current ? <LeaseCharges leaseId={current.id} unitId={id} label={label} /> : <Empty>No current lease, so no charges to show. Past leases are under Leases.</Empty>)}
       {tab === "chats" && <Chats tenants={current?.tenants ?? []} />}
     </>
@@ -1704,17 +1711,22 @@ export function TenantPage({ id, tab }: { id: number; tab: TenantTab }) {
               )}
             </section>
           </div>
+          <TenantDetailsCard tenantId={t.id} name={t.name} />
         </>
       )}
       {tab === "charges" && (t.leaseId ? <LeaseCharges leaseId={t.leaseId} label={label || (t.unitLabel ?? "")} /> : <Empty>Not on a current lease, so there are no charges.</Empty>)}
-      {tab === "documents" &&
-        (!t.leaseId ? (
-          <Empty>Not on a current lease, so there are no documents.</Empty>
-        ) : !docs.data ? (
-          <Loading error={docs.error} />
-        ) : (
-          <DocumentTable rows={docs.data.filter((d) => d.leaseId === t.leaseId)} />
-        ))}
+      {tab === "documents" && (
+        <>
+          {!t.leaseId ? (
+            <Empty>Not on a current lease, so there is no signed lease or receipt to show.</Empty>
+          ) : !docs.data ? (
+            <Loading error={docs.error} />
+          ) : (
+            <DocumentTable rows={docs.data.filter((d) => d.leaseId === t.leaseId)} />
+          )}
+          <DocumentsHub scope="tenant" scopeId={t.id} label={t.name} />
+        </>
+      )}
       {tab === "chats" && <Chats tenants={[{ id: t.id, name: t.name }]} />}
     </>
   );
@@ -1874,15 +1886,17 @@ export function LeaseDocumentDialog({ leaseId: givenLease, label: givenLabel, on
 }
 
 /* ------------------------------------------------------------------ *
- * Settings: Account | Payment options | Notifications | Team
+ * Settings: Account | Payment options | Notifications
+ * (The team is its own page now, under Settings → Team: team.tsx.)
  * ------------------------------------------------------------------ */
 
 const SETTINGS_TAB_LABELS: ReadonlyArray<readonly [SettingsTab, string]> = [
   ["account", "Account"],
   ["payment-options", "Payment options"],
   ["notifications", "Notifications"],
-  ["team", "Team"],
 ];
+/** Tabs for the office's own settings; maintenance staff see only their account. */
+const OFFICE_SETTINGS_TABS: SettingsTab[] = ["payment-options", "notifications"];
 
 const ROLE_TEXT: Record<string, string> = { admin: "Property manager", property_manager: "Property manager", maintenance_staff: "Maintenance", platform_admin: "Administrator" };
 
@@ -1980,52 +1994,18 @@ function NotificationSettings() {
   );
 }
 
-function TeamSettings() {
-  const { data, error } = useLoad(() => opsApi.staff());
-  if (!data) return <Loading error={error} />;
-  return (
-    <section className="mgr-card">
-      <h2 className="mgr-h2">Team</h2>
-      <p className="mgr-muted">Everyone with an office sign-in. Property managers see everything; maintenance staff see the maintenance queue only.</p>
-      {data.length === 0 ? (
-        <Empty>No team members.</Empty>
-      ) : (
-        <div className="mgr-table-wrap">
-          <table className="mgr-table">
-            <thead>
-              <tr>
-                <th scope="col">Name</th>
-                <th scope="col">Email</th>
-                <th scope="col">Role</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((s) => (
-                <tr key={`${s.role}-${s.id}`}>
-                  <th scope="row">{s.name}</th>
-                  <td>
-                    <a href={`mailto:${s.email}`}>{s.email}</a>
-                  </td>
-                  <td>{ROLE_TEXT[s.role] ?? s.role}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
-  );
-}
-
 export function SettingsPage({ tab }: { tab: SettingsTab }) {
+  const { can } = useManager();
+  const office = can("ledger:read:property");
+  const tabs = SETTINGS_TAB_LABELS.filter(([t]) => office || !OFFICE_SETTINGS_TABS.includes(t));
+  const active = tabs.some(([t]) => t === tab) ? tab : "account";
   return (
     <>
-      <PageHeader title="Settings" subtitle="Your account, how tenants can pay, what the office is told about, and the team." />
-      <PageTabs label="Settings" tabs={SETTINGS_TAB_LABELS} active={tab} href={(t) => ({ name: "settings", tab: t })} />
-      {tab === "account" && <AccountSettings />}
-      {tab === "payment-options" && <PaymentOptionsPage embedded />}
-      {tab === "notifications" && <NotificationSettings />}
-      {tab === "team" && <TeamSettings />}
+      <PageHeader title="Settings" subtitle={office ? "Your account, how tenants can pay, and what the office is told about." : "Your account."} />
+      <PageTabs label="Settings" tabs={tabs} active={active} href={(t) => ({ name: "settings", tab: t })} />
+      {active === "account" && <AccountSettings />}
+      {active === "payment-options" && <PaymentOptionsPage embedded />}
+      {active === "notifications" && <NotificationSettings />}
     </>
   );
 }

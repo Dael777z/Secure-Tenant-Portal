@@ -31,8 +31,12 @@ const EVERYONE: Who[] = ["anonymous", "tenant", "admin", "maintenance"]
 interface Route { method: string; path: string }
 const label = (r: Route) => `${r.method} ${r.path}`
 
-/** Routes that anyone may call (sign-in itself, health probes). Everything else needs a session. */
-const PUBLIC = new Set(["POST /api/auth/signup", "POST /api/auth/login", "POST /api/auth/refresh", "POST /api/auth/logout", "GET /health/live", "GET /health/ready"])
+/** Routes that anyone may call (sign-in itself, health probes, the public listings page). Everything else needs a session. */
+const PUBLIC = new Set([
+    "POST /api/auth/signup", "POST /api/auth/login", "POST /api/auth/refresh", "POST /api/auth/logout", "GET /health/live", "GET /health/ready",
+    // 009: the public /listings page (published homes only, through SECURITY DEFINER functions)
+    "GET /api/public/listings", "GET /api/public/listings/:id/photos/:photoId", "POST /api/public/listings/:id/inquire",
+])
 
 /** Who may call a route. `null` means nobody classified it yet: add a rule here. */
 function allowedFor(route: Route): Who[] | null {
@@ -40,7 +44,9 @@ function allowedFor(route: Route): Who[] | null {
     if (PUBLIC.has(label(route))) return EVERYONE
     if (path === "/api/auth/me") return ["tenant", "admin", "maintenance"]
     if (path.startsWith("/api/tenant/") || path === "/api/create_link_token" || path === "/api/exchange_and_get_auth") return ["tenant"]
-    if (path === "/api/manager/me" || path.startsWith("/api/manager/maintenance")) return ["admin", "maintenance"]
+    // 009: booking a request's cost as an expense is the manager's (ledger:adjust).
+    if (path === "/api/manager/maintenance/:id/expense") return ["admin"]
+    if (path === "/api/manager/me" || path === "/api/manager/search" || path.startsWith("/api/manager/maintenance")) return ["admin", "maintenance"]
     if (path.startsWith("/api/manager/")) return ["admin"]
     return null
 }

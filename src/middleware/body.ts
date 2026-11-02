@@ -17,7 +17,14 @@ const RECEIPT_ROUTES: Array<{ method: string; path: RegExp }> = [
     { method: "POST", path: /^\/api\/manager\/leases\/[^/]+\/payments\/?$/ },
     { method: "PUT", path: /^\/api\/manager\/leases\/[^/]+\/payments\/[^/]+\/receipt\/?$/ },
 ]
-const takesReceipt = (method: string, path: string) => RECEIPT_ROUTES.some((r) => r.method === method && r.path.test(path))
+/** 009: a document (10 MB) or a maintenance photo (5 MB), as base64 JSON. Signed-in routes only, after their checks. */
+export const UPLOAD_BODY_LIMIT = "15mb"
+const UPLOAD_ROUTES: Array<{ method: string; path: RegExp }> = [
+    { method: "POST", path: /^\/api\/manager\/documents\/?$/ },
+    { method: "POST", path: /^\/api\/manager\/maintenance\/[^/]+\/attachments\/?$/ },
+    { method: "POST", path: /^\/api\/tenant\/maintenance\/[^/]+\/attachments\/?$/ },
+]
+const takesReceipt = (method: string, path: string) => [...RECEIPT_ROUTES, ...UPLOAD_ROUTES].some((r) => r.method === method && r.path.test(path))
 
 const small = express.json({ limit: DEFAULT_BODY_LIMIT })
 
@@ -26,3 +33,6 @@ export const jsonBody: RequestHandler = (req, res, next) => (takesReceipt(req.me
 
 /** Put this on a receipt route after its sign-in and permission checks. */
 export const receiptBody: RequestHandler = express.json({ limit: RECEIPT_BODY_LIMIT })
+
+/** Put this on an upload route (UPLOAD_ROUTES) after its sign-in and permission checks. */
+export const uploadBody: RequestHandler = express.json({ limit: UPLOAD_BODY_LIMIT })

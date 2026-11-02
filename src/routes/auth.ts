@@ -51,7 +51,7 @@ export function createAuthRouter(deps: { auth: AuthService; guard: Auth; config:
         const [email, password] = strings(req.body?.email, req.body?.password)
 
         // breaks the login result into user record and session data
-        const { user, ...session } = await auth.login(email!, password!)
+        const { user, ...session } = await auth.login(email!, password!, { ip: req.ip })
 
         // return cookies with the result based on the token returned by the auth service
         setCookies(res, session)

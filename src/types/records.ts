@@ -141,8 +141,10 @@ export interface Receipt {
 // Maintenance
 
 /** New → In review → Scheduled → In progress → Completed (resolved). 008 added the two middle stages. */
-export type MaintenanceState = "submitted" | "in_review" | "scheduled" | "in_progress" | "resolved"
-export const MAINTENANCE_STATES: readonly MaintenanceState[] = ["submitted", "in_review", "scheduled", "in_progress", "resolved"]
+export type MaintenanceState = "submitted" | "in_review" | "scheduled" | "in_progress" | "resolved" | "rejected"
+export const MAINTENANCE_STATES: readonly MaintenanceState[] = ["submitted", "in_review", "scheduled", "in_progress", "resolved", "rejected"]
+/** Completed or rejected (009): no longer in the open queue. */
+export const isClosedState = (status: string): boolean => status === "resolved" || status === "rejected"
 export type MaintenancePriority = "none" | "low" | "medium" | "high" | "emergency"
 export const MAINTENANCE_PRIORITIES: readonly MaintenancePriority[] = ["none", "low", "medium", "high", "emergency"]
 export type MaintenanceType = "appliance" | "plumbing" | "electrical" | "hvac" | "pest" | "locks" | "property" | "other"

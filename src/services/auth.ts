@@ -43,16 +43,19 @@ export class AuthService {
             const passwordHash = await bcrypt.hash(password, this.config.bcryptRounds)
             const user = await this.db.completeSignup(hashToken(inviteToken), passwordHash)
             if (!user) throw new AppError("SIGNUP_NOT_ALLOWED")
+            await this.recordEvent(user.id, "signup_completed", "Finished signing up", {})
             return user
         }, (user) => ({ userId: user.id }))
     }
 
     // logs auth.login.succeeded { userId, role } or auth.login.failed { reason }; the reason stays in the log, never in the response
-    async login(email: string, password: string) {
+    async login(email: string, password: string, context: { ip?: string } = {}) {
         const normalized = email.trim().toLowerCase()
         const refuse = (reason: string, code: "INVALID_CREDENTIALS" | "MFA_NOT_SUPPORTED", userId?: string) => {
             this.log.warn("auth.login.failed", { reason, ...(userId ? { userId } : {}) })
             if (code === "INVALID_CREDENTIALS") this.noteFailure(normalized)
+            // Only a known account's failures go on the Activity page (an unknown email says nothing useful).
+            if (userId) void this.recordEvent(userId, "login_failed", reason === "wrong password" ? "Sign-in failed: wrong password" : "Sign-in refused: two-step sign-in is on", context)
             return new AppError(code)
         }
         const user = await this.db.findUserByEmail(normalized)
@@ -69,7 +72,17 @@ export class AuthService {
         this.failures.delete(normalized)
         const session = await this.startSession(user.id, user.role)
         this.log.info("auth.login.succeeded", { userId: user.id, role: user.role })
+        await this.recordEvent(user.id, "login_success", "Signed in", context)
         return { ...session, user }
+    }
+
+    /** Activity page and the Team's "last sign-in" (009). A failure to record never fails the sign-in. */
+    private async recordEvent(userId: string, action: string, summary: string, context: { ip?: string }) {
+        try {
+            await this.db.recordSecurityEvent?.(userId, action, summary, context.ip ? { ip: context.ip } : null)
+        } catch (error) {
+            this.log.warn("auth.event.not_recorded", { action, error: (error as Error).message })
+        }
     }
 
     /** Count a failed sign-in, and warn once when one account is being hammered (from any number of addresses). */
