@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { MaintenanceRequest, MaintenanceStatus } from "../types";
 import { useTenantData } from "../data/tenantData";
-import { MESSAGE_MAX_LENGTH, messageFor, tenantApi, type OfficeMessage } from "../api/tenant";
+import { MESSAGE_MAX_LENGTH, PHOTO_ACCEPT, messageFor, readPhoto, requestNumber, tenantApi, type OfficeMessage, type RequestPhoto } from "../api/tenant";
 import { byDay, clockTime, lastIndexFrom, receiptText } from "../components/messageTime";
 
 const statusLabel: Record<MaintenanceStatus, string> = {
@@ -20,6 +20,41 @@ export function MaintenancePage() {
 
   const selected = requests.find((r) => r.id === selectedId) ?? null;
 
+  // 009: photos on the tenant's requests, by request number.
+  const [photos, setPhotos] = useState<Record<string, RequestPhoto[]>>({});
+  const [formError, setFormError] = useState<string | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const photoInput = useRef<HTMLInputElement>(null);
+  const numbers = requests.map((r) => requestNumber(r.id)).filter((n) => Number.isInteger(n) && n > 0);
+  const numbersKey = numbers.join(",");
+  useEffect(() => {
+    tenantApi.requestPhotos(numbers).then(setPhotos, () => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [numbersKey]);
+
+  async function addPhoto(requestId: string, file: File) {
+    setPhotoError(null);
+    setUploading(true);
+    try {
+      let photo;
+      try {
+        photo = await readPhoto(file);
+      } catch (e) {
+        setPhotoError((e as Error).message);
+        return;
+      }
+      const n = requestNumber(requestId);
+      await tenantApi.addRequestPhoto(n, photo);
+      const fresh = await tenantApi.requestPhotos([n]);
+      setPhotos((prev) => ({ ...prev, [n]: fresh[n] ?? [] }));
+    } catch (e) {
+      setPhotoError(messageFor(e));
+    } finally {
+      setUploading(false);
+    }
+  }
+
   // Replies from the office the tenant has not opened: a badge on "Text Property Management".
   const [unreadReplies, setUnreadReplies] = useState(0);
   useEffect(() => {
@@ -31,20 +66,23 @@ export function MaintenancePage() {
 
   function handleSelect(id: string) {
     setView("detail");
+    setPhotoError(null);
     setSelectedId(id);
   }
 
-  function handleNewRequest(newRequest: Omit<MaintenanceRequest, "id" | "submittedDate" | "status">) {
-    // Saved on the server; the reply is the stored request.
-    tenantApi
-      .newMaintenanceRequest(newRequest.title, newRequest.description)
-      .then((request) => {
-        setRequests((prev) => [request, ...prev]);
-        setSelectedId(request.id);
-        setView("detail");
-        void refresh();
-      })
-      .catch((caught) => window.alert(messageFor(caught)));
+  async function handleNewRequest(newRequest: { title: string; description: string; photo: File | null }) {
+    // Saved on the server; the reply is the stored request. A photo from the form goes up right after.
+    setFormError(null);
+    try {
+      const request = await tenantApi.newMaintenanceRequest(newRequest.title, newRequest.description);
+      setRequests((prev) => [request, ...prev]);
+      setSelectedId(request.id);
+      setView("detail");
+      void refresh();
+      if (newRequest.photo) await addPhoto(request.id, newRequest.photo);
+    } catch (caught) {
+      setFormError(messageFor(caught));
+    }
   }
 
   return (
@@ -83,7 +121,7 @@ export function MaintenancePage() {
 
       <div className="maintenance-detail">
         {view === "form" ? (
-          <NewRequestForm onSubmit={handleNewRequest} onCancel={() => setView("detail")} />
+          <NewRequestForm onSubmit={handleNewRequest} onCancel={() => setView("detail")} error={formError} />
         ) : view === "text" ? (
           <TextManagementPanel onClose={() => setView("detail")} onRead={() => setUnreadReplies(0)} />
         ) : selected ? (
@@ -91,6 +129,43 @@ export function MaintenancePage() {
             <h2>{selected.title}</h2>
             <div className="maintenance-detail-date">Submitted {selected.submittedDate}</div>
             <p className="maintenance-detail-desc">{selected.description}</p>
+            <div className="maintenance-photos">
+              <div className="maintenance-photos-head">
+                <h3>Photos</h3>
+                {selected.status !== "resolved" && (
+                  <>
+                    <button type="button" className="btn btn--outline" disabled={uploading} onClick={() => photoInput.current?.click()}>
+                      {uploading ? "Uploading…" : "+ Add photo"}
+                    </button>
+                    <input
+                      ref={photoInput}
+                      type="file"
+                      accept={PHOTO_ACCEPT}
+                      hidden
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        if (file) void addPhoto(selected.id, file);
+                      }}
+                    />
+                  </>
+                )}
+              </div>
+              {photoError && <div className="text-error" role="alert">{photoError}</div>}
+              {(photos[requestNumber(selected.id)] ?? []).length === 0 ? (
+                <p className="maintenance-photos-empty">No photos. A photo helps the office see the problem before they visit.</p>
+              ) : (
+                <ul className="maintenance-photo-list">
+                  {photos[requestNumber(selected.id)]!.map((p) => (
+                    <li key={p.id}>
+                      <a href={p.href} target="_blank" rel="noopener noreferrer">
+                        <img src={p.href} alt={p.filename} loading="lazy" />
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </>
         ) : (
           <div className="maintenance-empty">No requests yet. Use "+ New Request" to report an issue.</div>
@@ -101,24 +176,37 @@ export function MaintenancePage() {
 }
 
 interface NewRequestFormProps {
-  onSubmit: (request: { title: string; description: string }) => void;
+  onSubmit: (request: { title: string; description: string; photo: File | null }) => Promise<void>;
   onCancel: () => void;
+  error: string | null;
 }
 
 //Structured fields
-function NewRequestForm({ onSubmit, onCancel }: NewRequestFormProps) {
+function NewRequestForm({ onSubmit, onCancel, error }: NewRequestFormProps) {
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("plumbing");
   const [urgency, setUrgency] = useState("routine");
   const [details, setDetails] = useState("");
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [missingTitle, setMissingTitle] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  function handleSubmit(event: React.FormEvent) {
+  async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (!title.trim()) return;
+    if (!title.trim()) {
+      setMissingTitle(true);
+      return;
+    }
+    setMissingTitle(false);
     const description = `Category: ${category} | Urgency: ${urgency}${
       details ? ` | ${details}` : ""
     }`;
-    onSubmit({ title: title.trim(), description });
+    setSubmitting(true);
+    try {
+      await onSubmit({ title: title.trim(), description, photo });
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -186,9 +274,23 @@ function NewRequestForm({ onSubmit, onCancel }: NewRequestFormProps) {
         />
       </div>
 
+      <div className="form-group">
+        <label className="field-label" htmlFor="req-photo">
+          Photo (optional)
+        </label>
+        <input id="req-photo" className="field-input" type="file" accept={PHOTO_ACCEPT} onChange={(e) => setPhoto(e.target.files?.[0] ?? null)} />
+        <div className="field-hint">JPEG, PNG or WebP, up to 5 MB. You can add more photos after you submit.</div>
+      </div>
+
+      {(missingTitle || error) && (
+        <div className="text-error" role="alert">
+          {missingTitle ? "Tell us what needs attention." : error}
+        </div>
+      )}
+
       <div style={{ display: "flex", gap: 10 }}>
-        <button type="submit" className="btn btn--primary">
-          Submit request
+        <button type="submit" className="btn btn--primary" disabled={submitting}>
+          {submitting ? "Submitting…" : "Submit request"}
         </button>
         <button type="button" className="btn btn--outline" onClick={onCancel}>
           Cancel

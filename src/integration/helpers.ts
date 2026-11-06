@@ -52,6 +52,17 @@ function urlFor(base: string, database: string, login?: { user: string; password
     return url.toString()
 }
 
+/** Run `work` while holding a lock shared by every test file on this Postgres server (see freshDatabase). */
+export async function withServerLock<T>(work: () => Promise<T>): Promise<T> {
+    const lock = new Pool({ connectionString: TEST_ADMIN_URL, max: 1 })
+    try {
+        await lock.query("SELECT pg_advisory_lock(727401)")
+        try { return await work() } finally { await lock.query("SELECT pg_advisory_unlock(727401)") }
+    } finally {
+        await lock.end()
+    }
+}
+
 // drop database and reapply the schema (migrations) for tests database
 export async function freshDatabase(name: string): Promise<TestDatabase> {
     // if database name is garbled, throw error
@@ -68,9 +79,15 @@ export async function freshDatabase(name: string): Promise<TestDatabase> {
 
     //  setup app login for tests
     const owner = new Pool({ connectionString: urlFor(TEST_ADMIN_URL, name), max: 3 }) 
-    await migrate(owner, MIGRATIONS_DIR)
     const appUrl = urlFor(TEST_ADMIN_URL, name, { user: "summit_app", password: APP_ROLE_PASSWORD })
-    await setAppLogin(owner, appUrl)
+    // Roles belong to the whole Postgres server, not to one database. Test files run in
+    // parallel, and two of them creating or altering `summit_app` at once fails with
+    // "tuple concurrently updated" (seen on slower machines and CI). A server-wide
+    // advisory lock lets them take turns for this short step.
+    await withServerLock(async () => {
+        await migrate(owner, MIGRATIONS_DIR)
+        await setAppLogin(owner, appUrl)
+    })
     const app = new Pool({ connectionString: appUrl, max: 5 })
 
     // return test database object

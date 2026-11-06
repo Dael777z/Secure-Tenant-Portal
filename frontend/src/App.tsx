@@ -7,6 +7,9 @@ import { PayRentPage } from "./pages/PayRentPage";
 import { LedgerPage } from "./pages/LedgerPage";
 import { MaintenancePage } from "./pages/MaintenancePage";
 import { NoticesPage } from "./pages/NoticesPage";
+import { DocumentsPage } from "./pages/DocumentsPage";
+import { SettingsPage } from "./pages/SettingsPage";
+import { applyTextSize, getTextSize } from "./components/textSize";
 import { TenantDataProvider, useTenantData } from "./data/tenantData";
 import { currentUser, login, logout, type SessionUser } from "./api/auth";
 import { SESSION_CHECK } from "./api/session";
@@ -19,8 +22,13 @@ const pageTitles: Record<PageKey, string> = {
   pay: "Pay Rent",
   ledger: "Ledger View",
   maintenance: "Maintenance",
+  documents: "Documents",
   notices: "Notices",
+  settings: "Settings",
 };
+
+// Juan's text size (Settings → Display) is a per-device choice: apply it on load.
+applyTextSize(getTextSize(), false);
 
 /* Root of the portal: residents get the resident portal, staff the manager side. */
 export default function App() {
@@ -107,7 +115,9 @@ function TenantShell({
           {activePage === "pay" && <PayRentPage />}
           {activePage === "ledger" && <LedgerPage />}
           {activePage === "maintenance" && <MaintenancePage />}
+          {activePage === "documents" && <DocumentsPage />}
           {activePage === "notices" && <NoticesPage />}
+          {activePage === "settings" && <SettingsPage />}
         </div>
       </main>
     </div>

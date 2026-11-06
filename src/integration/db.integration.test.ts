@@ -115,7 +115,8 @@ describe.skipIf(!hasDatabase)("PostgresDatabase on the Summit schema", () => {
             expect(created.newTenantIds).toHaveLength(1)
 
             const charges = await asAdmin(() => t.db.listChargesForLease(created.leaseId))
-            expect(charges.map((c) => c.dueDate)).toEqual(["2026-08-15", "2026-09-01", "2026-10-01"])
+            // Rent is due on the lease's start day each month (007).
+            expect(charges.map((c) => c.dueDate)).toEqual(["2026-08-15", "2026-09-15", "2026-10-15"])
             const balances = await asAdmin(() => t.db.listLeaseBalances())
             expect(balances.find((b) => b.leaseId === created.leaseId)).toMatchObject({ charged: 2700, paid: 0, balance: 2700 })
         })
@@ -128,9 +129,12 @@ describe.skipIf(!hasDatabase)("PostgresDatabase on the Summit schema", () => {
 
         it("rent generation is safe to repeat", async () => {
             expect(await runAs({ type: "system" }, () => t.db.generateRentCharges(TODAY_TEXT))).toBe(0)
-            // Next month arrives: exactly one new charge per open lease.
-            expect(await runAs({ type: "system" }, () => t.db.generateRentCharges("2026-11-01"))).toBe(2)
+            // Next month arrives: each open lease is billed on its own start day (007).
+            // Nov 1 bills the lease that started on the 1st; Nov 15 the one that started on the 15th.
+            expect(await runAs({ type: "system" }, () => t.db.generateRentCharges("2026-11-01"))).toBe(1)
             expect(await runAs({ type: "system" }, () => t.db.generateRentCharges("2026-11-01"))).toBe(0)
+            expect(await runAs({ type: "system" }, () => t.db.generateRentCharges("2026-11-15"))).toBe(1)
+            expect(await runAs({ type: "system" }, () => t.db.generateRentCharges("2026-11-15"))).toBe(0)
         })
 
         it("only admin or system can bill rent", async () => {

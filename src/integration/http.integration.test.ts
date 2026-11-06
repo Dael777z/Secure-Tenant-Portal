@@ -6,6 +6,7 @@ import { loadConfig } from "../config"
 import { AppError } from "../types/errors"
 import { createApp } from "../create-app"
 import { createContainer, type Container } from "../container"
+import { createLogger } from "../logging"
 import { seed } from "../db/seed"
 import { PASSWORDS } from "../db/seed/data"
 import { freshDatabase, hasDatabase, type TestDatabase } from "./helpers"
@@ -56,11 +57,14 @@ describe.skipIf(!hasDatabase)("HTTP API on a seeded database", () => {
     let container: Container
     let server: Server
     let base: string
+    /** Every line the app logs, at info and up (tests normally log warnings only). */
+    const logged: Array<{ event: string; request_id?: string; metadata?: Record<string, unknown> }> = []
+    const logger = createLogger({ ...config, mode: "development" }, { write: (line: string) => { logged.push(JSON.parse(line)) } })
 
     beforeAll(async () => {
         t = await freshDatabase("portal_http_test")
         await seed(t.owner, { dataset: "clean", webOrigin: ORIGIN, bcryptRounds: 4 })
-        container = createContainer({ config, db: t.db, plaid: null })
+        container = createContainer({ config, db: t.db, plaid: null, logger })
         server = createApp(container).listen(0)
         await new Promise((resolve) => server.once("listening", resolve))
         base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`
@@ -132,13 +136,63 @@ describe.skipIf(!hasDatabase)("HTTP API on a seeded database", () => {
         expect((await admin.post(`/manager/leases/${lease}/charges`, { kind: "late_fee", amount: -1, dueDate: "2026-10-16" })).status).toBe(400)
     })
 
+    /** The test tenant's balance, after the office bills `extra` (a utility charge) when it is zero. */
+    const owing = async (tenant: Client, extra = 40) => {
+        let balance = (await tenant.get("/tenant/summary")).body.currentBalance as number
+        if (balance <= 0) {
+            // Nothing owed (or credit from paying ahead): add a charge bigger than the credit.
+            const admin = await signedIn(ADMIN)
+            const row = (await admin.get("/manager/tenants")).body.tenants.find((x: { email: string }) => x.email === TENANT.email)
+            const amount = Math.round((extra - balance) * 100) / 100
+            expect((await admin.post(`/manager/leases/${row.leaseId}/charges`, { kind: "utility", amount, dueDate: "2026-10-01", description: "Water" })).status).toBe(201)
+            balance = (await tenant.get("/tenant/summary")).body.currentBalance
+        }
+        return balance
+    }
+
     it("records a tenant checkout once, however many times it is sent", async () => {
         const tenant = await signedIn(TENANT)
-        const first = await tenant.post("/tenant/payments", { amount: 12, idempotencyKey: "checkout-1234-abcd" })
-        const again = await tenant.post("/tenant/payments", { amount: 12, idempotencyKey: "checkout-1234-abcd" })
+        const amount = await owing(tenant)
+        const first = await tenant.post("/tenant/payments", { amount, idempotencyKey: "checkout-1234-abcd" })
+        const again = await tenant.post("/tenant/payments", { amount, idempotencyKey: "checkout-1234-abcd" })
         expect(first.status).toBe(201)
+        expect(again.status).toBe(201)
         expect(again.body.confirmation).toBe(first.body.confirmation)
-        expect((await tenant.post("/tenant/payments", { amount: 12, idempotencyKey: "no spaces allowed" })).status).toBe(400)
+        expect((await tenant.post("/tenant/payments", { amount, idempotencyKey: "no spaces allowed" })).status).toBe(400)
+    })
+
+    it("a tenant pays at least the balance, and may pay up to 3 months of rent ahead as credit", async () => {
+        const tenant = await signedIn(TENANT)
+        const amount = await owing(tenant)
+        const limits = (await tenant.get("/tenant/summary")).body.payLimits
+        expect(limits).toMatchObject({ minimum: amount, credit: 0, prepayMonths: 3, canPay: true })
+        expect(limits.maximum).toBeCloseTo(amount + 3 * limits.monthlyRent, 2)
+        const rent = limits.monthlyRent as number
+
+        // Part of the balance: refused. More than the limit: refused.
+        expect(await tenant.post("/tenant/payments", { amount: Math.round((amount - 1) * 100) / 100 })).toMatchObject({ status: 409, body: { error: "AMOUNT_BELOW_BALANCE" } })
+        expect(await tenant.post("/tenant/payments", { amount: Math.round((limits.maximum + 0.01) * 100) / 100 })).toMatchObject({ status: 409, body: { error: "AMOUNT_ABOVE_LIMIT" } })
+
+        // The balance plus $100 ahead: the $100 is credit.
+        expect((await tenant.post("/tenant/payments", { amount: Math.round((amount + 100) * 100) / 100, idempotencyKey: "prepay-1" })).status).toBe(201)
+        const after = (await tenant.get("/tenant/summary")).body
+        expect(after.currentBalance).toBeCloseTo(-100, 2)
+        expect(after.payLimits).toMatchObject({ minimum: 1, credit: 100, canPay: true })
+        expect(after.payLimits.maximum).toBeCloseTo(3 * rent - 100, 2)
+        expect(after.notices.find((n: { id: string }) => n.id === "n_credit")?.title).toBe("$100.00 credit on your account")
+
+        // The office sees the same credit (one ledger, two sides).
+        const admin = await signedIn(ADMIN)
+        const row = (await admin.get("/manager/tenants")).body.tenants.find((x: { email: string }) => x.email === TENANT.email)
+        expect((await admin.get(`/manager/leases/${row.leaseId}`)).body.balance).toBeCloseTo(-100, 2)
+
+        // With nothing due: at least $1, and up to the rest of the limit.
+        expect((await tenant.post("/tenant/payments", { amount: 0.5 })).status).toBe(400)
+        expect((await tenant.post("/tenant/payments", { amount: after.payLimits.maximum, idempotencyKey: "prepay-2" })).status).toBe(201)
+        const full = (await tenant.get("/tenant/summary")).body
+        expect(full.currentBalance).toBeCloseTo(-3 * rent, 2)
+        expect(full.payLimits).toMatchObject({ maximum: 0, canPay: false })
+        expect(await tenant.post("/tenant/payments", { amount: 1 })).toMatchObject({ status: 409, body: { error: "AMOUNT_ABOVE_LIMIT" } })
     })
 
     it("shows a tenant their own summary, and lets them pay and file a request", async () => {
@@ -147,7 +201,7 @@ describe.skipIf(!hasDatabase)("HTTP API on a seeded database", () => {
         expect(before.status).toBe(200)
 
         expect(before.body).toMatchObject({ plaidEnabled: false, testPayments: true })
-        const pay = await tenant.post("/tenant/payments", { amount: 100 })   // development: a test transfer
+        const pay = await tenant.post("/tenant/payments", { amount: await owing(tenant) })   // development: a test transfer
         expect(pay.status).toBe(201)
         expect(pay.body.confirmation).toMatch(/^CONF-/)
 
@@ -209,6 +263,21 @@ describe.skipIf(!hasDatabase)("HTTP API on a seeded database", () => {
         // Leases are not deleted.
         const del = await admin.delete(`/manager/leases/${lease.body.id}`)
         expect(del.status).toBe(404)
+
+        // Each step is in the log, tied to its request, with who did it and no email addresses.
+        const event = (name: string) => logged.find((l) => l.event === name)
+        const leased = event("office.lease.create.succeeded")!
+        expect(leased.metadata).toMatchObject({ by: expect.stringMatching(/^admin:\d+$/), unitId: unit.body.id, leaseId: lease.body.id, invited: [invite.tenantId] })
+        expect(event("auth.signup.succeeded")!.metadata).toMatchObject({ userId: `tenant:${invite.tenantId}` })
+        expect(event("payment.office.succeeded")!.metadata).toMatchObject({ leaseId: lease.body.id, amount: 300, confirmation: paid.body.confirmation })
+        expect(event("office.lease.create.failed")!.metadata).toMatchObject({ code: "UNIT_OCCUPIED" })
+        const completed = logged.find((l) => l.event === "request.completed" && l.request_id === leased.request_id)!
+        expect(completed.metadata).toMatchObject({ method: "POST", path: "/api/manager/leases", statusCode: 201 })
+        expect(logged.find((l) => l.event === "request.completed" && l.metadata?.error === "UNIT_OCCUPIED")).toBeDefined()
+        expect(logged.find((l) => l.event === "auth.login.failed" && l.metadata?.reason === "unknown email")).toBeDefined()
+        const signupLine = logged.find((l) => l.event === "request.completed" && l.metadata?.path === "/api/auth/signup")!
+        expect(JSON.stringify(signupLine)).not.toContain(invite.inviteToken)
+        expect(JSON.stringify(logged)).not.toContain("@example.com")
     })
 
     it("passes plaid's error code and request id through to the browser, and lets Plaid Link load in production", async () => {

@@ -5,20 +5,33 @@ import type { AppConfig } from "./config"
 import type { LogService } from "./logging"
 import { createAuth } from "./middleware/auth"
 import { errorHandler } from "./middleware/errors"
+import { jsonBody } from "./middleware/body"
 import { verifyRequestOrigin } from "./middleware/origin"
 import { createRateLimits } from "./middleware/rate-limit"
 import { requestLog } from "./middleware/request-log"
 import { privateApiCache, securityHeaders } from "./middleware/security"
 import { createAuthRouter } from "./routes/auth"
+import { createFinanceRouter } from "./routes/finance"
 import { createManagerRouter } from "./routes/manager"
+import { createOperationsRouter } from "./routes/operations"
 import { createMessageRouter } from "./routes/messages"
 import { createPlaidRouter } from "./routes/plaid"
 import { createTenantRouter } from "./routes/tenant"
+import { createLeasingRouter } from "./routes/leasing"
+import { createMaintenanceDetailRouter } from "./routes/maintenance-detail"
+import { createNoticesRouter } from "./routes/notices"
+import { createOfficeRouter } from "./routes/office"
 import type { AuthService } from "./services/auth"
 import type { ManagerService } from "./services/manager-service"
 import type { MessageService } from "./services/message-service"
+import type { FinanceService } from "./services/finance-service"
+import type { OperationsService } from "./services/operations-service"
 import type { PlaidGateway } from "./services/plaid"
 import type { TenantService } from "./services/tenant-service"
+import type { LeasingService } from "./services/leasing-service"
+import type { MaintenanceDetailService } from "./services/maintenance-detail-service"
+import type { NoticesService } from "./services/notices-service"
+import type { OfficeService } from "./services/office-service"
 import type { HealthStore } from "./types/stores"
 
 /** Everything the Express app needs, handed in (container.ts builds the real ones). */
@@ -32,6 +45,18 @@ export interface AppDependencies {
     tenant: TenantService
     /** Tenant ↔ office messages (004). */
     messages: MessageService
+    /** Collections, P&L, performance, expenses, leases ending soon (005). */
+    finance: FinanceService
+    /** RentRedi-style management (008). */
+    operations: OperationsService
+    /** 009: team, activity, portfolios, details, compliance, reports, search. */
+    office: OfficeService
+    /** 009: one maintenance request in detail, its photos and cost. */
+    maintenanceDetail: MaintenanceDetailService
+    /** 009: notices to residents, and documents. */
+    notices: NoticesService
+    /** 009: listings, leads and the public listings page. */
+    leasing: LeasingService
     /** Null when Plaid is not configured: the bank-link routes answer 503. */
     plaid: PlaidGateway | null
     /** The built frontend (index.html and assets). Leave out when Vite serves it (development, tests). */
@@ -45,7 +70,7 @@ export interface AppDependencies {
  */
 export function createApp(deps: AppDependencies): Application {
     const { config, logger, health, distRoot } = deps
-    const guard = createAuth(config)
+    const guard = createAuth(config, logger)
     const limits = createRateLimits(config)
     const app: Application = express()
 
@@ -68,14 +93,23 @@ export function createApp(deps: AppDependencies): Application {
     app.use(requestLog(logger))
     app.use(securityHeaders({ production: config.production, https: config.webOrigin.startsWith("https://") }))
     app.use(privateApiCache)
-    // 6 MB: room for a payment receipt (at most 4 MB, sent as base64).
-    app.use(express.json({ limit: "6mb" }))
+    // 100 KB, except the receipt routes (middleware/body.ts).
+    app.use(jsonBody)
     app.use(cookieParser())
     app.use(verifyRequestOrigin(config.webOrigin))
 
     app.use("/api", createAuthRouter({ auth: deps.auth, guard, limits, config }))
     app.use("/api", createPlaidRouter({ plaid: deps.plaid, tenant: deps.tenant, guard, limits, tokenEncryptionKey: config.tokenEncryptionKey }))
     app.use("/api", createTenantRouter({ tenant: deps.tenant, guard, limits, plaidEnabled: deps.plaid !== null, testPayments: !config.production }))
+    // Before the manager router, so /manager/leases/expiring is not read as a lease id.
+    app.use("/api", createFinanceRouter({ finance: deps.finance, guard, limits }))
+    // 009, before the manager router: /manager/maintenance/summary and /manager/documents/all are not ids.
+    app.use("/api", createOfficeRouter({ office: deps.office, guard, limits, webOrigin: config.webOrigin }))
+    app.use("/api", createMaintenanceDetailRouter({ maintenance: deps.maintenanceDetail, guard, limits }))
+    app.use("/api", createNoticesRouter({ notices: deps.notices, guard, limits }))
+    app.use("/api", createLeasingRouter({ leasing: deps.leasing, guard, limits }))
+    // Before the manager router too: /manager/leases/:id/charges (repeating charges) and the 008 screens.
+    app.use("/api", createOperationsRouter({ operations: deps.operations, guard, limits }))
     app.use("/api", createManagerRouter({ manager: deps.manager, guard, limits, webOrigin: config.webOrigin }))
     app.use("/api", createMessageRouter({ messages: deps.messages, guard, limits }))
 

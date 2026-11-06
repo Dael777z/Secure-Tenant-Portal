@@ -5,6 +5,7 @@ import { dirname } from "node:path"
 import pino, { type Logger } from "pino"
 
 import type { AppConfig } from "./config"
+import { AppError } from "./types/errors"
 
 /**
  * One JSON line per event: `{ event, request_id, metadata }`. Lines go to the
@@ -25,12 +26,37 @@ export class LogService {
     info(event: string, metadata?: LogMetadata): void { this.write("info", event, metadata) }
     warn(event: string, metadata?: LogMetadata): void { this.write("warn", event, metadata) }
     error(event: string, metadata?: LogMetadata): void { this.write("error", event, metadata) }
-    errorWithCause(event: string, error: unknown, metadata?: LogMetadata): void { this.write("error", event, { ...metadata, error }) }
+    errorWithCause(event: string, error: unknown, metadata?: LogMetadata): void {
+        // an Error's fields are not enumerable, so pino would write {}: spell out type, message and stack
+        this.write("error", event, { ...metadata, error: error instanceof Error ? pino.stdSerializers.err(error) : error })
+    }
+
+    /**
+     * Run one step of a flow and log how it ended: `<event>.succeeded` with `outcome(result)`,
+     * or `<event>.failed` with the AppError code (a warning: the app refused, as designed) or
+     * the error itself (an error: something broke). Both carry `metadata` and `durationMs`.
+     */
+    async flow<T>(event: string, metadata: LogMetadata, work: () => Promise<T>, outcome?: (result: T) => LogMetadata): Promise<T> {
+        const startedAt = Date.now()
+        try {
+            const result = await work()
+            this.info(`${event}.succeeded`, { ...metadata, ...outcome?.(result), durationMs: Date.now() - startedAt })
+            return result
+        } catch (error) {
+            const durationMs = Date.now() - startedAt
+            if (error instanceof AppError) this.warn(`${event}.failed`, { ...metadata, code: error.code, ...error.details, durationMs })
+            else this.errorWithCause(`${event}.failed`, error, { ...metadata, durationMs })
+            throw error
+        }
+    }
 
     private write(level: "info" | "warn" | "error", event: string, metadata?: LogMetadata): void {
         this.logger[level]({ event_id: randomUUID(), event, ...requestContext.getStore(), metadata })
     }
 }
+
+/** Writes nothing: the default for services built without a logger (unit tests). */
+export const silentLogger = new LogService(pino({ level: "silent" }))
 
 const REDACT = ["password", "passwordHash", "access_token", "refresh_token", "authorization", "cookie", "inviteToken", "error.stack"]
 

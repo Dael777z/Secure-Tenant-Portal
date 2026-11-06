@@ -1,7 +1,7 @@
 import { types, type Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg"
 
 import type {
-    BankAccountInput, BankItem, CreatedLease, HashExpiry, NewCharge, LeaseChanges, LeaseTenantInput, NewLease,
+    BankAccountInput, BankItem, CreatedLease, HashExpiry, NewCharge, LeaseChanges, LeaseTenantInput, MaintenanceChange, NewLease,
     NewMaintenance, NewPayment, NewRefreshToken, NewTenant, PropertyInput, TenantChanges, UnitInput,
 } from "../types/inputs"
 import type {
@@ -9,13 +9,21 @@ import type {
     MaintenanceRecord, MaintenanceState, MessageRecord, OpenRequestCount, PaymentRecord, PersonRecord, PropertyRecord,
     Receipt, RecentPaymentRecord, SessionUser, StaffProfile, TenantMaintenanceRecord, ThreadRecord, UnitRecord, UserRecord,
 } from "../types/records"
+import type { ExpenseRecord, LeaseLocation, MaintenanceTiming, NewExpense, RenewalNoticeRecord } from "../types/finance"
+import { DEFAULT_NOTIFICATION_PREFS, type NotificationPrefs, type OfficeSettingsRecord, type ReportedPaymentRecord } from "../types/settings"
 import type { DatabaseInterface } from "../types/stores"
+import type {
+    LateFeeRuleRecord, LeaseDocumentFile, LeaseDocumentMeta, NewLateFeeRule, NewReminderRule, OfficeNotifications,
+    ReminderRuleRecord, ReminderSentRecord, StaffMember,
+} from "../types/operations"
 import { isStaffRole, type Role } from "../types/access"
 import { AppError } from "../types/errors"
 import { OFFICE_PAYMENT_PREFIX, reversalConfirmation } from "../utils/confirmations"
 import { adminId, parseUserId, tenantId } from "../utils/user-id"
-import { currentIdentity, SYSTEM, settingsFor, type Identity } from "./identity"
-import { Hash } from "node:crypto"
+import { currentIdentity, SYSTEM, type Identity } from "./identity"
+import { PostgresAdditions } from "./postgres-additions"
+import { inTransaction } from "./transaction"
+import { createHash } from "node:crypto"
 
 /**
  * Every SQL statement the app runs. Columns are aliased to the record field
@@ -75,29 +83,16 @@ const roleOf = (type: UserType, adminRole: string | null): Role => {
 }
 
 export class PostgresDatabase implements DatabaseInterface {
-    constructor(private readonly pool: Pool) {}
+    /** The 009 screens' queries (office tools, maintenance detail, leasing, notices, documents). */
+    readonly additions: PostgresAdditions
+
+    constructor(private readonly pool: Pool) {
+        this.additions = new PostgresAdditions(pool)
+    }
 
     /** Run `work` in one transaction as `as` (by default, whoever the current request is for). */
-    private async tx<T>(work: (client: PoolClient) => Promise<T>, as: Identity = currentIdentity()): Promise<T> {
-        const client = await this.pool.connect()
-        let broken = false
-        try {
-            await client.query("BEGIN")
-            const [type, id, role] = settingsFor(as)
-            // `true`: local to this transaction, so a pooled connection never carries an identity to the next caller.
-            await client.query(
-                "SELECT set_config('app.user_type', $1, true), set_config('app.user_id', $2, true), set_config('app.user_role', $3, true)",
-                [type, id, role],
-            )
-            const result = await work(client)
-            await client.query("COMMIT")
-            return result
-        } catch (error) {
-            try { await client.query("ROLLBACK") } catch { broken = true }
-            throw error
-        } finally {
-            client.release(broken)
-        }
+    private tx<T>(work: (client: PoolClient) => Promise<T>, as: Identity = currentIdentity()): Promise<T> {
+        return inTransaction(this.pool, work, as)
     }
 
     private query<R extends QueryResultRow>(sql: string, params: unknown[] = [], as?: Identity): Promise<QueryResult<R>> {
@@ -125,9 +120,19 @@ export class PostgresDatabase implements DatabaseInterface {
         // One UPDATE checks the token, its expiry and the tenant's state, so two racing requests cannot both win.
         const signup = await this.query<{ tid: number | null }>("SELECT auth_complete_signup($1, $2) AS tid", [tokenHash, passwordHash])
         const tid = signup.rows[0]?.tid
-        if (!tid) return null
+        if (!tid) {
+            // A teammate's invitation (009) uses the same link and page.
+            const staff = await this.query<{ admin_id: number; email: string; role: string }>("SELECT admin_id, email, role FROM auth_complete_staff_signup($1, $2)", [tokenHash, passwordHash])
+            const row = staff.rows[0]
+            return row ? { id: adminId(row.admin_id), email: row.email, passwordHash, role: roleOf("admin", row.role), mfaEnabled: false } : null
+        }
         const { rows } = await this.query<{ email: string }>("SELECT Email AS email FROM Tenants WHERE tID = $1", [tid], { type: "tenant", id: tid })
         return { id: tenantId(tid), email: rows[0]?.email ?? "", passwordHash, role: "tenant", mfaEnabled: false }
+    }
+
+    /** A sign-in or team change for the Activity page (009). Never fails the caller's request. */
+    async recordSecurityEvent(actor: string | null, action: string, summary: string, details: Record<string, unknown> | null = null): Promise<void> {
+        await this.additions.recordSecurityEvent(actor, action, summary, details)
     }
 
     async findStaffProfile(adminID: number): Promise<StaffProfile | null> {
@@ -518,6 +523,14 @@ export class PostgresDatabase implements DatabaseInterface {
         return rows.map((r) => r.id)
     }
 
+    async findConfirmationByKey(leaseId: number, idempotencyKey: string): Promise<string | null> {
+        const { rows } = await this.query<{ confirmation: string }>(
+            "SELECT transaction_id AS confirmation FROM Payment WHERE idempotency_key = $1 AND LeaseID = $2",
+            [idempotencyKey, leaseId],
+        )
+        return rows[0]?.confirmation ?? null
+    }
+
     async recordPayment(input: NewPayment): Promise<{ confirmation: string }> {
         const key = input.idempotencyKey ?? null
         // The payment already recorded under this key on this lease, if any.
@@ -543,14 +556,19 @@ export class PostgresDatabase implements DatabaseInterface {
         const write = async (client: PoolClient) => {
             const { rows } = await client.query<{ id: number }>(
                 `INSERT INTO Payment (LeaseID, direction, amount, status, transaction_id, idempotency_key)
-                 VALUES ($1, 'charge', $2, 'completed', $3, $4)
+                 VALUES ($1, 'charge', $2, $5, $3, $4)
                  ON CONFLICT (idempotency_key) DO NOTHING
                  RETURNING payID AS id`,
-                [input.leaseId, input.amount.toFixed(2), input.confirmation, key],
+                [input.leaseId, input.amount.toFixed(2), input.confirmation, key, input.reported ? "pending" : "completed"],
             )
             const payId = rows[0]?.id
             if (payId === undefined) return null
             await client.query("INSERT INTO Payment_Details (payID, tID, method) VALUES ($1, $2, $3)", [payId, input.tenantId, input.method])
+            // Cash App / Zelle (006): pending until the office confirms it.
+            if (input.reported) {
+                if (input.tenantId === null) throw new AppError("VALIDATION_ERROR")
+                await client.query("INSERT INTO Reported_Payments (payID, method, reported_by) VALUES ($1, $2, $3)", [payId, input.reported.method, input.tenantId])
+            }
             if (input.receipt) await this.saveReceipt(client, payId, input.receipt)
             return { confirmation: input.confirmation }
         }
@@ -630,11 +648,12 @@ export class PostgresDatabase implements DatabaseInterface {
 
     async listMaintenance(): Promise<MaintenanceRecord[]> {
         const { rows } = await this.query<MaintenanceRecord>(
-            `SELECT m.mID AS id, m.title, m.description, m.status, m.created_at AS "createdAt", u.uID AS "unitId", u.UnitNum AS "unitNum",
-                    p.Name AS "propertyName", t.Name AS "tenantName"
+            `SELECT m.mID AS id, m.title, m.description, m.status, m.priority, m.request_type AS "requestType", m.scheduled_for AS "scheduledFor",
+                    m.created_at AS "createdAt", m.updated_at AS "updatedAt", u.uID AS "unitId", u.UnitNum AS "unitNum",
+                    p.pID AS "propertyId", p.Name AS "propertyName", t.Name AS "tenantName"
              FROM Maintenance_T m JOIN Units u ON u.uID = m.uID JOIN Property p ON p.pID = u.pID LEFT JOIN Tenants t ON t.tID = m.tID
              WHERE m.deactivated_at IS NULL
-             ORDER BY (m.status = 'resolved'), m.created_at DESC, m.mID DESC`,
+             ORDER BY (m.status IN ('resolved', 'rejected')), m.created_at DESC, m.mID DESC`,
         )
         return rows
     }
@@ -653,7 +672,7 @@ export class PostgresDatabase implements DatabaseInterface {
 
     async listOpenRequestCounts(): Promise<OpenRequestCount[]> {
         const { rows } = await this.query<OpenRequestCount>(
-            `SELECT uID AS "unitId", count(*)::int AS count FROM Maintenance_T WHERE status <> 'resolved' AND deactivated_at IS NULL GROUP BY uID`,
+            `SELECT uID AS "unitId", count(*)::int AS count FROM Maintenance_T WHERE status NOT IN ('resolved', 'rejected') AND deactivated_at IS NULL GROUP BY uID`,
         )
         return rows
     }
@@ -664,8 +683,9 @@ export class PostgresDatabase implements DatabaseInterface {
             if (!unit.rowCount) throw new AppError("NOT_FOUND")
             try {
                 const { rows } = await client.query<{ id: number; createdAt: Date }>(
-                    `INSERT INTO Maintenance_T (uID, tID, title, description) VALUES ($1, $2, $3, $4) RETURNING mID AS id, created_at AS "createdAt"`,
-                    [input.unitId, input.tenantId, input.title, input.description],
+                    `INSERT INTO Maintenance_T (uID, tID, title, description, priority, request_type) VALUES ($1, $2, $3, $4, $5, $6)
+                     RETURNING mID AS id, created_at AS "createdAt"`,
+                    [input.unitId, input.tenantId, input.title, input.description, input.priority ?? "none", input.requestType ?? "other"],
                 )
                 return rows[0]!
             } catch (error) {
@@ -679,6 +699,24 @@ export class PostgresDatabase implements DatabaseInterface {
     async setMaintenanceStatus(id: number, status: MaintenanceState): Promise<void> {
         const result = await this.query("UPDATE Maintenance_T SET status = $2 WHERE mID = $1 AND deactivated_at IS NULL", [id, status])
         if (!result.rowCount) throw new AppError("NOT_FOUND")
+    }
+
+    async updateMaintenance(id: number, change: MaintenanceChange): Promise<void> {
+        const sets: string[] = []
+        const params: unknown[] = [id]
+        const add = (column: string, value: unknown) => { params.push(value); sets.push(`${column} = $${params.length}`) }
+        if (change.status !== undefined) add("status", change.status)
+        if (change.priority !== undefined) add("priority", change.priority)
+        if (change.requestType !== undefined) add("request_type", change.requestType)
+        if (change.scheduledFor !== undefined) add("scheduled_for", change.scheduledFor)
+        if (!sets.length) throw new AppError("VALIDATION_ERROR")
+        try {
+            const result = await this.query(`UPDATE Maintenance_T SET ${sets.join(", ")}, updated_at = now() WHERE mID = $1 AND deactivated_at IS NULL`, params)
+            if (!result.rowCount) throw new AppError("NOT_FOUND")
+        } catch (error) {
+            if (hasCode(error, PG.check)) throw new AppError("VALIDATION_ERROR")
+            throw error
+        }
     }
 
     async deactivateMaintenance(mID: number): Promise<void> {
@@ -769,5 +807,382 @@ export class PostgresDatabase implements DatabaseInterface {
                 )
             }
         })
+    }
+
+    // ---- Finance, collections and performance (005; staff only, by RLS)
+
+    async listAllCharges(): Promise<ChargeRecord[]> {
+        return (await this.query<ChargeRecord>(`SELECT ${CHARGE} FROM Charge c ORDER BY c.due_date, c.chargeID`)).rows
+    }
+
+    async listAllPayments(): Promise<PaymentRecord[]> {
+        const { rows } = await this.query<PaymentRecord>(
+            `SELECT ${PAYMENT} FROM Payment p LEFT JOIN Payment_Details d ON d.payID = p.payID ORDER BY p."timestamp", p.payID`,
+        )
+        return rows
+    }
+
+    async listLeaseLocations(): Promise<LeaseLocation[]> {
+        const { rows } = await this.query<LeaseLocation>(
+            `SELECT l.LeaseID AS "leaseId", u.uID AS "unitId", u.UnitNum AS "unitNum", p.pID AS "propertyId", p.Name AS "propertyName"
+             FROM Lease l JOIN Units u ON u.uID = l.uID JOIN Property p ON p.pID = u.pID`,
+        )
+        return rows
+    }
+
+    async listExpenses(): Promise<ExpenseRecord[]> {
+        const { rows } = await this.query<ExpenseRecord>(
+            `SELECT e.expID AS id, e.pID AS "propertyId", p.Name AS "propertyName", e.uID AS "unitId", u.UnitNum AS "unitNum",
+                    e.category, e.amount, e.spent_on AS "spentOn", e.vendor, e.description, a.name AS "createdBy"
+             FROM Expenses e
+             LEFT JOIN Property p ON p.pID = e.pID
+             LEFT JOIN Units u ON u.uID = e.uID
+             LEFT JOIN Admin a ON a.admin_id = e.created_by
+             WHERE e.voided_at IS NULL
+             ORDER BY e.spent_on DESC, e.expID DESC`,
+        )
+        return rows
+    }
+
+    async addExpense(input: NewExpense): Promise<number> {
+        const who = currentIdentity()
+        try {
+            const { rows } = await this.query<{ id: number }>(
+                `INSERT INTO Expenses (pID, uID, category, amount, spent_on, vendor, description, created_by)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING expID AS id`,
+                [input.propertyId, input.unitId, input.category, input.amount.toFixed(2), input.spentOn, input.vendor, input.description, who.type === "admin" ? who.id : null],
+            )
+            return rows[0]!.id
+        } catch (error) {
+            if (hasCode(error, PG.check, "23503")) throw new AppError("VALIDATION_ERROR")   // bad category/amount, unit not in property, unknown property
+            throw error
+        }
+    }
+
+    async voidExpense(expId: number): Promise<void> {
+        const result = await this.query("UPDATE Expenses SET voided_at = now() WHERE expID = $1 AND voided_at IS NULL", [expId])
+        if (!result.rowCount) throw new AppError("NOT_FOUND")
+    }
+
+    // ---- Juan's tenant side (006): office handles, tenant settings, reported payments
+
+    async getOfficeSettings(): Promise<OfficeSettingsRecord> {
+        const { rows } = await this.query<OfficeSettingsRecord>(
+            `SELECT o.cashapp_handle AS "cashappHandle", o.zelle_handle AS "zelleHandle",
+                    CASE WHEN o.updated_by IS NULL THEN NULL ELSE o.updated_at END AS "updatedAt", a.Name AS "updatedBy"
+               FROM Office_Settings o LEFT JOIN Admin a ON a.admin_id = o.updated_by`,
+        )
+        return rows[0] ?? { cashappHandle: null, zelleHandle: null, updatedAt: null, updatedBy: null }
+    }
+
+    async updateOfficeSettings(input: { cashappHandle: string | null; zelleHandle: string | null }): Promise<void> {
+        const who = currentIdentity()
+        try {
+            const result = await this.query(
+                "UPDATE Office_Settings SET cashapp_handle = $1, zelle_handle = $2, updated_by = $3, updated_at = now() WHERE id",
+                [input.cashappHandle, input.zelleHandle, who.type === "admin" ? who.id : null],
+            )
+            if (!result.rowCount) throw new AppError("FORBIDDEN")   // RLS: not a property manager
+        } catch (error) {
+            if (hasCode(error, PG.check)) throw new AppError("VALIDATION_ERROR")
+            throw error
+        }
+    }
+
+    async getNotificationPrefs(tID: number): Promise<NotificationPrefs> {
+        const { rows } = await this.query<NotificationPrefs>(
+            `SELECT rent_due AS "rentDue", payment_receipts AS "paymentReceipts", maintenance, messages
+               FROM Tenant_Notification_Prefs WHERE tID = $1`,
+            [tID],
+        )
+        return rows[0] ?? { ...DEFAULT_NOTIFICATION_PREFS }
+    }
+
+    async saveNotificationPrefs(tID: number, prefs: NotificationPrefs): Promise<void> {
+        await this.query(
+            `INSERT INTO Tenant_Notification_Prefs (tID, rent_due, payment_receipts, maintenance, messages)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (tID) DO UPDATE SET rent_due = $2, payment_receipts = $3, maintenance = $4, messages = $5, updated_at = now()`,
+            [tID, prefs.rentDue, prefs.paymentReceipts, prefs.maintenance, prefs.messages],
+        )
+    }
+
+    async updateOwnProfile(input: { name: string; phone: string | null }): Promise<void> {
+        const { rows } = await this.query<{ ok: boolean }>("SELECT tenant_update_own_profile($1, $2) AS ok", [input.name, input.phone])
+        if (!rows[0]?.ok) throw new AppError("NOT_FOUND")
+    }
+
+    async listReportedPayments(filter: { leaseId?: number; pendingOnly?: boolean } = {}): Promise<ReportedPaymentRecord[]> {
+        const { rows } = await this.query<ReportedPaymentRecord>(
+            `SELECT p.payID AS id, p.LeaseID AS "leaseId", p.amount, r.method, r.reported_at AS "reportedAt",
+                    r.reported_by AS "reportedBy", t.Name AS "reportedByName", p.transaction_id AS confirmation, p.status,
+                    v.decision, v.reason, v.reviewed_at AS "reviewedAt", a.Name AS "reviewedBy"
+               FROM Reported_Payments r
+               JOIN Payment p ON p.payID = r.payID
+               JOIN Tenants t ON t.tID = r.reported_by
+               LEFT JOIN Payment_Reviews v ON v.payID = r.payID
+               LEFT JOIN Admin a ON a.admin_id = v.reviewed_by
+              WHERE ($1::int IS NULL OR p.LeaseID = $1) AND (NOT $2::boolean OR p.status = 'pending')
+              ORDER BY r.reported_at DESC, p.payID DESC`,
+            [filter.leaseId ?? null, filter.pendingOnly ?? false],
+        )
+        return rows
+    }
+
+    async reviewReportedPayment(payId: number, decision: "confirmed" | "rejected", reason: string | null): Promise<ReportedPaymentRecord> {
+        const who = currentIdentity()
+        if (who.type !== "admin") throw new AppError("FORBIDDEN")
+        const leaseId = await this.tx(async (client) => {
+            // Lock the payment, so two managers can't decide the same report at once.
+            const { rows } = await client.query<{ leaseId: number }>(
+                `SELECT p.LeaseID AS "leaseId" FROM Payment p JOIN Reported_Payments r ON r.payID = p.payID
+                  WHERE p.payID = $1 AND p.status = 'pending' FOR UPDATE OF p`,
+                [payId],
+            )
+            if (!rows[0]) throw new AppError("NOT_FOUND")
+            await client.query("UPDATE Payment SET status = $2 WHERE payID = $1", [payId, decision === "confirmed" ? "completed" : "failed"])
+            await client.query("INSERT INTO Payment_Reviews (payID, decision, reason, reviewed_by) VALUES ($1, $2, $3, $4)", [payId, decision, reason, who.id])
+            return rows[0].leaseId
+        })
+        const [record] = (await this.listReportedPayments({ leaseId })).filter((r) => r.id === payId)
+        return record!
+    }
+
+    async listMaintenanceTimings(): Promise<MaintenanceTiming[]> {
+        const { rows } = await this.query<MaintenanceTiming>(
+            `SELECT m.mID AS id, m.uID AS "unitId", m.status, m.created_at AS "createdAt",
+                    CASE WHEN m.status = 'resolved' THEN
+                        (SELECT max(h.changed_at) FROM Maintenance_Status_History h WHERE h.mID = m.mID AND h.new_status = 'resolved')
+                    END AS "resolvedAt"
+             FROM Maintenance_T m WHERE m.deactivated_at IS NULL`,
+        )
+        return rows
+    }
+
+    async listRenewalNotices(): Promise<RenewalNoticeRecord[]> {
+        const { rows } = await this.query<RenewalNoticeRecord>(
+            `SELECT DISTINCT ON (LeaseID) LeaseID AS "leaseId", sent_at AS "sentAt", recipients
+             FROM Lease_Renewal_Notices ORDER BY LeaseID, sent_at DESC`,
+        )
+        return rows
+    }
+
+    async recordRenewalNotice(leaseId: number, recipients: number): Promise<void> {
+        const who = currentIdentity()
+        await this.query("INSERT INTO Lease_Renewal_Notices (LeaseID, sent_by, recipients) VALUES ($1, $2, $3)",
+            [leaseId, who.type === "admin" ? who.id : null, recipients])
+    }
+
+    async listLastOfficeMessages(): Promise<Array<{ tenantId: number; at: Date }>> {
+        const { rows } = await this.query<{ tenantId: number; at: Date }>(
+            `SELECT tID AS "tenantId", max(created_at) AS at FROM Messages WHERE sender_admin_id IS NOT NULL GROUP BY tID`,
+        )
+        return rows
+    }
+
+    // ---- RentRedi-style management (008)
+
+    async listLateFeeRules(): Promise<LateFeeRuleRecord[]> {
+        const { rows } = await this.query<LateFeeRuleRecord>(
+            `SELECT r.ruleID AS id, r.pID AS "propertyId", r.uID AS "unitId", r.grace_days AS "graceDays",
+                    r.first_amount AS "firstAmount", r.first_type AS "firstType", r.daily_amount AS "dailyAmount", r.daily_type AS "dailyType",
+                    r.max_amount AS "maxAmount", r.max_type AS "maxType", r.created_at AS "createdAt", a.name AS "createdBy"
+               FROM Late_Fee_Rules r LEFT JOIN Admin a ON a.admin_id = r.created_by
+              WHERE r.deactivated_at IS NULL
+              ORDER BY (r.pID IS NOT NULL), (r.uID IS NOT NULL), r.ruleID`,
+        )
+        return rows
+    }
+
+    async saveLateFeeRule(input: NewLateFeeRule): Promise<number> {
+        const who = currentIdentity()
+        return this.tx(async (client) => {
+            await client.query(
+                "UPDATE Late_Fee_Rules SET deactivated_at = now() WHERE deactivated_at IS NULL AND pID IS NOT DISTINCT FROM $1 AND uID IS NOT DISTINCT FROM $2",
+                [input.propertyId, input.unitId],
+            )
+            try {
+                const { rows } = await client.query<{ id: number }>(
+                    `INSERT INTO Late_Fee_Rules (pID, uID, grace_days, first_amount, first_type, daily_amount, daily_type, max_amount, max_type, created_by)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING ruleID AS id`,
+                    [input.propertyId, input.unitId, input.graceDays, input.firstAmount, input.firstType, input.dailyAmount, input.dailyType,
+                     input.maxAmount, input.maxType, who.type === "admin" ? who.id : null],
+                )
+                return rows[0]!.id
+            } catch (error) {
+                if (hasCode(error, PG.check, PG.unique, "23503")) throw new AppError("VALIDATION_ERROR")
+                throw error
+            }
+        })
+    }
+
+    async retireLateFeeRule(ruleId: number): Promise<void> {
+        const result = await this.query("UPDATE Late_Fee_Rules SET deactivated_at = now() WHERE ruleID = $1 AND deactivated_at IS NULL", [ruleId])
+        if (!result.rowCount) throw new AppError("NOT_FOUND")
+    }
+
+    async listReminderRules(): Promise<ReminderRuleRecord[]> {
+        const { rows } = await this.query<ReminderRuleRecord>(
+            `SELECT r.ruleID AS id, r.pID AS "propertyId", r.uID AS "unitId", r.days_before AS "daysBefore", r.repeat_after_due AS "repeatAfterDue",
+                    r.created_at AS "createdAt", a.name AS "createdBy"
+               FROM Rent_Reminder_Rules r LEFT JOIN Admin a ON a.admin_id = r.created_by
+              WHERE r.deactivated_at IS NULL
+              ORDER BY (r.pID IS NOT NULL), (r.uID IS NOT NULL), r.ruleID`,
+        )
+        return rows
+    }
+
+    async saveReminderRule(input: NewReminderRule): Promise<number> {
+        const who = currentIdentity()
+        return this.tx(async (client) => {
+            await client.query(
+                "UPDATE Rent_Reminder_Rules SET deactivated_at = now() WHERE deactivated_at IS NULL AND pID IS NOT DISTINCT FROM $1 AND uID IS NOT DISTINCT FROM $2",
+                [input.propertyId, input.unitId],
+            )
+            try {
+                const { rows } = await client.query<{ id: number }>(
+                    `INSERT INTO Rent_Reminder_Rules (pID, uID, days_before, repeat_after_due, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING ruleID AS id`,
+                    [input.propertyId, input.unitId, input.daysBefore, input.repeatAfterDue, who.type === "admin" ? who.id : null],
+                )
+                return rows[0]!.id
+            } catch (error) {
+                if (hasCode(error, PG.check, PG.unique, "23503")) throw new AppError("VALIDATION_ERROR")
+                throw error
+            }
+        })
+    }
+
+    async retireReminderRule(ruleId: number): Promise<void> {
+        const result = await this.query("UPDATE Rent_Reminder_Rules SET deactivated_at = now() WHERE ruleID = $1 AND deactivated_at IS NULL", [ruleId])
+        if (!result.rowCount) throw new AppError("NOT_FOUND")
+    }
+
+    async listRemindersSent(filter: { leaseId?: number; limit?: number } = {}): Promise<ReminderSentRecord[]> {
+        const { rows } = await this.query<ReminderSentRecord>(
+            `SELECT s.chargeID AS "chargeId", s.LeaseID AS "leaseId", s.sent_on AS "sentOn", s.kind, s.amount, s.due_date AS "dueDate", c.description
+               FROM Rent_Reminders_Sent s LEFT JOIN Charge c ON c.chargeID = s.chargeID
+              WHERE ($1::int IS NULL OR s.LeaseID = $1)
+              ORDER BY s.sent_on DESC, s.remID DESC
+              LIMIT $2`,
+            [filter.leaseId ?? null, filter.limit ?? 50],
+        )
+        return rows
+    }
+
+    async applyLateFees(today: string, timeZone: string): Promise<number> {
+        const { rows } = await this.query<{ n: number }>("SELECT apply_late_fees($1::date, $2) AS n", [today, timeZone])
+        return rows[0]?.n ?? 0
+    }
+
+    async sendRentReminders(today: string, timeZone: string): Promise<number> {
+        const { rows } = await this.query<{ n: number }>("SELECT send_rent_reminders($1::date, $2) AS n", [today, timeZone])
+        return rows[0]?.n ?? 0
+    }
+
+    async addCharges(rows: NewCharge[]): Promise<number[]> {
+        if (rows.length === 0) return []
+        return this.tx(async (client) => {
+            const ids: number[] = []
+            for (const input of rows) {
+                const lease = await client.query("SELECT 1 FROM Lease WHERE LeaseID = $1", [input.leaseId])
+                if (!lease.rowCount) throw new AppError("NOT_FOUND")
+                try {
+                    const { rows: made } = await client.query<{ id: number }>(
+                        "INSERT INTO Charge (LeaseID, kind, amount, due_date, description) VALUES ($1, $2, $3, $4, $5) RETURNING chargeID AS id",
+                        [input.leaseId, input.kind, input.amount.toFixed(2), input.dueDate, input.description],
+                    )
+                    ids.push(made[0]!.id)
+                } catch (error) {
+                    if (hasCode(error, PG.check)) throw new AppError("VALIDATION_ERROR")
+                    throw error
+                }
+            }
+            return ids
+        })
+    }
+
+    async listLeaseDocuments(): Promise<LeaseDocumentMeta[]> {
+        const { rows } = await this.query<LeaseDocumentMeta>(
+            `SELECT d.LeaseID AS "leaseId", d.filename, d.size_bytes AS "sizeBytes", d.uploaded_at AS "uploadedAt", a.name AS "uploadedBy"
+               FROM Lease_Documents d LEFT JOIN Admin a ON a.admin_id = d.uploaded_by
+              ORDER BY d.uploaded_at DESC`,
+        )
+        return rows
+    }
+
+    async findLeaseDocumentMeta(leaseId: number): Promise<LeaseDocumentMeta | null> {
+        const { rows } = await this.query<LeaseDocumentMeta>(
+            `SELECT d.LeaseID AS "leaseId", d.filename, d.size_bytes AS "sizeBytes", d.uploaded_at AS "uploadedAt", NULL AS "uploadedBy"
+               FROM Lease_Documents d WHERE d.LeaseID = $1`,
+            [leaseId],
+        )
+        return rows[0] ?? null
+    }
+
+    async findLeaseDocument(leaseId: number): Promise<LeaseDocumentFile | null> {
+        const { rows } = await this.query<LeaseDocumentFile>(
+            `SELECT filename, content_type AS "contentType", data FROM Lease_Documents WHERE LeaseID = $1`,
+            [leaseId],
+        )
+        return rows[0] ?? null
+    }
+
+    async saveLeaseDocument(leaseId: number, file: { filename: string; data: Buffer }): Promise<void> {
+        const sha = createHash("sha256").update(file.data).digest("hex")
+        await this.tx(async (client) => {
+            const lease = await client.query("SELECT 1 FROM Lease WHERE LeaseID = $1", [leaseId])
+            if (!lease.rowCount) throw new AppError("NOT_FOUND")
+            try {
+                await client.query(
+                    `INSERT INTO Lease_Documents (LeaseID, filename, content_type, size_bytes, sha256_hex, data) VALUES ($1, $2, 'application/pdf', $3, $4, $5)
+                     ON CONFLICT (LeaseID) DO UPDATE SET filename = EXCLUDED.filename, size_bytes = EXCLUDED.size_bytes,
+                       sha256_hex = EXCLUDED.sha256_hex, data = EXCLUDED.data`,
+                    [leaseId, file.filename, file.data.length, sha, file.data],
+                )
+            } catch (error) {
+                if (hasCode(error, PG.check)) throw new AppError("RECEIPT_INVALID")
+                throw error
+            }
+        })
+    }
+
+    async listReceiptsMeta(): Promise<Array<{ leaseId: number; paymentId: number; filename: string; sizeBytes: number; uploadedAt: Date }>> {
+        const { rows } = await this.query<{ leaseId: number; paymentId: number; filename: string; sizeBytes: number; uploadedAt: Date }>(
+            `SELECT p.LeaseID AS "leaseId", r.payID AS "paymentId", r.filename, r.size_bytes AS "sizeBytes", r.uploaded_at AS "uploadedAt"
+               FROM Payment_Receipts r JOIN Payment p ON p.payID = r.payID
+              ORDER BY r.uploaded_at DESC`,
+        )
+        return rows
+    }
+
+    async listStaff(): Promise<StaffMember[]> {
+        const { rows } = await this.query<StaffMember>(
+            "SELECT admin_id AS id, name, email::text AS email, role FROM Admin WHERE deactivated_at IS NULL ORDER BY role, name",
+        )
+        return rows
+    }
+
+    async getOfficeNotifications(): Promise<OfficeNotifications> {
+        const { rows } = await this.query<OfficeNotifications>(
+            `SELECT notify_email AS "notifyEmail", notify_new_maintenance AS "newMaintenance", notify_tenant_message AS "tenantMessage",
+                    notify_reported_payment AS "reportedPayment", notify_late_rent AS "lateRent"
+               FROM Office_Settings`,
+        )
+        return rows[0] ?? { notifyEmail: null, newMaintenance: true, tenantMessage: true, reportedPayment: true, lateRent: true }
+    }
+
+    async saveOfficeNotifications(input: OfficeNotifications): Promise<void> {
+        const who = currentIdentity()
+        try {
+            const result = await this.query(
+                `UPDATE Office_Settings SET notify_email = $1, notify_new_maintenance = $2, notify_tenant_message = $3,
+                        notify_reported_payment = $4, notify_late_rent = $5, updated_by = $6, updated_at = now() WHERE id`,
+                [input.notifyEmail, input.newMaintenance, input.tenantMessage, input.reportedPayment, input.lateRent, who.type === "admin" ? who.id : null],
+            )
+            if (!result.rowCount) throw new AppError("FORBIDDEN")
+        } catch (error) {
+            if (hasCode(error, PG.check)) throw new AppError("VALIDATION_ERROR")
+            throw error
+        }
     }
 }

@@ -10,7 +10,9 @@
     "cloudflare:prod": "node scripts/portal.mjs cloudflare:prod",
     "db": "node scripts/portal.mjs db",
     "test": "node scripts/portal.mjs test",
-    "test:unit": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "node scripts/portal.mjs test --project integration",
+    "test:coverage": "node scripts/portal.mjs test --coverage",
     "build": "vite build --config frontend/vite.config.mts && tsc -p tsconfig.json && node scripts/copy-migrations.js",
     "start": "node dist/server/app.js",
     "help": "node scripts/portal.mjs help"
@@ -24,6 +26,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "@vitest/coverage-v8": "^5.0.1",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.0",

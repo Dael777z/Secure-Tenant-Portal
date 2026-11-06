@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { loginMessage } from "../api/auth";
 import { inviteTokenFromUrl, SignUpForm } from "../components/SignUpForm";
+import { Brand } from "../theme/Brand";
 
 interface LoginPageProps {
     /** Signs in against the backend; rejects with an AuthError on failure. */
@@ -15,6 +16,8 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   const [error, setError] = useState<string | null>(null);
   // Opened from a sign-up link: start on "Create your account".
   const [signingUp, setSigningUp] = useState(() => inviteTokenFromUrl() !== null);
+  // "Forgot password?" opens a note on how a reset works (the office or a property manager sends a new link).
+  const [showResetHelp, setShowResetHelp] = useState(false);
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -38,6 +41,9 @@ export function LoginPage({ onLogin }: LoginPageProps) {
    return (
     <div className="login-shell">
       <div className="login-brand-panel">
+        <div className="login-brand-mark">
+          <Brand sub="Summit Realty Portal" size={40} />
+        </div>
         <h1 className="login-brand-title">
           Summit
           <br />
@@ -75,7 +81,13 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                 <label className="field-label field-label--dark" htmlFor="login-password">
                   Password
                 </label>
-                <button type="button" className="link-button link-button--dark">
+                <button
+                  type="button"
+                  className="link-button link-button--dark"
+                  aria-expanded={showResetHelp}
+                  aria-controls="login-reset-help"
+                  onClick={() => setShowResetHelp(!showResetHelp)}
+                >
                   Forgot password?
                 </button>
               </div>
@@ -89,6 +101,14 @@ export function LoginPage({ onLogin }: LoginPageProps) {
               />
             </div>
 
+            {showResetHelp && (
+              <div id="login-reset-help" className="login-footnote login-reset-help" role="note">
+                <strong>Residents:</strong> call or message the leasing office and ask for a new sign-in link. It lets you choose a
+                new password, and your old password stops working. <strong>Staff:</strong> ask a property manager to send you a new
+                link from Team.
+              </div>
+            )}
+
             {error && (
               <div className="login-error" role="alert">
                 {error}
@@ -101,19 +121,11 @@ export function LoginPage({ onLogin }: LoginPageProps) {
           </form>
 
           <p className="login-footnote">
-            Forgot your password?{" "}
-            <button type="button" className="link-button link-button--dark">
-              Email me a link to set a new one
-            </button>
-            . The leasing office can also reset it for you, and either way the reset is
-            recorded on your account.
-          </p>
-
-          <p className="login-footnote">
-            New resident?{" "}
+            New resident or teammate?{" "}
             <button type="button" className="link-button link-button--dark" onClick={() => setSigningUp(true)}>
               Create your account
-            </button>
+            </button>{" "}
+            with the link the office sent you.
           </p>
           </>
           )}

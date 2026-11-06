@@ -78,11 +78,16 @@ export interface NewPayment {
      * is recorded once (Payment.idempotency_key is unique).
      */
     idempotencyKey?: string | null
+    /**
+     * Cash App / Zelle (006): the tenant says they sent it. Recorded as
+     * 'pending' (it does not move the balance) until the office confirms it.
+     */
+    reported?: { method: "cashapp" | "zelle" } | null
 }
 
 /** A charge the office adds by hand. Rent is billed by the rent job, so it is not one of these kinds. */
-export type ManualChargeKind = "deposit" | "late_fee" | "utility" | "proration" | "other"
-export const MANUAL_CHARGE_KINDS: readonly ManualChargeKind[] = ["deposit", "late_fee", "utility", "proration", "other"]
+export type ManualChargeKind = "deposit" | "late_fee" | "utility" | "proration" | "parking" | "hoa" | "repair" | "non_compliance" | "misc_income" | "other"
+export const MANUAL_CHARGE_KINDS: readonly ManualChargeKind[] = ["deposit", "late_fee", "utility", "proration", "parking", "hoa", "repair", "non_compliance", "misc_income", "other"]
 
 export interface NewCharge {
     leaseId: number
@@ -99,6 +104,17 @@ export interface NewMaintenance {
     tenantId: number | null
     title: string
     description: string
+    priority?: import("./records").MaintenancePriority
+    requestType?: import("./records").MaintenanceType
+}
+
+/** What the office may change on a request (008); anything left out stays. */
+export interface MaintenanceChange {
+    status?: import("./records").MaintenanceState
+    priority?: import("./records").MaintenancePriority
+    requestType?: import("./records").MaintenanceType
+    /** YYYY-MM-DD, or null to clear it. */
+    scheduledFor?: string | null
 }
 
 export interface BankItem {

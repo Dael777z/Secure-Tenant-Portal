@@ -58,16 +58,23 @@ export interface MaintenanceRow {
     id: number
     title: string
     description: string
-    status: "submitted" | "in_progress" | "resolved"
+    status: import("./records").MaintenanceState
+    priority: import("./records").MaintenancePriority
+    requestType: import("./records").MaintenanceType
+    /** YYYY-MM-DD */
+    scheduledFor: string | null
     submittedDate: string
+    /** ISO time of the last change. */
+    updatedAt: string
     unitId: number
     unitNum: string
+    propertyId: number
     propertyName: string
     tenantName: string | null
 }
 
 export interface UpdateRow {
-    kind: "overdue" | "maintenance_new" | "not_signed_up"
+    kind: "overdue" | "maintenance_new" | "not_signed_up" | "payment_reported"
     title: string
     detail: string
     leaseId: number | null

@@ -138,3 +138,22 @@ describe("auth service (against a fake store, no database)", () => {
         await expect(auth.refresh(session.refreshToken)).rejects.toMatchObject({ code: "INVALID_TOKEN" })
     })
 })
+
+describe("sign-in events (009)", () => {
+    it("records the sign-in with the address, and a failure to record never blocks it", async () => {
+        const store = new FakeAuthStore()
+        store.account("resident@example.com", "correct horse", "tenant")
+        const events: unknown[][] = []
+        const recording = Object.assign(store, { recordSecurityEvent: async (...args: unknown[]) => { events.push(args) } })
+        const warnings: string[] = []
+        const log = { flow: (_e: string, _m: unknown, work: () => unknown) => work(), info() {}, warn: (event: string) => { warnings.push(event) }, error() {} }
+        const auth = new AuthService(recording, config, log as never)
+        await auth.login("resident@example.com", "correct horse", { ip: "203.0.113.9" })
+        expect(events[0]).toEqual([expect.stringMatching(/^tenant:/), "login_success", "Signed in", { ip: "203.0.113.9" }])
+        await auth.login("resident@example.com", "correct horse")
+        expect(events[1]![3]).toBeNull()
+        recording.recordSecurityEvent = async () => { throw new Error("database is down") }
+        await expect(auth.login("resident@example.com", "correct horse")).resolves.toMatchObject({ user: { email: "resident@example.com" } })
+        expect(warnings).toContain("auth.event.not_recorded")
+    })
+})

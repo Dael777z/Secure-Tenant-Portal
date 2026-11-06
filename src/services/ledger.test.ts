@@ -66,6 +66,17 @@ describe("ledger built from the Charge and Payment tables", () => {
         expect(dueDates(0, new Date("2026-10-07T00:00:00Z"))).toEqual({ rentDueDate: "November 1", lateFeeGraceDate: "Nov 5" })
     })
 
+    it("uses the lease's start day: due on the 15th for a lease that started on the 15th (007)", () => {
+        expect(dueDates(950, new Date("2026-10-20T00:00:00Z"), "2026-08-15")).toEqual({ rentDueDate: "October 15", lateFeeGraceDate: "Oct 19" })
+        expect(dueDates(950, new Date("2026-10-07T00:00:00Z"), "2026-08-15")).toEqual({ rentDueDate: "September 15", lateFeeGraceDate: "Sep 19" })
+        expect(dueDates(0, new Date("2026-10-07T00:00:00Z"), "2026-08-15")).toEqual({ rentDueDate: "October 15", lateFeeGraceDate: "Oct 19" })
+        expect(dueDates(0, new Date("2026-10-15T00:00:00Z"), "2026-08-15")).toEqual({ rentDueDate: "November 15", lateFeeGraceDate: "Nov 19" })
+    })
+
+    it("bills a lease that started on the 31st on the last day of shorter months", () => {
+        expect(dueDates(0, new Date("2027-02-10T00:00:00Z"), "2026-01-31")).toEqual({ rentDueDate: "February 28", lateFeeGraceDate: "Mar 4" })
+    })
+
     it("works out today's date in the portal's time zone, not UTC", () => {
         // 9pm Oct 15 in Denver is already Oct 16 in UTC.
         expect(localDate(new Date("2026-10-16T03:00:00Z"), "America/Denver")).toBe("2026-10-15")

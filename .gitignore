@@ -11,3 +11,7 @@ coverage/
 
 # Notes, AI-made docs and anything else omitted.
 local/
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+.mcp.json

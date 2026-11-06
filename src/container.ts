@@ -5,13 +5,19 @@ import type { AppDependencies } from "./create-app"
 import { checkDatabase } from "./db/migrate"
 import { createPool } from "./db/pool"
 import { PostgresDatabase } from "./db/postgres-db"
-import { createLogger } from "./logging"
+import { createLogger, type LogService } from "./logging"
 import { AuthService } from "./services/auth"
+import { FinanceService } from "./services/finance-service"
 import { ManagerService } from "./services/manager-service"
 import { MessageService } from "./services/message-service"
+import { OperationsService } from "./services/operations-service"
 import { createPlaidGateway, type PlaidGateway } from "./services/plaid"
 import { RentChargeService } from "./services/rent-charges"
 import { TenantService } from "./services/tenant-service"
+import { LeasingService } from "./services/leasing-service"
+import { MaintenanceDetailService } from "./services/maintenance-detail-service"
+import { NoticesService } from "./services/notices-service"
+import { OfficeService } from "./services/office-service"
 import type { DatabaseInterface } from "./types/stores"
 
 /**
@@ -19,7 +25,7 @@ import type { DatabaseInterface } from "./types/stores"
  *
  *   config → pool → PostgresDatabase → AuthService, ManagerService, TenantService, MessageService, RentChargeService
  *
- * Tests pass their own `config`, a `db` on a test database, or `plaid: null`.
+ * Tests pass their own `config`, a `db` on a test database, `plaid: null`, or a `logger` they read.
  */
 export interface Container extends AppDependencies {
     rentCharges: RentChargeService
@@ -28,9 +34,9 @@ export interface Container extends AppDependencies {
     close(): Promise<void>
 }
 
-export function createContainer(overrides: { config?: AppConfig; db?: DatabaseInterface; plaid?: PlaidGateway | null; distRoot?: string } = {}): Container {
+export function createContainer(overrides: { config?: AppConfig; db?: DatabaseInterface; plaid?: PlaidGateway | null; distRoot?: string; logger?: LogService } = {}): Container {
     const config = overrides.config ?? configFromEnvironment()
-    const logger = createLogger(config)
+    const logger = overrides.logger ?? createLogger(config)
 
     let pool: Pool | undefined
     let db = overrides.db
@@ -50,16 +56,24 @@ export function createContainer(overrides: { config?: AppConfig; db?: DatabaseIn
             verboseErrors: !config.production,
         })
         : null
-    const rentCharges = new RentChargeService(db, config.timeZone, logger)
+    const operations = new OperationsService(db, config.timeZone, logger)
+    // After rent is billed: late fees, then rent reminders (008).
+    const rentCharges = new RentChargeService(db, config.timeZone, logger, () => operations.runDailyJobs())
 
     return {
         config,
         logger,
         health: db,
-        auth: new AuthService(db, config),
-        manager: new ManagerService(db, config.timeZone),
-        tenant: new TenantService(db, config.timeZone),
+        auth: new AuthService(db, config, logger),
+        manager: new ManagerService(db, config.timeZone, logger),
+        tenant: new TenantService(db, config.timeZone, logger),
         messages: new MessageService(db, config.timeZone),
+        finance: new FinanceService(db, config.timeZone, logger),
+        operations,
+        office: new OfficeService(db.additions, config.timeZone, logger),
+        maintenanceDetail: new MaintenanceDetailService(db.additions, config.timeZone, logger),
+        notices: new NoticesService(db.additions, db, config.timeZone, logger),
+        leasing: new LeasingService(db.additions, logger),
         plaid,
         distRoot: overrides.distRoot,
         rentCharges,

@@ -20,6 +20,7 @@ function signUpMessage(status: number, code: string | undefined): string {
   if (code === "SIGNUP_NOT_ALLOWED") {
     return "This sign-up link has expired or was already used. Ask the leasing office for a new one, or sign in if you already set a password.";
   }
+  if (code === "PASSWORD_TOO_COMMON") return "That password is too easy to guess. Choose a less common one, such as a few words strung together.";
   if (status === 400) return "Choose a password of at least 8 characters.";
   if (status === 403) return "This page could not be verified. Reload it and try again.";
   return "We could not reach the server. Check your connection and try again.";

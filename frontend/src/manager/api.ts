@@ -88,22 +88,58 @@ export async function readReceipt(file: File): Promise<ReceiptUpload> {
 /** Where the browser opens a stored receipt (the sign-in cookie goes along). */
 export const receiptUrl = (leaseId: number, paymentId: number) => `/api/manager/leases/${leaseId}/payments/${paymentId}/receipt`;
 
-export type RequestStatus = "submitted" | "in_progress" | "resolved";
+/** New → In review → Scheduled → In progress → Completed (008), or Rejected (009: closed without work). */
+export type RequestStatus = "submitted" | "in_review" | "scheduled" | "in_progress" | "resolved" | "rejected";
+export const REQUEST_STATUSES: Array<[RequestStatus, string]> = [
+  ["submitted", "New"],
+  ["in_review", "In review"],
+  ["scheduled", "Scheduled"],
+  ["in_progress", "In progress"],
+  ["resolved", "Completed"],
+  ["rejected", "Rejected"],
+];
+/** Completed or rejected: off the open queue. */
+export const isClosedRequest = (status: string) => status === "resolved" || status === "rejected";
+export type RequestPriority = "none" | "low" | "medium" | "high" | "emergency";
+export const REQUEST_PRIORITIES: Array<[RequestPriority, string]> = [
+  ["none", "No priority"],
+  ["low", "Low"],
+  ["medium", "Medium"],
+  ["high", "High"],
+  ["emergency", "Emergency"],
+];
+export type RequestType = "appliance" | "plumbing" | "electrical" | "hvac" | "pest" | "locks" | "property" | "other";
+export const REQUEST_TYPES: Array<[RequestType, string]> = [
+  ["appliance", "Appliance"],
+  ["plumbing", "Plumbing"],
+  ["electrical", "Electrical"],
+  ["hvac", "Heating & cooling"],
+  ["pest", "Pest control"],
+  ["locks", "Locks & keys"],
+  ["property", "Building & grounds"],
+  ["other", "Other"],
+];
 
 export interface MaintenanceRow {
   id: number;
   title: string;
   description: string;
   status: RequestStatus;
+  priority: RequestPriority;
+  requestType: RequestType;
+  /** YYYY-MM-DD */
+  scheduledFor: string | null;
   submittedDate: string;
+  updatedAt: string;
   unitId: number;
   unitNum: string;
+  propertyId: number;
   propertyName: string;
   tenantName: string | null;
 }
 
 export interface UpdateRow {
-  kind: "overdue" | "maintenance_new" | "not_signed_up";
+  kind: "overdue" | "maintenance_new" | "not_signed_up" | "payment_reported";
   title: string;
   detail: string;
   leaseId: number | null;
@@ -209,9 +245,6 @@ export const managerApi = {
   newSignUpLink: (id: number) => send<{ inviteLink: string }>("POST", `/tenants/${id}/invite`),
   /** A signed-up tenant who cannot sign in: their password stops working, and this link sets a new one. */
   resetSignIn: (id: number) => send<{ inviteLink: string }>("POST", `/tenants/${id}/reset`),
-  /** A late fee, deposit, utility bill, proration or other charge. Rent is billed automatically. */
-  addCharge: (leaseId: number, input: { kind: ChargeKind; amount: number; dueDate: string; description: string | null }) =>
-    send<{ id: number }>("POST", `/leases/${leaseId}/charges`, input),
   createLease: (input: {
     unitId: number;
     startDate: string;
@@ -236,9 +269,11 @@ export const managerApi = {
   deleteUnit: (id: number) => send<{ ok: true }>("DELETE", `/units/${id}`),
   deleteProperty: (id: number) => send<{ ok: true }>("DELETE", `/properties/${id}`),
   deleteMaintenance: (id: number) => send<{ ok: true }>("DELETE", `/maintenance/${id}`),
-  createMaintenance: (input: { unitId: number; title: string; description: string }) =>
+  createMaintenance: (input: { unitId: number; title: string; description: string; priority?: RequestPriority; requestType?: RequestType }) =>
     send<{ id: number }>("POST", "/maintenance", input),
-  setMaintenanceStatus: (id: number, status: RequestStatus) => send<{ ok: true }>("PUT", `/maintenance/${id}`, { status }),
+  /** Stage, priority, type or the day it is scheduled for (any of them). */
+  updateMaintenance: (id: number, change: { status?: RequestStatus; priority?: RequestPriority; requestType?: RequestType; scheduledFor?: string | null }) =>
+    send<{ ok: true }>("PUT", `/maintenance/${id}`, change),
 
   // Messages
   threads: (box: "inbox" | "archived") => call<{ threads: ThreadSummary[] }>(`/messages?box=${box}`).then((r) => r.threads),
@@ -251,15 +286,6 @@ export const managerApi = {
 };
 
 /** Plain words for a failed call. */
-export type ChargeKind = "late_fee" | "deposit" | "utility" | "proration" | "other";
-export const CHARGE_KINDS: Array<{ kind: ChargeKind; label: string }> = [
-  { kind: "late_fee", label: "Late fee" },
-  { kind: "deposit", label: "Deposit" },
-  { kind: "utility", label: "Utility bill" },
-  { kind: "proration", label: "Proration" },
-  { kind: "other", label: "Other" },
-];
-
 export function managerMessage(error: unknown): string {
   if (error instanceof ManagerApiError) {
     if (error.status === 401) return "Your session ended. Sign in again.";
@@ -276,8 +302,20 @@ export function managerMessage(error: unknown): string {
     if (error.code === "TENANT_ALREADY_SIGNED_UP") return "This tenant has already signed up; they can sign in.";
     if (error.code === "TENANT_NOT_SIGNED_UP") return "This tenant has not signed up yet. Copy their sign-up link instead.";
     if (error.code === "PAYMENT_ALREADY_REVERSED") return "That payment was already undone.";
-    if (error.code === "RATE_LIMITED") return "Too many messages at once. Wait a few minutes and try again.";
+    if (error.code === "RATE_LIMITED") return "Too many attempts in a short time. Wait a few minutes and try again.";
     if (error.code === "RECEIPT_INVALID") return "The receipt must be a JPEG, PNG or WebP photo, or a PDF, of at most 4 MB.";
+    // 009
+    if (error.code === "LAST_ADMIN") return "This is the only active property manager. Make someone else a property manager first.";
+    if (error.code === "SELF_CHANGE_FORBIDDEN") return "You can't change your own role or deactivate yourself. Ask another property manager.";
+    if (error.code === "STAFF_NOT_SIGNED_UP") return "This teammate hasn't signed up yet. Make a new sign-up link instead.";
+    if (error.code === "STAFF_ALREADY_SIGNED_UP") return "This teammate has already signed up; they can sign in.";
+    if (error.code === "FILE_INVALID") return "That file type isn't allowed. Upload a PDF, or a JPEG, PNG or WebP photo.";
+    if (error.code === "FILE_TOO_LARGE") return "That file is too large. Documents can be up to 10 MB and photos up to 5 MB.";
+    if (error.code === "NAME_IN_USE") return "Another portfolio already has that name.";
+    if (error.code === "NO_RECIPIENTS") return "Nobody there is on a current lease, so there is no one to send this to.";
+    if (error.code === "LISTING_EXISTS") return "That unit already has a listing. Open it from the Listings page, or end it first.";
+    if (error.code === "LISTING_NOT_EDITABLE") return "That listing can't change that way: an ended listing is kept as history, and a published one is ended rather than removed.";
+    if (error.code === "ALREADY_RECORDED") return "This request's cost is already recorded as an expense.";
   }
   return "We could not reach the server. Check your connection and try again.";
 }

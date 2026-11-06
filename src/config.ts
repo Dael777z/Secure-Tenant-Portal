@@ -44,6 +44,9 @@ const DEV_DB = { owner: "portal-dev-only", app: "summit-dev-only" }
 
 export type Mode = keyof typeof RATE_LIMITS
 
+/** An address only this machine can open. Anything else counts as public. */
+export const isLocalOrigin = (origin: string): boolean => /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+
 /** `server: false` (the database CLI) skips the checks that only the web server needs. */
 export function loadConfig(vars: NodeJS.ProcessEnv = process.env, { server = true } = {}) {
     const get = (name: string) => vars[name]?.trim() || ""
@@ -82,8 +85,12 @@ export function loadConfig(vars: NodeJS.ProcessEnv = process.env, { server = tru
         plaidClientId: get("PLAID_CLIENT_ID"),
         plaidSecret: get("PLAID_SECRET"),
         plaidEnv: (get("PLAID_ENV") || "sandbox") as "sandbox" | "production",
-        /** Where a bank's own sign-in page sends the tenant back to Link. Must be in the Plaid dashboard's allowed redirect URIs. */
-        plaidRedirectUri: get("PLAID_REDIRECT_URI") || `${webOrigin.replace(/\/$/, "")}/plaid-oauth`,
+        /**
+         * Where a bank's own sign-in page sends the tenant back to Link. Off unless set, because
+         * Plaid refuses any address missing from its dashboard's allowed list (browsers do
+         * without it: Link uses a pop-up). A path like "/plaid-oauth" is joined to WEB_ORIGIN.
+         */
+        plaidRedirectUri: redirectUri(get("PLAID_REDIRECT_URI"), webOrigin),
         /** Encrypts Plaid access tokens at rest. */
         tokenEncryptionKey: get("TOKEN_ENCRYPTION_KEY") || (production ? "" : DEV_ONLY_SECRET),
     }
@@ -94,15 +101,21 @@ export function loadConfig(vars: NodeJS.ProcessEnv = process.env, { server = tru
     if (production && server) {
         if (config.accessSecret.length < 32) problems.push("JWT_ACCESS_SECRET must be set (32+ characters)")
         // http is fine only on this machine (browsers treat localhost as secure, so cookies still work).
-        if (!/^https:\/\/|^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(config.webOrigin)) problems.push("WEB_ORIGIN must be an https:// address (or http://localhost)")
-        if (config.plaidClientId && !config.tokenEncryptionKey) problems.push("TOKEN_ENCRYPTION_KEY must be set when Plaid is on")
+        if (!config.webOrigin.startsWith("https://") && !isLocalOrigin(config.webOrigin)) problems.push("WEB_ORIGIN must be an https:// address (or http://localhost)")
+        if (config.plaidClientId && config.tokenEncryptionKey.length < 32) problems.push("TOKEN_ENCRYPTION_KEY must be set when Plaid is on (32+ characters)")
+    }
+    // The development secrets are in the source code, so anyone could sign in as the manager.
+    // Development mode on a public address (a tunnel, a shared server) needs real secrets.
+    if (!production && mode !== "test" && server && !isLocalOrigin(webOrigin)) {
+        if (get("JWT_ACCESS_SECRET").length < 32) problems.push(`WEB_ORIGIN ${webOrigin} is not this machine, so JWT_ACCESS_SECRET must be set (32+ characters). Without it the development secret, which is public, would sign every session`)
+        if (config.plaidClientId && get("TOKEN_ENCRYPTION_KEY").length < 32) problems.push("TOKEN_ENCRYPTION_KEY must be set (32+ characters) when Plaid is on and WEB_ORIGIN is not this machine")
     }
     if (server && config.plaidClientId) {
         if (config.plaidEnv !== "sandbox" && config.plaidEnv !== "production") problems.push("PLAID_ENV must be sandbox or production")
         // plaid's rules: https, no query or fragment; http only for localhost, and only in sandbox
         const redirect = config.plaidRedirectUri
         const localHttp = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(redirect) && config.plaidEnv === "sandbox"
-        if (/[?#]/.test(redirect) || !(redirect.startsWith("https://") || localHttp)) {
+        if (redirect && (/[?#]/.test(redirect) || !(redirect.startsWith("https://") || localHttp))) {
             problems.push("PLAID_REDIRECT_URI must be https:// (http://localhost only in sandbox), with no ? or #")
         }
     }
@@ -111,6 +124,11 @@ export function loadConfig(vars: NodeJS.ProcessEnv = process.env, { server = tru
 }
 
 export type AppConfig = ReturnType<typeof loadConfig>
+
+/** "" stays off, "/path" follows the site's address, anything else is used as given. */
+function redirectUri(value: string, webOrigin: string): string {
+    return value.startsWith("/") ? `${webOrigin.replace(/\/$/, "")}${value}` : value
+}
 
 /** Load .env (if there is one) and read the settings. */
 export function configFromEnvironment(options?: { server?: boolean }): AppConfig {

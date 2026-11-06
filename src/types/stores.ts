@@ -1,5 +1,11 @@
+import type { NotificationPrefs, OfficeSettingsRecord, ReportedPaymentRecord } from "./settings"
 import type {
-    BankAccountInput, BankItem, CreatedLease, NewCharge, HashExpiry, LeaseChanges, LeaseTenantInput, NewLease,
+    LateFeeRuleRecord, LeaseDocumentFile, LeaseDocumentMeta, NewLateFeeRule, NewReminderRule, OfficeNotifications,
+    ReminderRuleRecord, ReminderSentRecord, StaffMember,
+} from "./operations"
+import type { ExpenseRecord, LeaseLocation, MaintenanceTiming, NewExpense, RenewalNoticeRecord } from "./finance"
+import type {
+    BankAccountInput, BankItem, CreatedLease, NewCharge, HashExpiry, LeaseChanges, LeaseTenantInput, MaintenanceChange, NewLease,
     NewMaintenance, NewPayment, NewRefreshToken, NewTenant, PropertyInput, TenantChanges, UnitInput,
 } from "./inputs"
 import type {
@@ -28,6 +34,8 @@ export interface AccountStore {
     /** Use up an open invitation (by token hash) and set the password. Null if none matches. */
     completeSignup(tokenHash: string, passwordHash: string): Promise<UserRecord | null>
     findStaffProfile(adminId: number): Promise<StaffProfile | null>
+    /** A sign-in for the Activity page and the Team's "last sign-in" (009). Optional so test doubles can leave it out. */
+    recordSecurityEvent?(actor: string | null, action: string, summary: string, details?: Record<string, unknown> | null): Promise<void>
 }
 
 export interface SessionStore {
@@ -106,6 +114,8 @@ export interface PaymentStore {
      * already used on this lease, the first payment's (nothing new is written).
      */
     recordPayment(input: NewPayment): Promise<{ confirmation: string }>
+    /** The confirmation of the payment already recorded on this lease under this idempotency key, if any. */
+    findConfirmationByKey(leaseId: number, idempotencyKey: string): Promise<string | null>
     /** Adds a matching refund. NOT_OFFICE_PAYMENT for a tenant's payment, PAYMENT_ALREADY_REVERSED the second time. */
     reverseOfficePayment(leaseId: number, payId: number): Promise<void>
     attachReceipt(leaseId: number, payId: number, receipt: Receipt): Promise<void>
@@ -120,6 +130,8 @@ export interface MaintenanceStore {
     listOpenRequestCounts(): Promise<OpenRequestCount[]>
     createMaintenance(input: NewMaintenance): Promise<{ id: number; createdAt: Date }>
     setMaintenanceStatus(id: number, status: MaintenanceState): Promise<void>
+    /** Stage, priority, type or scheduled day (008). NOT_FOUND when unknown or deleted. */
+    updateMaintenance(id: number, change: MaintenanceChange): Promise<void>
     deactivateMaintenance(mID: number): Promise<void>
 }
 
@@ -147,23 +159,118 @@ export interface MessageStore {
     countUnreadThreads(): Promise<number>
 }
 
+/** Juan's tenant side (006): reported Cash App / Zelle payments, office handles, tenant settings. */
+export interface SettingsStore {
+    getOfficeSettings(): Promise<OfficeSettingsRecord>
+    /** Property managers only. */
+    updateOfficeSettings(input: { cashappHandle: string | null; zelleHandle: string | null }): Promise<void>
+    /** The defaults (everything on) when the tenant has not chosen. */
+    getNotificationPrefs(tID: number): Promise<NotificationPrefs>
+    saveNotificationPrefs(tID: number, prefs: NotificationPrefs): Promise<void>
+    /** As the signed-in tenant: their own name and phone, nothing else. NOT_FOUND if that fails. */
+    updateOwnProfile(input: { name: string; phone: string | null }): Promise<void>
+    /** Newest first. `leaseId` limits to one lease; `pendingOnly` to the ones waiting for the office. */
+    listReportedPayments(filter?: { leaseId?: number; pendingOnly?: boolean }): Promise<ReportedPaymentRecord[]>
+    /** Confirm (the payment completes) or reject (it fails, with a reason). NOT_FOUND unless it is pending. */
+    reviewReportedPayment(payId: number, decision: "confirmed" | "rejected", reason: string | null): Promise<ReportedPaymentRecord>
+}
+
 export type AuthStore = AccountStore & SessionStore
 
 export type TenantStore =
     & Pick<PeopleStore, "findPerson">
     & Pick<LeaseStore, "findCurrentLease">
     & Pick<LedgerStore, "listChargesForLease">
-    & Pick<PaymentStore, "listPaymentsForLease" | "recordPayment">
+    & Pick<PaymentStore, "listPaymentsForLease" | "recordPayment" | "findConfirmationByKey">
     & Pick<MaintenanceStore, "listTenantMaintenance" | "createMaintenance">
+    & Pick<OperationsStore, "findLeaseDocumentMeta" | "findLeaseDocument" | "listRemindersSent">
     & BankStore
+    & Pick<SettingsStore, "getOfficeSettings" | "getNotificationPrefs" | "saveNotificationPrefs" | "updateOwnProfile" | "listReportedPayments">
 
 export type ManagerStore =
     & PropertyStore & PeopleStore & LeaseStore & LedgerStore & PaymentStore & MaintenanceStore
     & Pick<AccountStore, "findStaffProfile">
+    & Pick<SettingsStore, "listReportedPayments">
 
 export type MessagingStore = MessageStore & Pick<PeopleStore, "findPerson"> & Pick<LeaseStore, "findCurrentLease">
+
+/** Finance, collections, P&L and performance (005). Staff ('admin') only. */
+export interface FinanceStore {
+    /** Every charge on every lease, oldest due first. */
+    listAllCharges(): Promise<ChargeRecord[]>
+    /** Every payment and refund on every lease, oldest first. */
+    listAllPayments(): Promise<PaymentRecord[]>
+    /** Every lease and where it is, retired units included. */
+    listLeaseLocations(): Promise<LeaseLocation[]>
+    /** Expenses that are not voided, newest first. */
+    listExpenses(): Promise<ExpenseRecord[]>
+    /** Returns its id. VALIDATION_ERROR when the unit is not in the property. */
+    addExpense(input: NewExpense): Promise<number>
+    /** NOT_FOUND when unknown or already voided. */
+    voidExpense(expId: number): Promise<void>
+    listMaintenanceTimings(): Promise<MaintenanceTiming[]>
+    /** The newest notice per lease. */
+    listRenewalNotices(): Promise<RenewalNoticeRecord[]>
+    recordRenewalNotice(leaseId: number, recipients: number): Promise<void>
+    /** When the office last wrote to each tenant. */
+    listLastOfficeMessages(): Promise<Array<{ tenantId: number; at: Date }>>
+}
+
+export type FinanceDataStore =
+    & FinanceStore
+    & Pick<PropertyStore, "listProperties" | "listUnits">
+    & Pick<PeopleStore, "listPeople">
+    & Pick<LeaseStore, "listLeases" | "listLeaseResidents" | "findLease" | "listLeaseTenants">
+    & Pick<LedgerStore, "listLeaseBalances">
+    & Pick<MessageStore, "sendMessage">
+    & Pick<SettingsStore, "getOfficeSettings" | "updateOfficeSettings" | "listReportedPayments" | "reviewReportedPayment">
+
+/** RentRedi-style management (008): late fee rules, reminders, lease PDFs, the team, office notifications. Staff only, except where noted. */
+export interface OperationsStore {
+    /** Active rules only. */
+    listLateFeeRules(): Promise<LateFeeRuleRecord[]>
+    /** Replaces the active rule for the same scope. Returns the new rule's id. */
+    saveLateFeeRule(input: NewLateFeeRule): Promise<number>
+    /** NOT_FOUND unless it is active. */
+    retireLateFeeRule(ruleId: number): Promise<void>
+    listReminderRules(): Promise<ReminderRuleRecord[]>
+    saveReminderRule(input: NewReminderRule): Promise<number>
+    retireReminderRule(ruleId: number): Promise<void>
+    /** Newest first. A tenant sees only their own leases' reminders. */
+    listRemindersSent(filter?: { leaseId?: number; limit?: number }): Promise<ReminderSentRecord[]>
+    /** The nightly jobs (admin or system). Each returns how many rows it added; safe to repeat. */
+    applyLateFees(today: string, timeZone: string): Promise<number>
+    sendRentReminders(today: string, timeZone: string): Promise<number>
+    /** Several charges in one transaction (a repeating charge). NOT_FOUND for an unknown lease. Returns their ids. */
+    addCharges(rows: NewCharge[]): Promise<number[]>
+    listLeaseDocuments(): Promise<LeaseDocumentMeta[]>
+    /** A tenant can read their own lease's (row-level security). */
+    findLeaseDocumentMeta(leaseId: number): Promise<LeaseDocumentMeta | null>
+    findLeaseDocument(leaseId: number): Promise<LeaseDocumentFile | null>
+    /** Insert or replace the lease's PDF. */
+    saveLeaseDocument(leaseId: number, file: { filename: string; data: Buffer }): Promise<void>
+    /** Every receipt on file, without the file. */
+    listReceiptsMeta(): Promise<Array<{ leaseId: number; paymentId: number; filename: string; sizeBytes: number; uploadedAt: Date }>>
+    /** Active staff accounts. */
+    listStaff(): Promise<StaffMember[]>
+    getOfficeNotifications(): Promise<OfficeNotifications>
+    /** Property managers only (FORBIDDEN otherwise). */
+    saveOfficeNotifications(input: OfficeNotifications): Promise<void>
+}
+
+export type OperationsDataStore =
+    & OperationsStore
+    & Pick<PropertyStore, "listProperties" | "listUnits">
+    & Pick<LeaseStore, "listLeases" | "listLeaseResidents">
+    & Pick<LedgerStore, "listLeaseBalances">
+    & Pick<FinanceStore, "listAllCharges" | "listAllPayments" | "listLeaseLocations">
+    & Pick<MaintenanceStore, "listMaintenance">
+
+/** The 009 queries (office tools, maintenance detail, documents, notices, listings): see db/postgres-additions.ts. */
+export type AdditionsStore = import("../db/postgres-additions").PostgresAdditions
 
 /** The whole database. */
 export type DatabaseInterface =
     & HealthStore & AccountStore & SessionStore & PropertyStore & PeopleStore
-    & LeaseStore & LedgerStore & PaymentStore & MaintenanceStore & BankStore & MessageStore
+    & LeaseStore & LedgerStore & PaymentStore & MaintenanceStore & BankStore & MessageStore & FinanceStore & SettingsStore & OperationsStore
+    & { readonly additions: AdditionsStore }
