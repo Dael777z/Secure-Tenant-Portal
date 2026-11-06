@@ -49,14 +49,17 @@ export interface LinkedBankAccount {
     subtype: string | null
 }
 
-/** What a tenant may pay now: at least the balance, at most prepayMonths of rent beyond it. */
+/** What a tenant may pay now: at least minimumPartialPercent of the balance, at most prepayMonths of rent beyond it. */
 export interface PayLimits {
+    /** While money is owed: 25% of the balance (rounded up to the cent). Nothing owed: $1. */
     minimum: number
     maximum: number
     monthlyRent: number
     /** Credit already held (paid ahead), 0 if none. */
     credit: number
     prepayMonths: number
+    /** The share of the balance a partial payment must cover, in percent (25). */
+    minimumPartialPercent: number
     /** False once the tenant is already paid the full limit ahead. */
     canPay: boolean
 }

@@ -28,14 +28,17 @@ export interface ReportedPayment {
   reason: string | null;
 }
 
-/** What Pay rent accepts right now: at least the balance, at most prepayMonths of rent beyond it. */
+/** What Pay rent accepts right now: at least minimumPartialPercent of the balance, at most prepayMonths of rent beyond it. */
 export interface PayLimits {
+  /** While money is owed: 25% of the balance (rounded up to the cent). Nothing owed: $1. */
   minimum: number;
   maximum: number;
   monthlyRent: number;
   /** Credit already held (paid ahead), 0 if none. */
   credit: number;
   prepayMonths: number;
+  /** The share of the balance a partial payment must cover, in percent (25). */
+  minimumPartialPercent: number;
   /** False once the tenant is already paid the full limit ahead. */
   canPay: boolean;
 }
@@ -84,6 +87,7 @@ export interface ErrorDetails {
   minimum?: number;
   maximum?: number;
   prepayMonths?: number;
+  minimumPartialPercent?: number;
   message?: string | null;
 }
 
@@ -175,7 +179,7 @@ export const tenantApi = {
       method: "POST",
       body: JSON.stringify({ amount, bankAccountId, idempotencyKey: checkoutKey }),
     }),
-  /** Cash App / Zelle: the tenant sent the full balance in their own app. Pending until the office confirms it. */
+  /** Cash App / Zelle: the tenant sent the amount (at least 25% of the balance) in their own app. Pending until the office confirms it. */
   reportPayment: (method: ManualPayMethod, amount: number, checkoutKey: string) =>
     call<{ confirmation: string }>("/tenant/payments/report", {
       method: "POST",
@@ -229,9 +233,11 @@ export function messageFor(error: unknown): string {
       const message = error.details?.message ?? "Plaid could not complete that. Please try again.";
       return error.details?.plaidCode ? `${message} (Plaid: ${error.details.plaidCode})` : message;
     }
-    if (error.code === "AMOUNT_BELOW_BALANCE") {
+    if (error.code === "AMOUNT_BELOW_MINIMUM") {
+      const min = error.details?.minimum;
+      const pct = error.details?.minimumPartialPercent ?? 25;
       const owed = error.details?.balance;
-      return `Pay at least the full balance${owed ? ` of ${formatCurrency(owed)}` : ""}. Partial payments aren't accepted.`;
+      return `A partial payment must be at least ${pct}% of what you owe${min ? `: ${formatCurrency(min)}` : ""}${owed ? ` of your ${formatCurrency(owed)} balance` : ""}.`;
     }
     if (error.code === "AMOUNT_ABOVE_LIMIT") {
       const max = error.details?.maximum;

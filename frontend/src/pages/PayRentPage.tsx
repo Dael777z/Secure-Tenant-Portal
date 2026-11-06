@@ -59,7 +59,7 @@ export function PayRentPage() {
   // Whether this device can show Apple Pay / Google Pay (null: still checking).
   const [walletAvailable, setWalletAvailable] = useState<boolean | null>(null);
 
-  // How much: at least the balance (no partial payments), up to a few months of rent ahead (credit).
+  // How much: a partial payment of at least 25% of the balance, the full balance, or more (credit ahead).
   const due = Math.max(currentBalance, 0);
   const credit = Math.max(-currentBalance, 0);
   const rent = payLimits?.monthlyRent ?? 0;
@@ -76,7 +76,7 @@ export function PayRentPage() {
         ? "Enter an amount in dollars, like 950.00."
         : amount < payLimits.minimum
           ? due > 0
-            ? `Pay at least the full balance of ${formatCurrency(due)}. Partial payments aren't accepted.`
+            ? `A partial payment must be at least ${payLimits.minimumPartialPercent}% of your balance: ${formatCurrency(payLimits.minimum)} or more.`
             : `The smallest payment is ${formatCurrency(payLimits.minimum)}.`
           : amount > maximum
             ? `The most you can pay now is ${formatCurrency(maximum)} (up to ${payLimits.prepayMonths} months of rent ahead).`
@@ -88,10 +88,15 @@ export function PayRentPage() {
   const rate = isCard(selectedMethod) ? cardFee : null;
   const fee = valid && amount !== null && rate ? processingFee(amount, rate) : 0;
   const total = valid && amount !== null ? round2(amount + fee) : 0;
+  // Paying part of the balance: what stays owed afterwards.
+  const leftOwing = valid && amount !== null && due > 0 && amount < due ? round2(due - amount) : 0;
   // One-tap amounts that fit under the limit.
   const choices = (
     due > 0
       ? [
+          // The 25% minimum and half are offered only when they are less than the balance.
+          ...(payLimits && payLimits.minimum < due ? [{ label: `Minimum (${payLimits.minimumPartialPercent}%)`, value: payLimits.minimum }] : []),
+          ...(payLimits && round2(due / 2) > payLimits.minimum && round2(due / 2) < due ? [{ label: "Half", value: round2(due / 2) }] : []),
           { label: "Amount due", value: due },
           { label: "+ next month", value: round2(due + rent) },
         ]
@@ -343,7 +348,9 @@ export function PayRentPage() {
             <p id="pay-amount-help" className={amountProblem ? "pay-amount-help pay-amount-help--error" : "pay-amount-help"}>
               {amountProblem ??
                 (due > 0
-                  ? `The full balance, or more to pay ahead (up to ${payLimits.prepayMonths} months of rent). Anything extra is credit toward your next rent.`
+                  ? payLimits.minimum < due
+                    ? `Pay the full balance, or part of it (at least ${payLimits.minimumPartialPercent}%, ${formatCurrency(payLimits.minimum)}). You can also pay ahead, up to ${payLimits.prepayMonths} months of rent; anything extra is credit toward your next rent.`
+                    : `The full balance, or more to pay ahead (up to ${payLimits.prepayMonths} months of rent). Anything extra is credit toward your next rent.`
                   : `Nothing is due. You can pay ahead up to ${formatCurrency(maximum)}; it's credit toward your next rent.`)}
             </p>
           </div>
@@ -361,6 +368,12 @@ export function PayRentPage() {
           <div className="summary-row">
             <span>Credit on your account</span>
             <span>{formatCurrency(credit)}</span>
+          </div>
+        )}
+        {leftOwing > 0 && (
+          <div className="summary-row">
+            <span>Still owed after this payment</span>
+            <span>{formatCurrency(leftOwing)}</span>
           </div>
         )}
         {payingAhead > 0 && (
@@ -428,7 +441,12 @@ export function PayRentPage() {
         {paidJustNow && !waiting && (
           <div className="pay-success-banner" role="status">
             Payment submitted{confirmation ? ` (${confirmation})` : ""}. It now shows in your ledger
-            {currentBalance < 0 ? `, with ${formatCurrency(-currentBalance)} credit toward your next rent` : ""}.
+            {currentBalance < 0
+              ? `, with ${formatCurrency(-currentBalance)} credit toward your next rent`
+              : currentBalance > 0
+                ? `. ${formatCurrency(currentBalance)} is still owed`
+                : ""}
+            .
           </div>
         )}
         {paidJustNow && waiting && (
@@ -468,7 +486,7 @@ function ManualPayInstructions({ app, handle, amount, reference }: ManualPayInst
       <CopyRow label="Note / memo" value={reference} />
       <p className="method-note">
         Send exactly this amount in {app} with the note above, then tap "I've sent" so the office can match it.
-        Partial payments aren't accepted.
+        A partial payment must be at least 25% of your balance.
       </p>
     </div>
   );

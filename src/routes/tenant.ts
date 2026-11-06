@@ -18,7 +18,7 @@ import { id, idempotencyKey, money, text } from "./validate"
  *
  * Juan's tenant side (006):
  *   POST /tenant/payments/report  { method: "cashapp"|"zelle", amount, idempotencyKey? } → { confirmation }
- *                                  (the full balance, sent in the tenant's own app; pending until the office confirms)
+ *                                  (at least 25% of the balance, sent in the tenant's own app; pending until the office confirms)
  *   PUT  /tenant/profile          { name, phone? }   the tenant's own name and phone
  *   PUT  /tenant/notifications    { rentDue, paymentReceipts, maintenance, messages }  email choices
  */

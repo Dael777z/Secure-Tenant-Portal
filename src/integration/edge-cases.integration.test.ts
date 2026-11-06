@@ -8,7 +8,11 @@ import { RECEIPT_MAX_BYTES } from "../routes/validate"
 import { ACCOUNTS, Client, createTenant, listen } from "./http-client"
 
 /** Tenants pay their whole balance (or more, up to the pay-ahead limit): the smallest amount allowed today. */
-const payable = async (client: Client): Promise<number> => (await client.get("/api/tenant/summary")).body.payLimits.minimum
+// The whole balance when something is owed (the minimum is only 25% of it), otherwise the $1 minimum.
+const payable = async (client: Client): Promise<number> => {
+    const summary = (await client.get("/api/tenant/summary")).body
+    return summary.currentBalance > 0 ? summary.currentBalance : summary.payLimits.minimum
+}
 import { freshDatabase, hasDatabase, type TestDatabase } from "./helpers"
 
 /**

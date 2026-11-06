@@ -20,6 +20,8 @@ import type { NotificationService } from "./notifications"
 export const PREPAY_MONTHS = 3
 /** The smallest payment when nothing is due (paying ahead). */
 const MIN_PREPAYMENT = 1
+/** A partial payment must cover at least this share of what is owed right now (Summit, Nov 6). */
+export const MIN_PARTIAL_SHARE = 0.25
 
 const STATUS_FOR_UI: Record<string, MaintenanceRequest["status"]> = {
     submitted: "open",   // the tenant pages say "open"
@@ -147,17 +149,20 @@ export class TenantService {
     }
 
     /**
-     * What a tenant may pay now (Summit, Oct 21 + Oct 28): at least the whole
-     * balance (never part of it), and up to PREPAY_MONTHS of rent beyond it,
-     * kept as credit for the next rent. With nothing due, any amount from $1 up
-     * to that limit pays ahead. Credit already held counts toward the limit.
+     * What a tenant may pay now (Summit, Oct 21 + Oct 28, Nov 6): a partial
+     * payment is accepted when it is at least MIN_PARTIAL_SHARE (25%) of the
+     * balance owed right now, rounded up to the cent; the rest stays owed. Each
+     * later payment is measured against the new, smaller balance. A tenant can
+     * also pay up to PREPAY_MONTHS of rent beyond the balance, kept as credit
+     * for the next rent. With nothing due, any amount from $1 up to that limit
+     * pays ahead. Credit already held counts toward the limit.
      */
     private payLimits(balance: number, monthlyRent: number): PayLimits {
         const cents = (n: number) => Math.round(n * 100)
         const credit = balance < 0 ? -balance : 0
-        const minimum = balance > 0 ? balance : MIN_PREPAYMENT
+        const minimum = balance > 0 ? minimumPartial(balance) : MIN_PREPAYMENT
         const maximum = Math.max(0, (cents(Math.max(balance, 0)) + cents(monthlyRent * PREPAY_MONTHS) - cents(credit)) / 100)
-        return { minimum, maximum, monthlyRent, credit, prepayMonths: PREPAY_MONTHS, canPay: maximum >= minimum }
+        return { minimum, maximum, monthlyRent, credit, prepayMonths: PREPAY_MONTHS, minimumPartialPercent: Math.round(MIN_PARTIAL_SHARE * 100), canPay: maximum >= minimum }
     }
 
     /** Throws unless the amount is allowed (see payLimits). Returns the limits. */
@@ -166,7 +171,7 @@ export class TenantService {
         const limits = this.payLimits(balance, lease.monthlyRent)
         const cents = Math.round(amount * 100)
         if (cents < Math.round(limits.minimum * 100)) {
-            throw new AppError(balance > 0 ? "AMOUNT_BELOW_BALANCE" : "VALIDATION_ERROR", { balance, minimum: limits.minimum })
+            throw new AppError(balance > 0 ? "AMOUNT_BELOW_MINIMUM" : "VALIDATION_ERROR", { balance, minimum: limits.minimum, minimumPartialPercent: limits.minimumPartialPercent })
         }
         if (cents > Math.round(limits.maximum * 100)) throw new AppError("AMOUNT_ABOVE_LIMIT", { maximum: limits.maximum, prepayMonths: PREPAY_MONTHS })
         return limits
@@ -283,7 +288,7 @@ export class TenantService {
     }
 
     /**
-     * Cash App / Zelle: the tenant sent the amount (the balance or more) in their own app and
+     * Cash App / Zelle: the tenant sent the amount (at least 25% of the balance) in their own app and
      * says so. Recorded as pending; it counts once the office confirms it.
      */
     // logs payment.tenant_reported.succeeded { userId, method, amount, leaseId } or .failed { code }
@@ -398,4 +403,16 @@ export class TenantService {
         }
         return out.sort((a, b) => b.sortKey - a.sortKey).map(({ sortKey: _sortKey, ...notice }) => notice)
     }
+}
+
+/**
+ * The smallest payment accepted while money is owed: 25% of the balance,
+ * rounded up to the cent, but never under $1 (unless the balance itself is
+ * under $1, then the whole balance) and never more than the balance.
+ */
+export function minimumPartial(balance: number): number {
+    const owed = Math.round(balance * 100)
+    if (owed <= 0) return 0
+    const share = Math.ceil(owed * MIN_PARTIAL_SHARE - 1e-9)
+    return Math.min(owed, Math.max(share, MIN_PREPAYMENT * 100)) / 100
 }
