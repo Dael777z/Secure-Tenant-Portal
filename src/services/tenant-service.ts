@@ -9,6 +9,7 @@ import type { LinkedBankAccount, MaintenanceRequest, Notice, PayLimits, TenantSu
 import { tenantConfirmation } from "../utils/confirmations"
 import { tenantIdOf } from "../utils/user-id"
 import { buildLedger, dueDates, formatDate, localDate } from "./ledger"
+import type { NotificationService } from "./notifications"
 
 /**
  * What the tenant pages read and write, always for the signed-in tenant
@@ -43,8 +44,9 @@ export class TenantService {
         private readonly db: TenantStore,
         private readonly timeZone: string,
         private readonly log: LogService = silentLogger,
+        /** Emails the office about a new maintenance request or a reported payment (011); left out in tests. */
+        private readonly notify?: Pick<NotificationService, "maintenanceFiled" | "paymentReported">,
     ) {}
-
 
     private today(): string {
         return localDate(new Date(), this.timeZone)
@@ -54,7 +56,7 @@ export class TenantService {
         return this.db.findCurrentLease(tID, this.today())
     }
 
-    async summary(userId: string, flags: { plaidEnabled: boolean; testPayments: boolean }): Promise<TenantSummary> {
+    async summary(userId: string, flags: Pick<TenantSummary, "plaidEnabled" | "testPayments" | "cardsEnabled" | "stripePublishableKey" | "cardFee">): Promise<TenantSummary> {
         const tID = tenantIdOf(userId)
         const person = await this.db.findPerson(tID)
         if (!person) throw new AppError("NOT_FOUND")
@@ -170,6 +172,15 @@ export class TenantService {
         return limits
     }
 
+    /**
+     * The rules every tenant payment follows, for payments made elsewhere (cards through
+     * Stripe, stripe-payments.ts): the amount is allowed, and no Cash App / Zelle report is waiting.
+     */
+    async checkTenantPayment(lease: { id: number; monthlyRent: number }, amount: number): Promise<void> {
+        await this.requireAllowedAmount(lease, amount)
+        await this.requireNoReportWaiting(lease.id)
+    }
+
     private async maintenance(tID: number): Promise<MaintenanceRequest[]> {
         const rows = await this.db.listTenantMaintenance(tID)
         return rows.map((row) => ({
@@ -190,6 +201,10 @@ export class TenantService {
         const lease = await this.currentLease(tID)
         if (!lease) throw new AppError("NO_ACTIVE_LEASE")
         const created = await this.db.createMaintenance({ unitId: lease.unitId, tenantId: tID, title: input.title, description: input.description, ...typeAndPriority(input.description) })
+        void this.notify?.maintenanceFiled({
+            requestId: created.id, tenantId: tID, unitLabel: `Unit ${lease.unitNum} - ${lease.propertyName}`,
+            title: input.title, description: input.description,
+        })
         return {
             id: `mr_${created.id}`,
             title: input.title,
@@ -286,7 +301,7 @@ export class TenantService {
             if (earlier) return { confirmation: earlier }
             await this.requireAllowedAmount(lease, input.amount)
             await this.requireNoReportWaiting(lease.id)
-            return this.db.recordPayment({
+            const recorded = await this.db.recordPayment({
                 leaseId: lease.id,
                 amount: input.amount,
                 tenantId: tID,
@@ -295,6 +310,11 @@ export class TenantService {
                 idempotencyKey: key,
                 reported: { method: input.method },
             })
+            // The office has a payment to confirm.
+            void this.notify?.paymentReported({
+                tenantId: tID, unitLabel: `Unit ${lease.unitNum} - ${lease.propertyName}`, method: MANUAL_PAY_LABELS[input.method], amount: input.amount,
+            })
+            return recorded
         }, () => facts)
     }
 

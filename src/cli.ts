@@ -1,10 +1,13 @@
 import { Pool } from "pg"
 
-import { configFromEnvironment, isLocalOrigin } from "./config"
+import { configFromEnvironment, isLocalOrigin, type AppConfig } from "./config"
 import { createStaffAccount } from "./db/admin"
 import { createPool } from "./db/pool"
 import { migrate, migrationStatus, setAppLogin, wipe } from "./db/migrate"
 import { seed } from "./db/seed"
+import { createResendSender } from "./services/email"
+import { sampleEmails } from "./services/email-templates"
+import { localDate } from "./services/ledger"
 
 const HELP = `Database tasks, as the schema owner (POSTGRES_USER / POSTGRES_PASSWORD).
 
@@ -15,6 +18,9 @@ const HELP = `Database tasks, as the schema owner (POSTGRES_USER / POSTGRES_PASS
   seed [clean]           load the sample data in src/db/seed/data.ts (skipped if staff exist)
   setup [clean|empty]    migrate, then seed (safe to repeat)
   reset [clean|empty]    wipe the database, then setup
+
+  email-test <address>   send one of each notification email (with sample details) to
+                         <address> through Resend (RESEND_API_KEY, EMAIL_FROM); no database needed
 
   "clean" loads the small clean-start dataset instead of the full sample;
   "empty" loads nothing (then add a login with admin). With NODE_ENV=production,
@@ -33,6 +39,8 @@ async function main(command = "help", ...flags: string[]) {
     // The sample data has public demo passwords: never on a production database, nor on an address others can reach.
     const guarded = config.production || !isLocalOrigin(config.webOrigin)
     const loadSample = !has("empty") && !(guarded && command === "setup")
+
+    if (command === "email-test") return await sendTestEmails(config, flags.find((f) => !f.startsWith("--")))
 
     if (!["status", "migrate", "admin", "seed", "setup", "reset"].includes(command)) return console.log(HELP)
 
@@ -85,6 +93,28 @@ async function printStatus(pool: Pool) {
         const staff = (await pool.query("SELECT count(*)::int AS n FROM Admin")).rows[0].n
         console.log(staff ? `data: ${staff} staff account(s)` : "data: empty (npm run db seed)")
     }
+}
+
+/** email-test: every notification email, to one address, so you can see them in a real inbox. */
+async function sendTestEmails(config: AppConfig, to: string | undefined) {
+    if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) throw new Error("Usage: email-test <address>")
+    if (!config.resendApiKey || !config.emailFrom) throw new Error("Set RESEND_API_KEY and EMAIL_FROM (in .env) first.")
+    const sender = createResendSender({ apiKey: config.resendApiKey, from: config.emailFrom })
+    const emails = sampleEmails(config.webOrigin, localDate(new Date(), config.timeZone))
+    let failed = 0
+    for (const email of emails) {
+        try {
+            await sender.send({ ...email, to })
+            console.log(`  sent    ${email.subject}`)
+        } catch (error) {
+            failed++
+            console.log(`  FAILED  ${email.subject}\n          ${(error as Error).message}`)
+        }
+    }
+    if (failed) {
+        throw new Error(`${failed} of ${emails.length} failed. With EMAIL_FROM on onboarding@resend.dev, Resend only delivers to your Resend account's own address; otherwise check that EMAIL_FROM's domain is verified in Resend.`)
+    }
+    console.log(`all ${emails.length} sent to ${to} from ${config.emailFrom}`)
 }
 
 /** First run on a fresh Postgres: create the database named in the URL (Docker's image does this itself). */

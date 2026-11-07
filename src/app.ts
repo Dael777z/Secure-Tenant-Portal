@@ -25,10 +25,12 @@ async function main() {
     const { config, logger } = container
 
     const server = createApp(container).listen(config.port, "0.0.0.0", () => {
-        logger.info("server.started", { port: config.port, mode: config.mode, plaid: container.plaid ? config.plaidEnv : "off", frontend: container.distRoot ? "built" : "vite" })
+        logger.info("server.started", { port: config.port, mode: config.mode, plaid: container.plaid ? config.plaidEnv : "off", cards: container.stripePayments.publishableKey ? (config.stripeSecretKey.includes("_test_") ? "test" : "live") : "off", email: container.notifications.enabled ? "resend" : "off", frontend: container.distRoot ? "built" : "vite" })
     })
     // Bill the months that came due while the app was down, then keep doing it.
     container.rentCharges.start()
+    // Notice emails every minute; the office's daily emails from the morning on (only when email is on).
+    container.notifications.start()
 
     const stop = () => server.close(() => {
         logger.info("server.stopped")

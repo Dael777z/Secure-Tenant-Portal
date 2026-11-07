@@ -42,10 +42,11 @@ export interface Notice {
 }
 
 // Juan (tenant-side-ui 23d7a8e): bank first, then Cash App and Zelle; "Other" is gone.
-export type PaymentMethodKind = "bank" | "cashapp" | "zelle";
+// 010: debit/credit cards, and Apple Pay / Google Pay ("wallet"), through Stripe.
+export type PaymentMethodKind = "bank" | "card" | "wallet" | "cashapp" | "zelle";
 
 /** Cash App / Zelle: sent from the tenant's own app, then reported ("I've sent it"). */
-export type ManualPayMethod = Exclude<PaymentMethodKind, "bank">;
+export type ManualPayMethod = "cashapp" | "zelle";
 
 export interface PaymentMethodOption {
   kind: PaymentMethodKind;

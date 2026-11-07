@@ -16,6 +16,7 @@ import { createManagerRouter } from "./routes/manager"
 import { createOperationsRouter } from "./routes/operations"
 import { createMessageRouter } from "./routes/messages"
 import { createPlaidRouter } from "./routes/plaid"
+import { createStripePaymentRouter, createStripeWebhookRouter } from "./routes/stripe"
 import { createTenantRouter } from "./routes/tenant"
 import { createLeasingRouter } from "./routes/leasing"
 import { createMaintenanceDetailRouter } from "./routes/maintenance-detail"
@@ -27,6 +28,7 @@ import type { MessageService } from "./services/message-service"
 import type { FinanceService } from "./services/finance-service"
 import type { OperationsService } from "./services/operations-service"
 import type { PlaidGateway } from "./services/plaid"
+import type { StripePaymentService } from "./services/stripe-payments"
 import type { TenantService } from "./services/tenant-service"
 import type { LeasingService } from "./services/leasing-service"
 import type { MaintenanceDetailService } from "./services/maintenance-detail-service"
@@ -59,14 +61,16 @@ export interface AppDependencies {
     leasing: LeasingService
     /** Null when Plaid is not configured: the bank-link routes answer 503. */
     plaid: PlaidGateway | null
+    /** Cards, Apple Pay and Google Pay through Stripe (010); answers 503 when Stripe is not configured. */
+    stripePayments: StripePaymentService
     /** The built frontend (index.html and assets). Leave out when Vite serves it (development, tests). */
     distRoot?: string
 }
 
 /**
  * The Express app, not yet listening (app.ts starts it; integration tests drive it directly).
- * A request passes through, in order: request log → security headers → body and
- * cookies → origin check → the /api routes → the built frontend → error handler.
+ * A request passes through, in order: request log → security headers → origin check → Stripe's
+ * webhook (raw body) → body and cookies → the /api routes → the built frontend → error handler.
  */
 export function createApp(deps: AppDependencies): Application {
     const { config, logger, health, distRoot } = deps
@@ -93,14 +97,22 @@ export function createApp(deps: AppDependencies): Application {
     app.use(requestLog(logger))
     app.use(securityHeaders({ production: config.production, https: config.webOrigin.startsWith("https://") }))
     app.use(privateApiCache)
+    // Headers only, so it can come first: every write refuses another site's page, the webhook too
+    // (Stripe's servers send no Origin or Sec-Fetch-Site, so they pass).
+    app.use(verifyRequestOrigin(config.webOrigin))
+    // Stripe signs the exact bytes it sends, so its webhook reads the raw body: before the JSON parser.
+    app.use("/api", createStripeWebhookRouter({ payments: deps.stripePayments }))
     // 100 KB, except the receipt routes (middleware/body.ts).
     app.use(jsonBody)
     app.use(cookieParser())
-    app.use(verifyRequestOrigin(config.webOrigin))
 
     app.use("/api", createAuthRouter({ auth: deps.auth, guard, limits, config }))
     app.use("/api", createPlaidRouter({ plaid: deps.plaid, tenant: deps.tenant, guard, limits, tokenEncryptionKey: config.tokenEncryptionKey }))
-    app.use("/api", createTenantRouter({ tenant: deps.tenant, guard, limits, plaidEnabled: deps.plaid !== null, testPayments: !config.production }))
+    app.use("/api", createTenantRouter({
+        tenant: deps.tenant, guard, limits, plaidEnabled: deps.plaid !== null, testPayments: !config.production,
+        stripePublishableKey: deps.stripePayments.publishableKey, cardFee: deps.stripePayments.cardFee,
+    }))
+    app.use("/api", createStripePaymentRouter({ payments: deps.stripePayments, guard, limits }))
     // Before the manager router, so /manager/leases/expiring is not read as a lease id.
     app.use("/api", createFinanceRouter({ finance: deps.finance, guard, limits }))
     // 009, before the manager router: /manager/maintenance/summary and /manager/documents/all are not ids.

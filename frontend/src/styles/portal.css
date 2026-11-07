@@ -415,6 +415,17 @@ body {
   font-size: 13px;
   display: flex;
 }
+/* The small line under "Processing fee" saying what it is (card payments, 010). */
+.summary-fee-note {
+  margin: -2px 0 4px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--p-muted);
+}
+/* Stripe's card form / Apple Pay and Google Pay buttons (components/CardPayment.tsx). */
+.card-payment {
+  margin-top: 14px;
+}
 .summary-row--total {
   border-top: 1px solid var(--p-line-strong);
   margin-top: 6px;

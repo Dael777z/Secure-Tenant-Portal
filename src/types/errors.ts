@@ -35,6 +35,15 @@ export const ERROR_STATUS = {
     // missing on this server
     PLAID_NOT_CONFIGURED: 503,
     PLAID_ERROR: 502,
+    // 010: cards, Apple Pay and Google Pay through Stripe
+    STRIPE_NOT_CONFIGURED: 503,
+    STRIPE_ERROR: 502,
+    /** The card was declined (or failed its check); `details.message` is Stripe's, written for the cardholder. */
+    CARD_DECLINED: 402,
+    /** A Stripe webhook whose signature does not match STRIPE_WEBHOOK_SECRET. */
+    WEBHOOK_SIGNATURE_INVALID: 400,
+    /** The checkout key was already used for a different amount: start a new checkout. */
+    CHECKOUT_AMOUNT_CHANGED: 409,
     RATE_LIMITED: 429,
     // a password that is long enough but among the first an attacker would try
     PASSWORD_TOO_COMMON: 400,

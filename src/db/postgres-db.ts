@@ -2,12 +2,14 @@ import { types, type Pool, type PoolClient, type QueryResult, type QueryResultRo
 
 import type {
     BankAccountInput, BankItem, CreatedLease, HashExpiry, NewCharge, LeaseChanges, LeaseTenantInput, MaintenanceChange, NewLease,
-    NewMaintenance, NewPayment, NewRefreshToken, NewTenant, PropertyInput, TenantChanges, UnitInput,
+    NewMaintenance, NewPayment, NewRefreshToken, NewStripePayment, NewStripeRefund, NewTenant, PropertyInput, StripePaymentUpdate,
+    TenantChanges, UnitInput,
 } from "../types/inputs"
 import type {
     BankAccountRecord, ChargeRecord, InvitedTenant, LeaseBalance, LeaseRecord, LeaseResident, LeaseWithUnit,
-    MaintenanceRecord, MaintenanceState, MessageRecord, OpenRequestCount, PaymentRecord, PersonRecord, PropertyRecord,
-    Receipt, RecentPaymentRecord, SessionUser, StaffProfile, TenantMaintenanceRecord, ThreadRecord, UnitRecord, UserRecord,
+    MaintenanceRecord, MaintenanceState, MessageRecord, OpenRequestCount, PaymentRecord, PaymentState, PersonRecord, PropertyRecord,
+    Receipt, RecentPaymentRecord, SessionUser, StaffProfile, StripePaymentRecord, TenantMaintenanceRecord, ThreadRecord, UnitRecord, UserRecord,
+    LeaseEndingRecord, OfficeEmailTopic, PastDueRecord, QueuedNoticeEmail, Recipient, TenantEmailChoice,
 } from "../types/records"
 import type { ExpenseRecord, LeaseLocation, MaintenanceTiming, NewExpense, RenewalNoticeRecord } from "../types/finance"
 import { DEFAULT_NOTIFICATION_PREFS, type NotificationPrefs, type OfficeSettingsRecord, type ReportedPaymentRecord } from "../types/settings"
@@ -65,8 +67,14 @@ const THREAD = `SELECT th.tID AS "tenantId", t.Name AS "tenantName", th.last_mes
         ORDER BY (l.start_date <= $1::date AND (l.end_date IS NULL OR l.end_date >= $1::date)) DESC, l.start_date DESC
         LIMIT 1) cur ON true`
 
+/** A payment that went through Stripe (010). */
+const STRIPE_PAYMENT = `SELECT p.payID AS "payId", p.LeaseID AS "leaseId", d.tID AS "tenantId", s.payment_intent_id AS "paymentIntentId",
+        p.status, s.amount_cents AS "amountCents", s.fee_cents AS "feeCents", s.stripe_status AS "stripeStatus",
+        s.method_type AS "methodType", d.method
+    FROM Stripe_Payments s JOIN Payment p ON p.payID = s.payID LEFT JOIN Payment_Details d ON d.payID = p.payID`
+
 /** The lease is in effect on $2. */
-const ACTIVE_ON = "l.start_date <= $2::date AND (l.end_date IS NULL OR l.end_date >= $2::date)"
+const ACTIVE_ON ="l.start_date <= $2::date AND (l.end_date IS NULL OR l.end_date >= $2::date)"
 /** The lease has not ended by $1 (current or still to come). */
 const NOT_ENDED = "(l.end_date IS NULL OR l.end_date >= $1::date)"
 
@@ -644,6 +652,163 @@ export class PostgresDatabase implements DatabaseInterface {
         )
     }
 
+    // ---- Card payments through Stripe (010)
+
+    async findStripeCheckout(leaseId: number, idempotencyKey: string): Promise<StripePaymentRecord | null> {
+        const { rows } = await this.query<StripePaymentRecord>(`${STRIPE_PAYMENT} WHERE p.idempotency_key = $1 AND p.LeaseID = $2`, [idempotencyKey, leaseId])
+        return rows[0] ?? null
+    }
+
+    async findStripePayment(paymentIntentId: string): Promise<StripePaymentRecord | null> {
+        const { rows } = await this.query<StripePaymentRecord>(`${STRIPE_PAYMENT} WHERE s.payment_intent_id = $1`, [paymentIntentId])
+        return rows[0] ?? null
+    }
+
+    async createStripePayment(input: NewStripePayment): Promise<StripePaymentRecord> {
+        // As the caller: the lease exists and the tenant is on it (RLS shows a tenant only their own lease).
+        await this.tx(async (client) => {
+            if (!(await client.query("SELECT 1 FROM Lease WHERE LeaseID = $1", [input.leaseId])).rowCount) throw new AppError("NOT_FOUND")
+            const onLease = await client.query("SELECT 1 FROM Lease_Tenants WHERE LeaseID = $1 AND tID = $2", [input.leaseId, input.tenantId])
+            if (!onLease.rowCount) throw new AppError("VALIDATION_ERROR")
+        })
+        // Then as 'system', the only identity that writes payments.
+        return this.tx(async (client) => {
+            const { rows } = await client.query<{ id: number }>(
+                `INSERT INTO Payment (LeaseID, direction, amount, status, transaction_id, idempotency_key)
+                 VALUES ($1, 'charge', $2, 'pending', $3, $4)
+                 ON CONFLICT (idempotency_key) DO NOTHING
+                 RETURNING payID AS id`,
+                [input.leaseId, input.amount.toFixed(2), input.paymentIntentId, input.idempotencyKey],
+            )
+            const payId = rows[0]?.id
+            if (payId !== undefined) {
+                await client.query("INSERT INTO Payment_Details (payID, tID, method) VALUES ($1, $2, $3)", [payId, input.tenantId, input.method])
+                await client.query(
+                    `INSERT INTO Stripe_Payments (payID, payment_intent_id, method_type, amount_cents, fee_cents, stripe_status,
+                                                  card_brand, card_last4, card_funding, wallet)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                    [payId, input.paymentIntentId, input.methodType, Math.round(input.amount * 100), input.feeCents, input.stripeStatus,
+                        input.card?.brand ?? null, input.card?.last4 ?? null, input.card?.funding ?? null, input.card?.wallet ?? null],
+                )
+            }
+            // Another request with the same key got there first: that checkout is the answer.
+            const { rows: found } = await client.query<StripePaymentRecord>(`${STRIPE_PAYMENT} WHERE p.idempotency_key = $1 AND p.LeaseID = $2`, [input.idempotencyKey, input.leaseId])
+            if (!found[0]) throw new AppError("VALIDATION_ERROR")   // the key belongs to another lease
+            return found[0]
+        }, SYSTEM)
+    }
+
+    async applyStripeUpdate(update: StripePaymentUpdate): Promise<{ before: PaymentState; payment: StripePaymentRecord } | null> {
+        return this.tx(async (client) => {
+            const { rows } = await client.query<StripePaymentRecord>(`${STRIPE_PAYMENT} WHERE s.payment_intent_id = $1 FOR UPDATE OF s, p`, [update.paymentIntentId])
+            const row = rows[0]
+            if (!row) return null
+            await client.query(
+                `UPDATE Stripe_Payments SET stripe_status = $2, amount_received_cents = $3, currency = $4, failure_message = $5 WHERE payID = $1`,
+                [row.payId, update.stripeStatus, update.amountReceivedCents, update.currency, update.failureMessage],
+            )
+            // completed and failed are final (010's trigger says the same)
+            const status = row.status === "pending" ? update.status : row.status
+            if (status !== row.status) await client.query("UPDATE Payment SET status = $2 WHERE payID = $1", [row.payId, status])
+            // Completed: the fee becomes its own charge, so the balance drops by exactly the rent. Once: under the lock above.
+            if (status === "completed" && row.feeCents > 0) {
+                const { rows: fee } = await client.query<{ chargeId: number | null }>(
+                    `SELECT fee_charge_id AS "chargeId" FROM Stripe_Payments WHERE payID = $1`, [row.payId])
+                if (fee[0]?.chargeId === null) {
+                    const { rows: charged } = await client.query<{ id: number }>(
+                        `INSERT INTO Charge (LeaseID, kind, amount, due_date, description)
+                         VALUES ($1, 'processing_fee', $2, $3, 'Card processing fee') RETURNING chargeID AS id`,
+                        [row.leaseId, (row.feeCents / 100).toFixed(2), update.today],
+                    )
+                    await client.query("UPDATE Stripe_Payments SET fee_charge_id = $2 WHERE payID = $1", [row.payId, charged[0]!.id])
+                }
+            }
+            return { before: row.status, payment: { ...row, status, stripeStatus: update.stripeStatus } }
+        }, SYSTEM)
+    }
+
+    async recordStripeRefund(refund: NewStripeRefund): Promise<boolean> {
+        return this.tx(async (client) => {
+            const { rows } = await client.query<StripePaymentRecord>(`${STRIPE_PAYMENT} WHERE s.payment_intent_id = $1`, [refund.paymentIntentId])
+            const paid = rows[0]
+            if (!paid || paid.status !== "completed") return false
+            const inserted = await client.query<{ id: number }>(
+                `INSERT INTO Payment (LeaseID, direction, amount, status, transaction_id)
+                 VALUES ($1, 'refund', $2, 'completed', $3)
+                 ON CONFLICT (transaction_id) DO NOTHING
+                 RETURNING payID AS id`,
+                [paid.leaseId, refund.amount.toFixed(2), refund.refundId],
+            )
+            const payId = inserted.rows[0]?.id
+            if (payId === undefined) return false
+            await client.query("INSERT INTO Payment_Details (payID, tID, method) VALUES ($1, $2, $3)",
+                [payId, paid.tenantId, `${paid.method ?? "Payment"} refund`.slice(0, 60)])
+            return true
+        }, SYSTEM)
+    }
+
+    async recordStripeEvent(eventId: string, type: string, objectId: string | null): Promise<boolean> {
+        const result = await this.query(
+            "INSERT INTO Stripe_Events (event_id, type, object_id) VALUES ($1, $2, $3) ON CONFLICT (event_id) DO NOTHING",
+            [eventId, type, objectId], SYSTEM)
+        return (result.rowCount ?? 0) > 0
+    }
+
+    // ---- Email notifications (011): always as 'system', through the notify_* and queue functions
+
+    async findTenantRecipient(tID: number, choice: TenantEmailChoice | null): Promise<Recipient | null> {
+        const { rows } = await this.query<Recipient>("SELECT name, email FROM notify_tenant($1, $2)", [tID, choice], SYSTEM)
+        return rows[0] ?? null
+    }
+
+    async listOfficeRecipients(topic: OfficeEmailTopic): Promise<Recipient[]> {
+        return (await this.query<Recipient>("SELECT name, email FROM notify_office($1)", [topic], SYSTEM)).rows
+    }
+
+    async countUnreadFrom(tID: number, fromOffice: boolean): Promise<number> {
+        const { rows } = await this.query<{ n: number }>("SELECT notify_unread_from($1, $2) AS n", [tID, fromOffice], SYSTEM)
+        return rows[0]?.n ?? 0
+    }
+
+    async listPastDue(today: string): Promise<PastDueRecord[]> {
+        return (await this.query<PastDueRecord>(
+            `SELECT lease_id AS "leaseId", unit_label AS "unitLabel", tenant_names AS "tenantNames", due_date AS "dueDate", balance
+             FROM notify_past_due($1::date)`, [today], SYSTEM)).rows
+    }
+
+    async listLeasesEnding(today: string, days: number): Promise<LeaseEndingRecord[]> {
+        return (await this.query<LeaseEndingRecord>(
+            `SELECT lease_id AS "leaseId", end_date AS "endDate", unit_label AS "unitLabel", tenant_names AS "tenantNames"
+             FROM notify_leases_ending($1::date, $2)`, [today, days], SYSTEM)).rows
+    }
+
+    async findScheduledEmailsSent(keys: string[]): Promise<Set<string>> {
+        if (!keys.length) return new Set()
+        const { rows } = await this.query<{ key: string }>("SELECT key FROM Scheduled_Emails_Sent WHERE key = ANY($1::text[])", [keys], SYSTEM)
+        return new Set(rows.map((r) => r.key))
+    }
+
+    async markScheduledEmailSent(key: string): Promise<void> {
+        await this.query("INSERT INTO Scheduled_Emails_Sent (key) VALUES ($1) ON CONFLICT (key) DO NOTHING", [key], SYSTEM)
+    }
+
+    async queueNoticeEmails(templates: string[], since: { at: Date } | { day: string; timeZone: string }): Promise<number> {
+        const { rows } = "at" in since
+            ? await this.query<{ n: number }>("SELECT queue_notice_emails($1, $2::text[]) AS n", [since.at, templates], SYSTEM)
+            : await this.query<{ n: number }>("SELECT queue_notice_emails(($1::date)::timestamp AT TIME ZONE $2, $3::text[]) AS n",
+                [since.day, since.timeZone, templates], SYSTEM)
+        return rows[0]?.n ?? 0
+    }
+
+    async claimNoticeEmails(limit: number, oldest: Date): Promise<QueuedNoticeEmail[]> {
+        return (await this.query<QueuedNoticeEmail>(
+            `SELECT id, tid AS "tenantId", name, email, template, subject, body FROM claim_notice_emails($1, $2)`, [limit, oldest], SYSTEM)).rows
+    }
+
+    async finishNoticeEmail(id: number, sent: boolean, error: string | null): Promise<void> {
+        await this.query("SELECT finish_notice_email($1, $2, $3)", [id, sent, error], SYSTEM)
+    }
+
     // ---- Maintenance
 
     async listMaintenance(): Promise<MaintenanceRecord[]> {
@@ -717,6 +882,12 @@ export class PostgresDatabase implements DatabaseInterface {
             if (hasCode(error, PG.check)) throw new AppError("VALIDATION_ERROR")
             throw error
         }
+    }
+
+    async findMaintenanceStage(mID: number): Promise<{ tenantId: number | null; title: string; status: MaintenanceState } | null> {
+        const { rows } = await this.query<{ tenantId: number | null; title: string; status: MaintenanceState }>(
+            `SELECT tID AS "tenantId", title, status FROM Maintenance_T WHERE mID = $1 AND deactivated_at IS NULL`, [mID])
+        return rows[0] ?? null
     }
 
     async deactivateMaintenance(mID: number): Promise<void> {

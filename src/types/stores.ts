@@ -6,12 +6,14 @@ import type {
 import type { ExpenseRecord, LeaseLocation, MaintenanceTiming, NewExpense, RenewalNoticeRecord } from "./finance"
 import type {
     BankAccountInput, BankItem, CreatedLease, NewCharge, HashExpiry, LeaseChanges, LeaseTenantInput, MaintenanceChange, NewLease,
-    NewMaintenance, NewPayment, NewRefreshToken, NewTenant, PropertyInput, TenantChanges, UnitInput,
+    NewMaintenance, NewPayment, NewRefreshToken, NewStripePayment, NewStripeRefund, NewTenant, PropertyInput, StripePaymentUpdate,
+    TenantChanges, UnitInput,
 } from "./inputs"
 import type {
     BankAccountRecord, ChargeRecord, InvitedTenant, LeaseBalance, LeaseRecord, LeaseResident, LeaseWithUnit,
-    MaintenanceRecord, MaintenanceState, MessageRecord, OpenRequestCount, PaymentRecord, PersonRecord, PropertyRecord, Receipt,
-    RecentPaymentRecord, SessionUser, StaffProfile, TenantMaintenanceRecord, ThreadRecord, UnitRecord, UserRecord,
+    MaintenanceRecord, MaintenanceState, MessageRecord, OpenRequestCount, PaymentRecord, PaymentState, PersonRecord, PropertyRecord, Receipt,
+    RecentPaymentRecord, SessionUser, StaffProfile, StripePaymentRecord, TenantMaintenanceRecord, ThreadRecord, UnitRecord, UserRecord,
+    LeaseEndingRecord, OfficeEmailTopic, PastDueRecord, QueuedNoticeEmail, Recipient, TenantEmailChoice,
 } from "./records"
 
 /**
@@ -133,6 +135,8 @@ export interface MaintenanceStore {
     /** Stage, priority, type or scheduled day (008). NOT_FOUND when unknown or deleted. */
     updateMaintenance(id: number, change: MaintenanceChange): Promise<void>
     deactivateMaintenance(mID: number): Promise<void>
+    /** Who filed a request, its title and stage (for the resident's repair-update email, 011); null when unknown. */
+    findMaintenanceStage(mID: number): Promise<{ tenantId: number | null; title: string; status: MaintenanceState } | null>
 }
 
 export interface BankStore {
@@ -173,6 +177,50 @@ export interface SettingsStore {
     listReportedPayments(filter?: { leaseId?: number; pendingOnly?: boolean }): Promise<ReportedPaymentRecord[]>
     /** Confirm (the payment completes) or reject (it fails, with a reason). NOT_FOUND unless it is pending. */
     reviewReportedPayment(payId: number, decision: "confirmed" | "rejected", reason: string | null): Promise<ReportedPaymentRecord>
+}
+
+/**
+ * Card payments through Stripe (010). Reads run as the caller (a tenant finds only their own);
+ * every write runs as 'system', the only identity RLS lets write a payment.
+ */
+export interface StripePaymentStore {
+    /** The checkout already started under this (scoped) key on this lease, if any. */
+    findStripeCheckout(leaseId: number, idempotencyKey: string): Promise<StripePaymentRecord | null>
+    findStripePayment(paymentIntentId: string): Promise<StripePaymentRecord | null>
+    /**
+     * Checks as the caller that the lease exists and the tenant is on it, then writes the pending
+     * Payment, its details and its Stripe row. A second call with the same key returns the first.
+     */
+    createStripePayment(input: NewStripePayment): Promise<StripePaymentRecord>
+    /** Mirror Stripe's status; the Payment itself only moves from 'pending'. Null for a PaymentIntent that is not ours. */
+    applyStripeUpdate(update: StripePaymentUpdate): Promise<{ before: PaymentState; payment: StripePaymentRecord } | null>
+    /** False when already recorded, or when the payment is not completed. */
+    recordStripeRefund(refund: NewStripeRefund): Promise<boolean>
+    /** False when this event was recorded before. */
+    recordStripeEvent(eventId: string, type: string, objectId: string | null): Promise<boolean>
+}
+
+/**
+ * Who the emails go to, and the queue of notice emails (011). Every method runs as 'system'
+ * (the notify_* functions return nothing for anyone else), whoever the current request is for.
+ */
+export interface NotificationStore {
+    /** An active tenant, if they want this kind of email (`choice` null: any). */
+    findTenantRecipient(tID: number, choice: TenantEmailChoice | null): Promise<Recipient | null>
+    /** Where the office hears about `topic`: its notify address, or every property manager; none when it is turned off. */
+    listOfficeRecipients(topic: OfficeEmailTopic): Promise<Recipient[]>
+    /** Unopened messages in the conversation written by the office (true) or the tenant (false). */
+    countUnreadFrom(tID: number, fromOffice: boolean): Promise<number>
+    listPastDue(today: string): Promise<PastDueRecord[]>
+    listLeasesEnding(today: string, days: number): Promise<LeaseEndingRecord[]>
+    /** The keys (of those given) already recorded as sent. */
+    findScheduledEmailsSent(keys: string[]): Promise<Set<string>>
+    markScheduledEmailSent(key: string): Promise<void>
+    /** Give in-app notices of these templates, written since `since` (an instant, or a local day's start), their email. Returns how many. */
+    queueNoticeEmails(templates: string[], since: { at: Date } | { day: string; timeZone: string }): Promise<number>
+    /** Take up to `limit` queued notice emails to send; ones queued before `oldest` are skipped instead. */
+    claimNoticeEmails(limit: number, oldest: Date): Promise<QueuedNoticeEmail[]>
+    finishNoticeEmail(id: number, sent: boolean, error: string | null): Promise<void>
 }
 
 export type AuthStore = AccountStore & SessionStore
@@ -273,4 +321,5 @@ export type AdditionsStore = import("../db/postgres-additions").PostgresAddition
 export type DatabaseInterface =
     & HealthStore & AccountStore & SessionStore & PropertyStore & PeopleStore
     & LeaseStore & LedgerStore & PaymentStore & MaintenanceStore & BankStore & MessageStore & FinanceStore & SettingsStore & OperationsStore
+    & StripePaymentStore & NotificationStore
     & { readonly additions: AdditionsStore }

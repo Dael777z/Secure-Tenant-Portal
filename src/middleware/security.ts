@@ -11,9 +11,10 @@ export const securityHeaders = ({ production, https }: { production: boolean; ht
             frameAncestors: ["'none'"],
             imgSrc: ["'self'", "data:", "https:"],
             connectSrc: ["'self'", "https:"],
-            // plaid link loads its script from cdn.plaid.com and runs in a frame from there
-            scriptSrc: ["'self'", "https://cdn.plaid.com"],
-            frameSrc: ["'self'", "https://cdn.plaid.com"],
+            // plaid link loads its script from cdn.plaid.com and runs in a frame from there;
+            // Stripe.js (the card form, Apple Pay / Google Pay) loads from js.stripe.com and frames from there and hooks.stripe.com
+            scriptSrc: ["'self'", "https://cdn.plaid.com", "https://js.stripe.com"],
+            frameSrc: ["'self'", "https://cdn.plaid.com", "https://js.stripe.com", "https://hooks.stripe.com"],
             styleSrc: ["'self'", "'unsafe-inline'"],
             upgradeInsecureRequests: https ? [] : null,
         },

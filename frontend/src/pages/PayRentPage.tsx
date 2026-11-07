@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTenantData } from "../data/tenantData";
-import { messageFor, tenantApi } from "../api/tenant";
+import { ApiError, messageFor, tenantApi } from "../api/tenant";
+import { CardPayment, type CardFormHandle } from "../components/CardPayment";
 import { PlaidLinkButton } from "../components/PlaidLinkButton";
+import { describeRate, processingFee } from "../components/fees";
 import { formatCurrency } from "../components/formatCurrency";
+import { stripeClient, takeStripeReturn } from "../components/stripeClient";
 import type { ManualPayMethod, PaymentMethodKind, PaymentMethodOption } from "../types";
 
 /** A fresh id for one checkout (letters, digits and dashes, as the server expects). */
@@ -12,15 +15,22 @@ const newCheckoutKey = () =>
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 
 // Juan's payment methods (tenant-side-ui 23d7a8e): bank first, then Cash App and Zelle.
+// 010: cards, and Apple Pay / Google Pay, through Stripe, after the bank.
 const paymentMethodOptions: PaymentMethodOption[] = [
   { kind: "bank", label: "Bank Account", sublabel: "Connected via Plaid" },
+  { kind: "card", label: "Credit/Debit Card", sublabel: "Visa, Mastercard, Amex, Discover" },
+  { kind: "wallet", label: "Apple Pay / Google Pay", sublabel: "On supported devices" },
   { kind: "cashapp", label: "Cash App", sublabel: "Send from Cash App" },
   { kind: "zelle", label: "Zelle", sublabel: "Send from your bank's app" },
 ];
 
 const APP_NAMES: Record<ManualPayMethod, string> = { cashapp: "Cash App", zelle: "Zelle" };
 
-const PROCESSING_FEE = 0; // No fee is charged to tenants today (see the implementation plan, A3).
+const isManual = (kind: PaymentMethodKind): kind is ManualPayMethod => kind === "cashapp" || kind === "zelle";
+const isCard = (kind: PaymentMethodKind) => kind === "card" || kind === "wallet";
+
+/** An API error in the portal's words; anything else (Stripe.js, the card form) already speaks for itself. */
+const describe = (caught: unknown) => (caught instanceof ApiError || !(caught instanceof Error) ? messageFor(caught) : caught.message);
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 /** "1,250.50" or "$950" → 1250.5; null if it isn't a dollar amount with at most two decimals. */
@@ -35,11 +45,19 @@ export function PayRentPage() {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethodKind>("bank");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [paidJustNow, setPaidJustNow] = useState(false);
-  const { tenant, currentBalance, payLimits, bankAccounts, plaidEnabled, testPayments, payOptions, reportedPayments, refresh } = useTenantData();
+  // A card payment the bank is still checking (or Stripe is still processing).
+  const [processing, setProcessing] = useState(false);
+  const {
+    tenant, currentBalance, payLimits, bankAccounts, plaidEnabled, testPayments, payOptions, reportedPayments,
+    cardsEnabled, stripePublishableKey, cardFee, refresh,
+  } = useTenantData();
   const [confirmation, setConfirmation] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Kept until this checkout succeeds: pressing Pay again (or a retry) reuses it.
   const [checkoutKey, setCheckoutKey] = useState(newCheckoutKey);
+  const cardForm = useRef<CardFormHandle>(null);
+  // Whether this device can show Apple Pay / Google Pay (null: still checking).
+  const [walletAvailable, setWalletAvailable] = useState<boolean | null>(null);
 
   // How much: at least the balance (no partial payments), up to a few months of rent ahead (credit).
   const due = Math.max(currentBalance, 0);
@@ -65,7 +83,11 @@ export function PayRentPage() {
             : null;
   const valid = Boolean(payLimits?.canPay) && amount !== null && amountProblem === null;
   const payingAhead = valid && amount !== null ? round2(amount - due) : 0;
-  const total = valid && amount !== null ? round2(amount + PROCESSING_FEE) : 0;
+  // Cards pass on the processor's fee (the server works out the same figure and charges that);
+  // bank transfers, Cash App and Zelle have none.
+  const rate = isCard(selectedMethod) ? cardFee : null;
+  const fee = valid && amount !== null && rate ? processingFee(amount, rate) : 0;
+  const total = valid && amount !== null ? round2(amount + fee) : 0;
   // One-tap amounts that fit under the limit.
   const choices = (
     due > 0
@@ -80,7 +102,16 @@ export function PayRentPage() {
         ]
   ).filter((c) => c.value > 0 && c.value <= maximum + 0.001);
 
-  const manual = selectedMethod === "bank" ? null : selectedMethod;
+  // A checkout is for one amount: when what will be charged changes, the next Pay is a new checkout.
+  const checkoutTotal = useRef(total);
+  useEffect(() => {
+    if (checkoutTotal.current !== total) {
+      checkoutTotal.current = total;
+      setCheckoutKey(newCheckoutKey());
+    }
+  }, [total]);
+
+  const manual = isManual(selectedMethod) ? selectedMethod : null;
   // The office's own handle for Cash App / Zelle (Settings on the manager side).
   const sendTo = manual ? { app: APP_NAMES[manual], handle: payOptions[manual] } : null;
   // Goes in the memo so the office can match the payment to the tenant.
@@ -92,14 +123,29 @@ export function PayRentPage() {
   const bankAccount = bankAccounts[0] ?? null;
   const needsBankLink = selectedMethod === "bank" && plaidEnabled && !bankAccount;
   const unavailable = selectedMethod === "bank" && !plaidEnabled && !testPayments;
+  const cardsReady = cardsEnabled && Boolean(stripePublishableKey);
   const canPay =
     valid &&
     !waiting &&
-    (selectedMethod === "bank" ? !needsBankLink && !unavailable : Boolean(sendTo?.handle));
+    (selectedMethod === "bank"
+      ? !needsBankLink && !unavailable
+      : selectedMethod === "card"
+        ? cardsReady
+        : Boolean(sendTo?.handle));
+  // Apple Pay / Google Pay bring their own button, shown only when a payment can go through.
+  const walletReady = selectedMethod === "wallet" && cardsReady && valid && !waiting;
 
   function selectMethod(kind: PaymentMethodKind) {
     setSelectedMethod(kind);
     setPaidJustNow(false);
+    setProcessing(false);
+    setError(null);
+  }
+
+  function start() {
+    setIsSubmitting(true);
+    setPaidJustNow(false);
+    setProcessing(false);
     setError(null);
   }
 
@@ -111,20 +157,81 @@ export function PayRentPage() {
     return refresh();
   }
 
+  /** Show how a card payment ended up: after the charge, after a bank check, or after coming back from a redirect. */
+  async function settleCard(paymentIntentId: string) {
+    const result = await tenantApi.refreshCardPayment(paymentIntentId);
+    if (result.status === "completed") return finish(result);
+    setCheckoutKey(newCheckoutKey()); // a card's next try is a new checkout
+    if (result.status === "failed") setError("That payment was canceled. You can try again.");
+    else setProcessing(true);
+    await refresh();
+  }
+
+  // Back from a bank's card check that left this site: finish that payment.
+  useEffect(() => {
+    const returned = takeStripeReturn();
+    if (!returned) return;
+    setSelectedMethod("card");
+    start();
+    settleCard(returned)
+      .catch((caught) => setError(messageFor(caught)))
+      .finally(() => setIsSubmitting(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** A card, Apple Pay or Google Pay token from Stripe.js: the server charges it (rent + fee) at once. */
+  async function payWithCardToken(confirmationTokenId: string) {
+    // The rent being paid; the server adds the processing fee to what the card is charged.
+    const result = await tenantApi.payCard(amount!, checkoutKey, confirmationTokenId);
+    if (result.requiresAction) {
+      // The bank wants the cardholder to confirm (3-D Secure): Stripe shows its check.
+      const stripe = await stripeClient(stripePublishableKey!);
+      const checked = await stripe?.handleNextAction({ clientSecret: result.clientSecret });
+      if (!checked || checked.error) {
+        setCheckoutKey(newCheckoutKey());
+        throw new Error(checked?.error?.message ?? "Your bank could not confirm the payment. Please try again.");
+      }
+    }
+    await settleCard(result.paymentIntentId);
+  }
+
   function handlePay() {
-    setIsSubmitting(true);
-    setPaidJustNow(false);
-    setError(null);
-    const request = manual
-      ? tenantApi.reportPayment(manual, total, checkoutKey) // "I've sent it"
-      : tenantApi.pay(total, bankAccount?.id ?? null, checkoutKey);
+    start();
+    const request =
+      selectedMethod === "card"
+        ? (async () => payWithCardToken(await cardForm.current!.createToken()))()
+        : manual
+          ? tenantApi.reportPayment(manual, total, checkoutKey).then(finish) // "I've sent it"
+          : tenantApi.pay(total, bankAccount?.id ?? null, checkoutKey).then(finish);
     request
-      .then(finish)
       .catch(async (caught) => {
-        setError(messageFor(caught));
+        setError(describe(caught));
         await refresh(); // e.g. the balance changed, or a report is already waiting
       })
       .finally(() => setIsSubmitting(false));
+  }
+
+  /** The tenant confirmed in the Apple Pay / Google Pay sheet. Throwing tells the sheet it failed. */
+  async function handleWalletToken(confirmationTokenId: string) {
+    start();
+    try {
+      await payWithCardToken(confirmationTokenId);
+    } catch (caught) {
+      setError(describe(caught));
+      await refresh();
+      throw caught;
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function sublabelFor(option: PaymentMethodOption): string {
+    if (isManual(option.kind)) return payOptions[option.kind] ? option.sublabel : "Not offered right now";
+    if (isCard(option.kind)) {
+      if (!cardsEnabled) return "Not available yet";
+      return `${option.sublabel} · ${cardFee ? `${describeRate(cardFee)} fee` : "No fee"}`;
+    }
+    return option.sublabel;
   }
 
   return (
@@ -147,9 +254,7 @@ export function PayRentPage() {
               <span>
                 <span className="method-label">{option.label}</span>
                 <br />
-                <span className="method-sublabel">
-                  {option.kind !== "bank" && !payOptions[option.kind] ? "Not offered right now" : option.sublabel}
-                </span>
+                <span className="method-sublabel">{sublabelFor(option)}</span>
               </span>
             </button>
           ))}
@@ -166,6 +271,23 @@ export function PayRentPage() {
           <p className="method-note">Test mode (Plaid is not connected): the payment is recorded, and no money moves.</p>
         )}
         {unavailable && <p className="method-note">Online payment is not available right now. Please pay the leasing office directly.</p>}
+
+        {selectedMethod === "card" && cardsReady && (
+          <>
+            <p className="method-note">Your card details go straight to Stripe, our payment processor. They are never stored here.</p>
+            <CardPayment ref={cardForm} mode="card" publishableKey={stripePublishableKey!} amountCents={Math.round(Math.max(total, 0.5) * 100)} />
+          </>
+        )}
+        {selectedMethod === "wallet" && cardsReady && (
+          <p className="method-note">
+            {walletAvailable === false
+              ? "Apple Pay and Google Pay aren't available on this device or browser. Try Safari on an iPhone or Mac with Apple Pay set up, or Chrome with Google Pay, or pay by card."
+              : "Press the Apple Pay or Google Pay button to pay with the card in your wallet."}
+          </p>
+        )}
+        {isCard(selectedMethod) && !cardsReady && (
+          <p className="method-note">Card payments aren't available right now. Please use a bank account, or Cash App or Zelle.</p>
+        )}
 
         {sendTo &&
           (sendTo.handle ? (
@@ -249,22 +371,47 @@ export function PayRentPage() {
         )}
         <div className="summary-row">
           <span>Processing fee</span>
-          <span>{formatCurrency(PROCESSING_FEE)}</span>
+          <span>{formatCurrency(fee)}</span>
         </div>
+        {rate && (
+          <p className="summary-fee-note">
+            Card payments cost {describeRate(rate)} per payment. It's added here so your full rent reaches the office. Bank transfers have no fee.
+          </p>
+        )}
         <div className="summary-row summary-row--total">
           <span>Total</span>
           <span>{formatCurrency(total)}</span>
         </div>
 
-        <button
-          type="button"
-          className="btn btn--primary"
-          style={{ width: "100%", marginTop: 16 }}
-          onClick={handlePay}
-          disabled={isSubmitting || !canPay}
-        >
-          {isSubmitting ? "Processing..." : sendTo ? `I've sent ${formatCurrency(total)}` : `Pay ${formatCurrency(total)}`}
-        </button>
+        {selectedMethod === "wallet" ? (
+          walletReady ? (
+            // Pressing Apple Pay / Google Pay opens the wallet sheet; confirming it pays.
+            <div style={{ marginTop: 16, opacity: isSubmitting ? 0.6 : 1, pointerEvents: isSubmitting ? "none" : undefined }}>
+              <CardPayment
+                mode="wallet"
+                publishableKey={stripePublishableKey!}
+                amountCents={Math.round(total * 100)}
+                onWalletToken={handleWalletToken}
+                onWalletAvailability={setWalletAvailable}
+              />
+              {isSubmitting && <p className="method-note">Processing...</p>}
+            </div>
+          ) : (
+            <button type="button" className="btn btn--primary" style={{ width: "100%", marginTop: 16 }} disabled>
+              {`Pay ${formatCurrency(total)}`}
+            </button>
+          )
+        ) : (
+          <button
+            type="button"
+            className="btn btn--primary"
+            style={{ width: "100%", marginTop: 16 }}
+            onClick={handlePay}
+            disabled={isSubmitting || !canPay}
+          >
+            {isSubmitting ? "Processing..." : sendTo ? `I've sent ${formatCurrency(total)}` : `Pay ${formatCurrency(total)}`}
+          </button>
+        )}
 
         {waiting && !paidJustNow && (
           <div className="pay-pending-banner" role="status">
@@ -287,6 +434,11 @@ export function PayRentPage() {
         {paidJustNow && waiting && (
           <div className="pay-success-banner" role="status">
             Thanks. Once the office sees your {APP_NAMES[waiting.method]} payment, it will show in your ledger.
+          </div>
+        )}
+        {processing && (
+          <div className="pay-pending-banner" role="status">
+            Your card payment is not finished yet. It shows in your ledger as soon as your card's bank confirms it.
           </div>
         )}
         {error && (

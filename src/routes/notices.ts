@@ -18,7 +18,7 @@ const TEMPLATES = ["rent_upcoming", "rent_due", "rent_overdue", "payment_receive
  * Notices and documents (009).
  *
  *   GET  /manager/notices?template=&channel=&status=&q=   every notice residents were sent
- *   POST /manager/notices  { audience: { kind: all|property|tenant, id? }, subject, body }
+ *   POST /manager/notices  { audience: { kind: all|property|tenant, id? }, subject, body, email? }  (email: also by email, 011)
  *   GET  /manager/documents/all?scope=&id=&category=&q=    uploaded files, signed leases and receipts
  *   POST /manager/documents { scope, id, category, title, sharedWithTenant, filename, data }  (10 MB)
  *   PUT  /manager/documents/:id  { title?, category?, sharedWithTenant? }
@@ -70,7 +70,8 @@ export function createNoticesRouter(deps: { notices: NoticesService; guard: Auth
         const audience: NoticeAudience = a.kind === "all" ? { kind: "all" }
             : a.kind === "property" || a.kind === "tenant" ? { kind: a.kind, id: id(a.id) }
             : (() => { throw new AppError("VALIDATION_ERROR") })()
-        res.status(201).json(await notices.send(audience, text(body.subject, 200)!, text(body.body, 5000)!))
+        if (body.email !== undefined && typeof body.email !== "boolean") throw new AppError("VALIDATION_ERROR")
+        res.status(201).json(await notices.send(audience, text(body.subject, 200)!, text(body.body, 5000)!, body.email === true))
     })
 
     router.get("/tenant/notices", ...can("ledger:read:self"), async (_req, res) => {

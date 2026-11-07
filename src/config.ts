@@ -16,6 +16,9 @@ import { configDotenv } from "dotenv"
  *   JWT_ACCESS_SECRET      required in production
  *   WEB_ORIGIN             where the browser loads the site from
  *   PORT, TRUST_PROXY_HOPS, LOG_FILE, PLAID_*, TOKEN_ENCRYPTION_KEY: optional
+ *   RESEND_API_KEY, EMAIL_FROM   email notifications through Resend; off unless both are set
+ *   STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET   cards, Apple Pay and Google Pay
+ *                          through Stripe; off unless both keys are set (the webhook secret is required in production)
  *
  * The Docker and npm flows (scripts/portal.mjs) set these for you.
  */
@@ -29,6 +32,10 @@ const FIXED = {
     jwtAudience: "portal-web",
     accessTtlSeconds: 15 * 60,
     refreshTtlMilliseconds: 7 * 24 * 60 * 60 * 1000,
+    /** Rent reminder emails and the office's daily emails (late rent, leases ending) go out from this hour, local time. */
+    emailSendFromHour: 8,
+    /** The office hears about a lease this many days before it ends. */
+    leaseEndingNoticeDays: 90,
 }
 
 /** Requests per IP per 15 minutes. */
@@ -93,6 +100,14 @@ export function loadConfig(vars: NodeJS.ProcessEnv = process.env, { server = tru
         plaidRedirectUri: redirectUri(get("PLAID_REDIRECT_URI"), webOrigin),
         /** Encrypts Plaid access tokens at rest. */
         tokenEncryptionKey: get("TOKEN_ENCRYPTION_KEY") || (production ? "" : DEV_ONLY_SECRET),
+        /** Email is on when both are set. EMAIL_FROM is a sender on a domain verified in Resend: "Summit <rent@example.com>". */
+        resendApiKey: get("RESEND_API_KEY"),
+        emailFrom: get("EMAIL_FROM"),
+        /** Stripe (cards, Apple Pay, Google Pay) is on when both keys are set. Test keys (sk_test_/pk_test_) move no real money. */
+        stripeSecretKey: get("STRIPE_SECRET_KEY"),
+        stripePublishableKey: get("STRIPE_PUBLISHABLE_KEY"),
+        /** Verifies /api/stripe/webhook (whsec_...): from the Stripe dashboard, or `stripe listen` in development. */
+        stripeWebhookSecret: get("STRIPE_WEBHOOK_SECRET"),
     }
 
     const problems: string[] = []
@@ -118,6 +133,16 @@ export function loadConfig(vars: NodeJS.ProcessEnv = process.env, { server = tru
         if (redirect && (/[?#]/.test(redirect) || !(redirect.startsWith("https://") || localHttp))) {
             problems.push("PLAID_REDIRECT_URI must be https:// (http://localhost only in sandbox), with no ? or #")
         }
+    }
+    if (server && config.resendApiKey && !/^[^<>]*<?[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+>?$/.test(config.emailFrom)) {
+        problems.push('EMAIL_FROM must be set when RESEND_API_KEY is ("Name <you@your-domain.com>" or an address)')
+    }
+    if (server && (config.stripeSecretKey || config.stripePublishableKey)) {
+        const keyMode = (key: string) => (/_test_/.test(key) ? "test" : /_live_/.test(key) ? "live" : "unknown")
+        if (!/^(sk|rk)_(test|live)_/.test(config.stripeSecretKey)) problems.push("STRIPE_SECRET_KEY must be a Stripe secret key (sk_test_... or sk_live_...)")
+        else if (!/^pk_(test|live)_/.test(config.stripePublishableKey)) problems.push("STRIPE_PUBLISHABLE_KEY must be set with STRIPE_SECRET_KEY (pk_test_... or pk_live_...)")
+        else if (keyMode(config.stripeSecretKey) !== keyMode(config.stripePublishableKey)) problems.push("STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY must both be test keys or both live keys")
+        if (production && !config.stripeWebhookSecret) problems.push("STRIPE_WEBHOOK_SECRET must be set when Stripe is on (payments are confirmed by its webhook)")
     }
     if (problems.length) throw new Error(`Configuration problems:\n  - ${problems.join("\n  - ")}`)
     return config
