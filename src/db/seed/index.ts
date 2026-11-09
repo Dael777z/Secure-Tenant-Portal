@@ -206,9 +206,9 @@ function paymentHistory(lease: SeedLease, today: Date) {
             const at = new Date(`${p.due}T16:00:00Z`)
             // Most months on the due date or a day after; now and then a few days late.
             at.setUTCDate(at.getUTCDate() + [0, 1, 0, 2, 0, 4][p.month % 6]!)
-            return { ...p, at, method: p.month % 4 === 3 ? "Check (recorded by office)" : "Bank transfer" }
+            // Never dated after today: early in a month the delay would be, and the payment would be lost.
+            return { ...p, at: at > today ? today : at, method: p.month % 4 === 3 ? "Check (recorded by office)" : "Bank transfer" }
         })
-        .filter((p) => p.at <= today)
     // map paid into a series of payment histories  that include the paid tuple aswell as the date of the payment and a random payment method
 }
 
