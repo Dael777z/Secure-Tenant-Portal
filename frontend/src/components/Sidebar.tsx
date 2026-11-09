@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import type { PageKey, Tenant } from "../types";
 import { Brand, ThemeSwitch } from "../theme/Brand";
+import { useEffect, useRef, useState } from "react";
 
 // Simple inline icons
 const icons: Record<PageKey, ReactElement> = {
@@ -63,6 +64,9 @@ const navItems: { key: PageKey; label: string }[] = [
   { key: "settings", label: "Settings" },
 ];
 
+// On phones these pages sit behind the "More" tab (see portal.css).
+const MORE_PAGES: PageKey[] = ["ledger", "documents", "settings"];
+
 interface SidebarProps {
   tenant: Tenant;
   activePage: PageKey;
@@ -71,6 +75,22 @@ interface SidebarProps {
 }
 
 export function Sidebar({ tenant, activePage, onNavigate, onLogout }: SidebarProps) {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
+  
+  //Escape closes the "More" sheet. 
+  useEffect(() => {
+    if (!moreOpen) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setMoreOpen(false);
+        moreButtonRef.current?.focus();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [moreOpen]);
+  
   return (
     <aside className="portal-sidebar" aria-label="Resident portal navigation">
       <div className="portal-brand">
@@ -104,7 +124,7 @@ export function Sidebar({ tenant, activePage, onNavigate, onLogout }: SidebarPro
           <button
             key={item.key}
             type="button"
-            className="portal-nav-item"
+            className={"portal-nav-item" + (MORE_PAGES.includes(item.key) ? " portal-nav-item--more" : "")}
             aria-current={activePage === item.key ? "page" : undefined}
             onClick={() => onNavigate(item.key)}
           >
@@ -112,7 +132,54 @@ export function Sidebar({ tenant, activePage, onNavigate, onLogout }: SidebarPro
             {item.label}
           </button>
         ))}
+        <button
+          ref={moreButtonRef}
+          type="button"
+          className="portal-nav-item portal-nav-more"
+          aria-haspopup="dialog"
+          aria-expanded={moreOpen}
+          aria-current={MORE_PAGES.includes(activePage) ? "page" : undefined}
+          onClick={() => setMoreOpen(true)}
+        >
+          <svg className="portal-nav-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <circle cx="5" cy="12" r="1.8" />
+            <circle cx="12" cy="12" r="1.8" />
+            <circle cx="19" cy="12" r="1.8" />
+          </svg>
+          More
+        </button>
       </nav>
+
+      {moreOpen && (
+        <div className="portal-more-backdrop" onClick={() => setMoreOpen(false)}>
+          <div
+            className="portal-more-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-label="More pages"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {navItems
+              .filter((item) => MORE_PAGES.includes(item.key))
+              .map((item, index) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className="portal-nav-item"
+                  aria-current={activePage === item.key ? "page" : undefined}
+                  autoFocus={index === 0}
+                  onClick={() => {
+                    setMoreOpen(false);
+                    onNavigate(item.key);
+                  }}
+                >
+                  {icons[item.key]}
+                  {item.label}
+                </button>
+              ))}
+          </div>
+        </div>
+      )}
 
       <div className="portal-sidebar-footer">
         <ThemeSwitch />
