@@ -1459,3 +1459,50 @@ html[data-text-size="xlarge"] .portal-main {
 .login-brand-mark .s-brand__name {
   color: var(--s-on-navy);
 }
+
+/* Ledger export: the buttons, and the statement as printed (Print, then Save as PDF) */
+.ledger-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.print-only {
+  display: none;
+}
+.statement-head {
+  margin: 0 0 12px;
+}
+.statement-head div {
+  display: flex;
+  gap: 12px;
+}
+.statement-head dt {
+  min-width: 130px;
+  font-weight: 700;
+}
+.statement-head dd {
+  margin: 0;
+}
+@media print {
+  .print-only {
+    display: block;
+  }
+  .portal-sidebar,
+  .portal-header,
+  .ledger-actions {
+    display: none !important;
+  }
+  .portal-shell,
+  .portal-main,
+  .portal-panel {
+    display: block;
+    background: #fff;
+    color: #000;
+  }
+  .ledger-table th,
+  .ledger-table td {
+    color: #000;
+    border-bottom: 1px solid #ccc;
+  }
+}

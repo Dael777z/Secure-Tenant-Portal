@@ -13,6 +13,9 @@ export interface Tenant {
 export interface LedgerEntry {
   id: string;
   date: string;
+  /** YYYY-MM-DD, for exports. */
+  isoDate: string;
+  type: "charge" | "payment" | "refund";
   description: string;
   method: string | null; 
   amount: number; 

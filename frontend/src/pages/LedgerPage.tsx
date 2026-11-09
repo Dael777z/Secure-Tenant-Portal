@@ -1,8 +1,16 @@
 import { useTenantData } from "../data/tenantData";
+import { downloadCsv } from "../api/csv";
 import { formatBalance, formatCurrency } from "../components/formatCurrency";
+import { LedgerStatementHead, ledgerStatementRows, type StatementInfo } from "../components/ledgerStatement";
 
 export function LedgerPage() {
-  const { ledger, leaseDocument } = useTenantData();
+  const { ledger, tenant, leaseDocument } = useTenantData();
+  const info: StatementInfo = {
+    reportDate: new Date().toLocaleDateString("en-CA"),
+    address: tenant.address,
+    unit: tenant.unitLabel,
+    tenants: [tenant.name],
+  };
   return (
     <section className="portal-panel" aria-label="Full ledger">
       {leaseDocument && (
@@ -13,6 +21,15 @@ export function LedgerPage() {
           <span className="ledger-lease-doc__when">uploaded {leaseDocument.uploadedOn}</span>
         </p>
       )}
+      <div className="ledger-actions">
+        <button type="button" className="btn btn--outline" onClick={() => downloadCsv(`ledger-${info.reportDate}.csv`, ledgerStatementRows(info, ledger))} disabled={ledger.length === 0}>
+          Download CSV
+        </button>
+        <button type="button" className="btn btn--outline" onClick={() => window.print()}>
+          Print
+        </button>
+      </div>
+      <LedgerStatementHead info={info} />
        <div className="table-scroll">
       <table className="ledger-table">
         <thead>

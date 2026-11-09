@@ -14,6 +14,10 @@ export interface TenantProfile {
 export interface LedgerEntry {
     id: string
     date: string
+    /** The date as YYYY-MM-DD, for exports (`date` is for display). */
+    isoDate: string
+    /** A refund is a payment taken back. */
+    type: "charge" | "payment" | "refund"
     description: string
     method: string | null
     /** Charges negative, payments positive. */

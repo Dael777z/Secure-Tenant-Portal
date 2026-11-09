@@ -5,9 +5,10 @@
 import { DocumentsHub } from "./documents-hub";
 import { TenantDetailsCard } from "./office";
 import { useMemo, useState, type ReactNode } from "react";
-import { isClosedRequest, managerApi, readReceipt, receiptUrl, RECEIPT_MAX_BYTES, type ReceiptUpload, type TenantRow, type UnitRow } from "./api";
+import { isClosedRequest, managerApi, readReceipt, receiptUrl, RECEIPT_MAX_BYTES, type LeaseDetail, type ReceiptUpload, type StaffProfile, type TenantRow, type UnitRow } from "./api";
 import { downloadCsv, financeApi, type FinancePeriod, type RecentPaymentRow } from "./finance-api";
 import { PaymentOptionsPage, ReportedPayments } from "./finance";
+import { LedgerStatementHead, ledgerStatementRows, type StatementInfo } from "../components/ledgerStatement";
 import {
   CHARGE_KINDS,
   MAX_REPEATS,
@@ -1452,6 +1453,17 @@ function LeaseDocuments({ leases, label }: { leases: Array<{ id: number; startDa
   );
 }
 
+/** The facts at the top of a lease's ledger statement (CSV and print). */
+export function leaseStatementInfo(lease: LeaseDetail, generatedBy?: StaffProfile | null): StatementInfo {
+  return {
+    reportDate: todayIso(),
+    address: lease.address,
+    unit: lease.unitNum,
+    tenants: lease.tenants.map((t) => t.name),
+    generatedBy: generatedBy ?? undefined,
+  };
+}
+
 /** A lease's charges (paid / due / late) or its running ledger. */
 function LeaseCharges({ leaseId, unitId, label }: { leaseId: number; unitId?: number; label: string }) {
   const { open, can } = useManager();
@@ -1459,11 +1471,16 @@ function LeaseCharges({ leaseId, unitId, label }: { leaseId: number; unitId?: nu
   const charges = useLoad(() => opsApi.charges(ALL_FROM, ALL_TO), []);
   const lease = useLoad(() => managerApi.lease(leaseId), [leaseId]);
   const rows = (charges.data?.rows ?? []).filter((r) => r.leaseId === leaseId && (unitId === undefined || r.unitId === unitId));
+  const me = useLoad(() => managerApi.me(), []);
   const ledger = lease.data?.ledger ?? [];
-  const exportCsv = () =>
-    mode === "charges"
-      ? downloadCsv(`charges-lease-${leaseId}.csv`, [["Due", "Charge", "Description", "Amount", "Paid", "Unpaid", "Status"], ...rows.map((r) => [r.dueDate, r.kindLabel, r.description, r.amount, r.paid, r.unpaid, r.status])])
-      : downloadCsv(`ledger-lease-${leaseId}.csv`, [["Date", "Description", "Method", "Amount", "Balance"], ...ledger.map((e) => [e.date, e.description, e.method ?? "", e.amount, e.balanceAfter])]);
+  const info = lease.data && leaseStatementInfo(lease.data, me.data);
+  const exportCsv = () => {
+    if (mode === "charges") {
+      downloadCsv(`charges-lease-${leaseId}.csv`, [["Due", "Charge", "Description", "Amount", "Paid", "Unpaid", "Status"], ...rows.map((r) => [r.dueDate, r.kindLabel, r.description, r.amount, r.paid, r.unpaid, r.status])]);
+    } else if (info) {
+      downloadCsv(`ledger-lease-${leaseId}.csv`, ledgerStatementRows(info, ledger));
+    }
+  };
   return (
     <section className="mgr-card mgr-printable">
       <div className="mgr-card__head">
@@ -1527,6 +1544,7 @@ function LeaseCharges({ leaseId, unitId, label }: { leaseId: number; unitId?: nu
         <Empty>No ledger lines yet.</Empty>
       ) : (
         <div className="mgr-table-wrap">
+          {info && <LedgerStatementHead info={info} />}
           <table className="mgr-table mgr-table--compact">
             <thead>
               <tr>

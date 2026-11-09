@@ -21,7 +21,7 @@ describe("ledger built from the Charge and Payment tables", () => {
             ["Payment received", 950, 0],
             ["Rent - 2026-09-15", -950, 950],
         ])
-        expect(entries[1]).toMatchObject({ id: "payment-7", date: "Sep 20, 2026", method: "Checking 0000", confirmation: "CONF-7" })
+        expect(entries[1]).toMatchObject({ id: "payment-7", date: "Sep 20, 2026", isoDate: "2026-09-20", type: "payment", method: "Checking 0000", confirmation: "CONF-7" })
     })
 
     it("only completed payments move the balance (the same rule as the lease_balance view)", () => {
@@ -45,7 +45,7 @@ describe("ledger built from the Charge and Payment tables", () => {
             ],
         )
         expect(balance).toBe(950)
-        expect(entries[0]).toMatchObject({ description: "Payment reversed", amount: -950, balanceAfter: 950 })
+        expect(entries[0]).toMatchObject({ description: "Payment reversed", type: "refund", amount: -950, balanceAfter: 950 })
     })
 
     it("falls back to a label when a charge has no description", () => {

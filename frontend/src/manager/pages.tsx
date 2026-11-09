@@ -5,7 +5,8 @@
 import { useMemo, useState } from "react";
 import { isClosedRequest, managerApi, receiptUrl, REQUEST_PRIORITIES, REQUEST_STATUSES, REQUEST_TYPES, type MaintenanceRow, type RequestStatus, type TenantRow, type UnitRow, type UpdateRow } from "./api";
 import { downloadCsv } from "./finance-api";
-import { MoreMenu, tenantStages, type TenantStage } from "./ops";
+import { leaseStatementInfo, MoreMenu, tenantStages, type TenantStage } from "./ops";
+import { LedgerStatementHead, ledgerStatementRows } from "../components/ledgerStatement";
 import type { LedgerEntry } from "../types";
 import { financeApi } from "./finance-api";
 import { GettingStarted } from "./onboarding";
@@ -699,12 +700,14 @@ function PaymentActions({ leaseId, entry, hasReceipt }: { leaseId: number; entry
 export function LeasePage({ id }: { id: number }) {
   const { go, open, can, changed } = useManager();
   const { data, error } = useLoad(() => managerApi.lease(id), [id]);
+  const me = useLoad(() => managerApi.me(), []);
   const [removing, setRemoving] = useState<number | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
 
   if (!data) return <Loading error={error} />;
   const label = `Unit ${data.unitNum} - ${data.propertyName}`;
   const ended = data.endDate !== null && data.endDate < new Date().toISOString().slice(0, 10);
+  const info = leaseStatementInfo(data, me.data);
 
   async function remove(tenantId: number) {
     setRemoving(tenantId);
@@ -797,12 +800,16 @@ export function LeasePage({ id }: { id: number }) {
           </ul>
           {removeError && <p className="mgr-alert mgr-alert--error">{removeError}</p>}
         </section>
-        <section className="mgr-card" aria-labelledby="mgr-ledger">
-          <h2 className="mgr-h2" id="mgr-ledger">Ledger</h2>
+        <section className="mgr-card mgr-printable" aria-labelledby="mgr-ledger">
+          <div className="mgr-card__head">
+            <h2 className="mgr-h2" id="mgr-ledger">Ledger</h2>
+            <MoreMenu items={[["Export CSV", () => downloadCsv(`ledger-lease-${id}.csv`, ledgerStatementRows(info, data.ledger))], ["Print", () => window.print()]]} />
+          </div>
           {data.ledger.length === 0 ? (
             <Empty>No charges yet. Rent is charged from the start date.</Empty>
           ) : (
             <div className="mgr-table-wrap">
+              <LedgerStatementHead info={info} />
               <table className="mgr-table mgr-table--compact">
                 <thead>
                   <tr>
@@ -811,7 +818,7 @@ export function LeasePage({ id }: { id: number }) {
                     <th scope="col">Method</th>
                     <th scope="col" className="mgr-num">Amount</th>
                     <th scope="col" className="mgr-num">Balance</th>
-                    <th scope="col">Receipt</th>
+                    <th scope="col" className="mgr-no-print">Receipt</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -825,7 +832,7 @@ export function LeasePage({ id }: { id: number }) {
                       <td className="mgr-muted">{e.method ?? "—"}</td>
                       <td className={`mgr-num ${e.amount > 0 ? "mgr-credit" : ""}`}>{e.amount > 0 ? `+${money(e.amount)}` : money(e.amount)}</td>
                       <td className="mgr-num">{money(e.balanceAfter)}</td>
-                      <td className="mgr-row-actions">
+                      <td className="mgr-row-actions mgr-no-print">
                         <PaymentActions leaseId={id} entry={e} hasReceipt={data.receiptPaymentIds.includes(paymentIdOf(e.id))} />
                       </td>
                     </tr>

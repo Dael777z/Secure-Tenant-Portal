@@ -43,7 +43,7 @@ const CHARGE_LABELS: Record<ChargeRecord["kind"], string> = {
     processing_fee: "Processing fee",
 }
 
-export function buildLedger(charges: ChargeRecord[], payments: PaymentRecord[], timeZone?: string): {
+export function buildLedger(charges: ChargeRecord[], payments: PaymentRecord[], timeZone = "America/Denver"): {
     entries: LedgerEntry[]
     balance: number
 } {
@@ -58,6 +58,8 @@ export function buildLedger(charges: ChargeRecord[], payments: PaymentRecord[], 
             entry: {
                 id: `charge-${charge.id}`,
                 date: formatDate(at, "UTC"),
+                isoDate: charge.dueDate,
+                type: "charge",
                 description: charge.description ?? CHARGE_LABELS[charge.kind],
                 method: null,
                 amount: -charge.amount,
@@ -75,6 +77,8 @@ export function buildLedger(charges: ChargeRecord[], payments: PaymentRecord[], 
                 // "payment-<id>" is what receipts are keyed by.
                 id: `payment-${payment.id}`,
                 date: formatDate(payment.paidAt, timeZone),
+                isoDate: localDate(payment.paidAt, timeZone),
+                type: refund ? "refund" : "payment",
                 description: refund ? "Payment reversed" : "Payment received",
                 method: payment.method,
                 amount: refund ? -payment.amount : payment.amount,

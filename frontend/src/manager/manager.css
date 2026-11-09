@@ -3063,8 +3063,18 @@ body:has(.mgr-shell) {
   .mgr-crumbs,
   .mgr-more,
   .mgr-months,
-  .mgr-viewcards {
+  .mgr-viewcards,
+  .mgr-no-print {
     display: none !important;
+  }
+  /* A page with a .mgr-printable section (a lease ledger) prints only that section. */
+  .mgr-content:has(.mgr-printable) .mgr-page-header,
+  .mgr-content:has(.mgr-printable) .mgr-kpis,
+  .mgr-content:has(.mgr-printable) .mgr-card:not(.mgr-printable) {
+    display: none !important;
+  }
+  .mgr-content:has(.mgr-printable) .mgr-columns {
+    display: block;
   }
 }
 .mgr-toolbar input[type="checkbox"] {
