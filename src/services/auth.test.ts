@@ -43,6 +43,11 @@ class FakeAuthStore implements AuthStore {
 
     async findStaffProfile(): Promise<StaffProfile | null> { return null }
 
+    async findSessionState(userId: string) {
+        const user = this.users.find((u) => u.id === userId && !u.invited)
+        return user ? { role: user.role, tokenVersion: 0 } : null
+    }
+
     async storeRefreshToken(data: NewRefreshToken) {
         const owner = this.users.find((u) => u.id === data.userId)!
         this.tokens.set(data.tokenHash, { owner: { id: owner.id, email: owner.email, role: owner.role }, revoked: false, expiresAt: data.expiresAt })

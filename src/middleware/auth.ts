@@ -2,7 +2,7 @@ import type { RequestHandler } from "express"
 import jwt from "jsonwebtoken"
 
 import { identityFromClaims, runAs } from "../db/identity"
-import type { Permission, Role, ValidRequest } from "../types/access"
+import type { Permission, Role, SessionState, ValidRequest } from "../types/access"
 import type { LogService } from "../logging"
 import { AppError } from "../types/errors"
 
@@ -20,11 +20,18 @@ export interface JwtConfig {
     jwtAudience: string
 }
 
+/** Where `authenticate` asks what an account is allowed right now (the database: AccountStore.findSessionState). */
+export interface SessionStateStore {
+    findSessionState(userId: string): Promise<SessionState | null>
+}
+
 // creates auth/guard middleware
-export function createAuth(config: JwtConfig, logger?: LogService) {
+export function createAuth(config: JwtConfig, sessions: SessionStateStore, logger?: LogService) {
     
-    //jwt middleware
-    const authenticate: RequestHandler = (req: ValidRequest, _res, next) => {
+    // jwt middleware. A valid signature is not enough: the token is also checked against the account as it is
+    // now, on every request, so deactivating, resetting or demoting someone takes effect at once rather than
+    // when their access token runs out (012).
+    const authenticate: RequestHandler = async (req: ValidRequest, _res, next) => {
         const token = req.cookies?.access_token
         if (typeof token !== "string" || !token) throw new AppError("UNAUTHENTICATED")
 
@@ -38,8 +45,17 @@ export function createAuth(config: JwtConfig, logger?: LogService) {
             throw new AppError("INVALID_TOKEN")
         }
         const role = typeof claims === "object" ? (claims.role as Role) : undefined
-        if (typeof claims !== "object" || typeof claims.sub !== "string" || !role || !(role in permissionsByRole)) {
+        if (typeof claims !== "object" || typeof claims.sub !== "string" || !role || !(role in permissionsByRole) || !Number.isInteger(claims.ver)) {
             logger?.warn("auth.token.rejected", { reason: "unexpected claims" })
+            throw new AppError("INVALID_TOKEN")
+        }
+
+        // Null: deactivated, sign-in reset, or no such account. A different role or version: the token was issued
+        // before a demotion, reset or deactivation. Either way the page's refresh gets a current token, or nothing.
+        // If the database cannot be asked, this throws and the request fails: never fall back to trusting the claims.
+        const state = await sessions.findSessionState(claims.sub)
+        if (!state || state.role !== role || state.tokenVersion !== claims.ver) {
+            logger?.warn("auth.token.rejected", { reason: state ? "stale token" : "account inactive", userId: claims.sub })
             throw new AppError("INVALID_TOKEN")
         }
 

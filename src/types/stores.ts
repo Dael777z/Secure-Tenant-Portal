@@ -36,6 +36,11 @@ export interface AccountStore {
     /** Use up an open invitation (by token hash) and set the password. Null if none matches. */
     completeSignup(tokenHash: string, passwordHash: string): Promise<UserRecord | null>
     findStaffProfile(adminId: number): Promise<StaffProfile | null>
+    /**
+     * The account's role and token version right now (012), or null unless it is active and signed up.
+     * `authenticate` asks on every request, and a new session is issued from it.
+     */
+    findSessionState(userId: string): Promise<import("./access").SessionState | null>
     /** A sign-in for the Activity page and the Team's "last sign-in" (009). Optional so test doubles can leave it out. */
     recordSecurityEvent?(actor: string | null, action: string, summary: string, details?: Record<string, unknown> | null): Promise<void>
 }

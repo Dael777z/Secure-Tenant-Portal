@@ -34,7 +34,7 @@ import type { LeasingService } from "./services/leasing-service"
 import type { MaintenanceDetailService } from "./services/maintenance-detail-service"
 import type { NoticesService } from "./services/notices-service"
 import type { OfficeService } from "./services/office-service"
-import type { HealthStore } from "./types/stores"
+import type { AccountStore, HealthStore } from "./types/stores"
 
 /** Everything the Express app needs, handed in (container.ts builds the real ones). */
 export interface AppDependencies {
@@ -42,6 +42,8 @@ export interface AppDependencies {
     logger: LogService
     /** For /health/ready. */
     health: HealthStore
+    /** What `authenticate` checks every access token against (012). */
+    sessions: Pick<AccountStore, "findSessionState">
     auth: AuthService
     manager: ManagerService
     tenant: TenantService
@@ -74,7 +76,7 @@ export interface AppDependencies {
  */
 export function createApp(deps: AppDependencies): Application {
     const { config, logger, health, distRoot } = deps
-    const guard = createAuth(config, logger)
+    const guard = createAuth(config, deps.sessions, logger)
     const limits = createRateLimits(config)
     const app: Application = express()
 

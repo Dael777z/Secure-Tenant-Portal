@@ -95,6 +95,7 @@ export function createContainer(overrides: {
         config,
         logger,
         health: db,
+        sessions: db,
         auth: new AuthService(db, config, logger),
         manager: new ManagerService(db, config.timeZone, logger, notifications),
         tenant,

@@ -28,3 +28,12 @@ export type Permission =
 export interface ValidRequest extends Request {
     user?: { id: string; role: Role }
 }
+
+/**
+ * What an access token must still agree with (012): the account's role today, and its token version, which the
+ * database raises whenever the account is deactivated, has its sign-in reset, or changes role.
+ */
+export interface SessionState {
+    role: Role
+    tokenVersion: number
+}

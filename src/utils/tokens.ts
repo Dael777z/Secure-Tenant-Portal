@@ -13,9 +13,12 @@ export interface AccessTokenConfig {
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
-/** The short-lived JWT in the access_token cookie. */
-export function generateAccessToken(config: AccessTokenConfig, userId: string, role: Role): string {
-    return jwt.sign({ sub: userId, role }, config.accessSecret, {
+/**
+ * The short-lived JWT in the access_token cookie. `ver` is the account's token version when it was issued (012);
+ * `authenticate` refuses the token once the account's version has moved on.
+ */
+export function generateAccessToken(config: AccessTokenConfig, userId: string, role: Role, tokenVersion = 0): string {
+    return jwt.sign({ sub: userId, role, ver: tokenVersion }, config.accessSecret, {
         algorithm: "HS256",
         audience: config.jwtAudience,
         expiresIn: config.accessTtlSeconds,

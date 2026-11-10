@@ -2,7 +2,6 @@ import bcrypt from "bcrypt"
 import { randomBytes } from "node:crypto"
 
 import { silentLogger, type LogService } from "../logging"
-import type { Role } from "../types/access"
 import { AppError } from "../types/errors"
 import type { AuthStore } from "../types/stores"
 import { isTooCommon } from "../utils/password"
@@ -70,7 +69,8 @@ export class AuthService {
         if (user.mfaEnabled) throw refuse("mfa required", "MFA_NOT_SUPPORTED", user.id)
 
         this.failures.delete(normalized)
-        const session = await this.startSession(user.id, user.role)
+        const session = await this.startSession(user.id)
+        if (!session) throw new AppError("INVALID_CREDENTIALS")   // deactivated or reset since the lookup above
         this.log.info("auth.login.succeeded", { userId: user.id, role: user.role })
         await this.recordEvent(user.id, "login_success", "Signed in", context)
         return { ...session, user }
@@ -109,13 +109,21 @@ export class AuthService {
             const owner = await this.db.consumeRefreshToken(hashToken(refreshToken))
             if (!owner) throw new AppError("INVALID_TOKEN")
             userId = owner.id
-            return this.startSession(owner.id, owner.role)
+            const session = await this.startSession(owner.id)
+            if (!session) throw new AppError("INVALID_TOKEN")
+            return session
         }, () => ({ userId }))
     }
 
-    private async startSession(userId: string, role: Role) {
+    /**
+     * A new token pair, with the role and token version the account has right now (012): `authenticate`
+     * compares both on every request. Null when the account is no longer active and signed up.
+     */
+    private async startSession(userId: string) {
+        const state = await this.db.findSessionState(userId)
+        if (!state) return null
         const { token: refreshToken, hash } = randomToken()
         await this.db.storeRefreshToken({ userId, tokenHash: hash, expiresAt: new Date(Date.now() + this.config.refreshTtlMilliseconds) })
-        return { accessToken: generateAccessToken(this.config, userId, role), refreshToken }
+        return { accessToken: generateAccessToken(this.config, userId, state.role, state.tokenVersion), refreshToken }
     }
 }

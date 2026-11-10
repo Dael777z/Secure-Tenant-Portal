@@ -172,6 +172,21 @@ export class PostgresDatabase implements DatabaseInterface {
         if (owner) await this.query("SELECT auth_revoke_all_tokens($1, $2)", [owner.table, owner.id])
     }
 
+    /**
+     * Asked by `authenticate` on every request, before the request has an identity. One statement straight on
+     * the pool rather than a transaction: auth_session_state() is SECURITY DEFINER and reads no app.* setting.
+     */
+    async findSessionState(userId: string): Promise<import("../types/access").SessionState | null> {
+        const owner = parseUserId(userId)
+        if (!owner) return null
+        const { rows } = await this.pool.query<{ role: string; token_version: number }>(
+            "SELECT role, token_version FROM auth_session_state($1, $2)",
+            [owner.table, owner.id],
+        )
+        const row = rows[0]
+        return row ? { role: roleOf(owner.table, row.role), tokenVersion: row.token_version } : null
+    }
+
     // ---- Properties and units
 
     async listProperties(): Promise<PropertyRecord[]> {

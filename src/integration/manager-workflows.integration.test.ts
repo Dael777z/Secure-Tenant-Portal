@@ -228,7 +228,7 @@ describe.skipIf(!hasDatabase)("office workflows on the sample portfolio", () => 
         const email = (await t.owner.query("SELECT email FROM Tenants WHERE tID = $1", [person.id])).rows[0].email
         const me = await browser().signIn({ email, password })
         expect((await admin.delete(`/api/manager/tenants/${person.id}`)).status).toBe(200)
-        expect((await me.get("/api/tenant/summary")).status).toBe(404)
+        expect((await me.get("/api/tenant/summary")).status).toBe(401)   // 012: the access token itself is refused, not just the data
         expect((await browser().post("/api/auth/login", { email, password })).status).toBe(401)
     })
 })

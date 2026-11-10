@@ -15,6 +15,7 @@ function setup() {
     const signups: string[] = []
     const db = {
         findUserByEmail: async (email: string) => (email === "owner@example.com" ? { id: "tenant:1", email, passwordHash: hash, role: "tenant", mfaEnabled: false } : null),
+        findSessionState: async () => ({ role: "tenant", tokenVersion: 0 }),
         storeRefreshToken: async () => {},
         completeSignup: async (_token: string, passwordHash: string) => { signups.push(passwordHash); return { id: "tenant:1", email: "owner@example.com", role: "tenant" } },
     } as unknown as AuthStore
