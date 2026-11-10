@@ -767,20 +767,39 @@ export class PostgresAdditions {
         return rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString(), sentAt: iso(r.sentAt), readAt: iso(r.readAt) }))
     }
 
-    /** One in-app notice per resident on a current lease in the audience. Returns how many. */
-    async sendNotice(audience: NoticeAudience, subject: string, body: string, today: string): Promise<number> {
+    /**
+     * One in-app notice per resident on a current lease in the audience. With `email`, each also
+     * gets its email (011): queued, or skipped when the resident turned off "messages from the office".
+     */
+    async sendNotice(audience: NoticeAudience, subject: string, body: string, today: string, email = false): Promise<{ recipients: number; emailsQueued: number; emailsSkipped: number }> {
         return this.tx(async (client) => {
-            const { rowCount } = await client.query(
-                `INSERT INTO Notifications_Sent (tID, LeaseID, channel, template, subject, body, status, created_by, sent_at)
-                 SELECT DISTINCT ON (lt.tID) lt.tID, l.LeaseID, 'in_app', 'manual', $4, $5, 'sent', NULLIF(current_setting('app.user_id', true), '')::int, now()
-                 FROM Lease l JOIN Lease_Tenants lt ON lt.LeaseID = l.LeaseID JOIN Tenants t ON t.tID = lt.tID JOIN Units u ON u.uID = l.uID
-                 WHERE l.start_date <= $1::date AND (l.end_date IS NULL OR l.end_date >= $1::date) AND t.deactivated_at IS NULL
-                   AND CASE $2 WHEN 'property' THEN u.pID = $3 WHEN 'tenant' THEN lt.tID = $3 ELSE true END
-                 ORDER BY lt.tID, l.start_date DESC`,
-                [today, audience.kind, "id" in audience ? audience.id : null, subject, body],
+            const { rows } = await client.query<{ recipients: number; emailsQueued: number; emailsSkipped: number }>(
+                `WITH sent AS (
+                    INSERT INTO Notifications_Sent (tID, LeaseID, channel, template, subject, body, status, created_by, sent_at)
+                    SELECT DISTINCT ON (lt.tID) lt.tID, l.LeaseID, 'in_app', 'manual', $4, $5, 'sent', NULLIF(current_setting('app.user_id', true), '')::int, now()
+                    FROM Lease l JOIN Lease_Tenants lt ON lt.LeaseID = l.LeaseID JOIN Tenants t ON t.tID = lt.tID JOIN Units u ON u.uID = l.uID
+                    WHERE l.start_date <= $1::date AND (l.end_date IS NULL OR l.end_date >= $1::date) AND t.deactivated_at IS NULL
+                      AND CASE $2 WHEN 'property' THEN u.pID = $3 WHEN 'tenant' THEN lt.tID = $3 ELSE true END
+                    ORDER BY lt.tID, l.start_date DESC
+                    RETURNING notID, tID, LeaseID, template, subject, body, created_at, created_by
+                 ), emails AS (
+                    INSERT INTO Notifications_Sent (tID, LeaseID, channel, template, subject, body, status, error, created_at, created_by, email_of)
+                    SELECT s.tID, s.LeaseID, 'email', s.template, s.subject, s.body,
+                           CASE WHEN COALESCE(np.messages, true) THEN 'queued' ELSE 'skipped' END,
+                           CASE WHEN COALESCE(np.messages, true) THEN NULL ELSE 'The resident turned these emails off in Settings.' END,
+                           s.created_at, s.created_by, s.notID
+                    FROM sent s LEFT JOIN Tenant_Notification_Prefs np ON np.tID = s.tID
+                    WHERE $6::boolean
+                    RETURNING status
+                 )
+                 SELECT (SELECT count(*) FROM sent)::int AS recipients,
+                        (SELECT count(*) FROM emails WHERE status = 'queued')::int AS "emailsQueued",
+                        (SELECT count(*) FROM emails WHERE status = 'skipped')::int AS "emailsSkipped"`,
+                [today, audience.kind, "id" in audience ? audience.id : null, subject, body, email],
             )
-            if (!rowCount) throw new AppError("NO_RECIPIENTS")
-            return rowCount
+            const result = rows[0]!
+            if (!result.recipients) throw new AppError("NO_RECIPIENTS")
+            return result
         })
     }
 

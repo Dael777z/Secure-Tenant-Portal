@@ -40,6 +40,7 @@ const CHARGE_LABELS: Record<ChargeRecord["kind"], string> = {
     repair: "Repair charge",
     non_compliance: "Non-compliance fee",
     misc_income: "Charge",
+    processing_fee: "Processing fee",
 }
 
 export function buildLedger(charges: ChargeRecord[], payments: PaymentRecord[], timeZone?: string): {

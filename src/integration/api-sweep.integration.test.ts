@@ -36,6 +36,8 @@ const PUBLIC = new Set([
     "POST /api/auth/signup", "POST /api/auth/login", "POST /api/auth/refresh", "POST /api/auth/logout", "GET /health/live", "GET /health/ready",
     // 009: the public /listings page (published homes only, through SECURITY DEFINER functions)
     "GET /api/public/listings", "GET /api/public/listings/:id/photos/:photoId", "POST /api/public/listings/:id/inquire",
+    // 010: Stripe's webhook; its signature (STRIPE_WEBHOOK_SECRET) is the proof, not a session
+    "POST /api/stripe/webhook",
 ])
 
 /** Who may call a route. `null` means nobody classified it yet: add a rule here. */
@@ -162,7 +164,8 @@ describe.skipIf(!hasDatabase)("API sweep: every route, every role", () => {
             for (const [name, build] of inputs) {
                 const { path, body } = build(route)
                 const res = await clients[who].call(route.method, path, { body })
-                const acceptable = res.status < 500 || (res.status === 503 && res.body.error === "PLAID_NOT_CONFIGURED")
+                // 503 only for a provider this server has no keys for (Plaid; Stripe, 010)
+                const acceptable = res.status < 500 || (res.status === 503 && ["PLAID_NOT_CONFIGURED", "STRIPE_NOT_CONFIGURED"].includes(res.body.error))
                 if (!acceptable || res.status === 401 || res.status === 403) failures.push(`${who} ${label(route)} [${name}] -> ${res.status} ${JSON.stringify(res.body).slice(0, 80)}`)
             }
         }

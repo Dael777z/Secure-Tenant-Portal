@@ -33,6 +33,7 @@
     "vitest": "^5.0.1"
   },
   "dependencies": {
+    "@stripe/stripe-js": "^10.2.0",
     "@types/express": "^5.0.6",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
@@ -46,7 +47,8 @@
     "plaid": "^47.0.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-plaid-link": "^5.0.0"
+    "react-plaid-link": "^5.0.0",
+    "stripe": "^23.1.0"
   },
   "engines": {
     "node": ">=22"

@@ -60,14 +60,24 @@ export interface TenantSummary {
   plaidEnabled: boolean;
   /** Development only: paying without a linked bank records a test transfer. */
   testPayments: boolean;
+  /** Cards, Apple Pay and Google Pay through Stripe; false when the server has no Stripe keys. */
+  cardsEnabled: boolean;
+  /** For Stripe.js; null when Stripe is off. */
+  stripePublishableKey: string | null;
+  /** The fee on card payments; null for none. */
+  cardFee: { basisPoints: number; fixedCents: number } | null;
   /** The signed lease on file (opens at /api/tenant/lease-document); null if none. */
   leaseDocument?: { filename: string; uploadedOn: string } | null;
 }
+
+/** A card payment's place on the ledger: only "completed" is on the balance. */
+export type CardPaymentStatus = "pending" | "completed" | "failed";
 
 /** Extra facts some errors carry; PLAID_ERROR has plaid's code, request id and a message. */
 export interface ErrorDetails {
   operation?: string;
   plaidCode?: string;
+  stripeCode?: string | null;
   plaidType?: string;
   requestId?: string | null;
   balance?: number;
@@ -171,6 +181,15 @@ export const tenantApi = {
       method: "POST",
       body: JSON.stringify({ method, amount, idempotencyKey: checkoutKey }),
     }),
+  /** Pay `amount` toward rent by card, Apple Pay or Google Pay: Stripe.js made the token, the server adds the fee and charges it. */
+  payCard: (amount: number, checkoutKey: string, confirmationTokenId: string) =>
+    call<{ paymentIntentId: string; clientSecret: string; status: CardPaymentStatus; requiresAction: boolean; fee: number; total: number }>("/tenant/payments/card", {
+      method: "POST",
+      body: JSON.stringify({ amount, idempotencyKey: checkoutKey, confirmationTokenId }),
+    }),
+  /** Ask the server to read a card payment from Stripe now (instead of waiting for Stripe's webhook). */
+  refreshCardPayment: (paymentIntentId: string) =>
+    call<{ status: CardPaymentStatus; confirmation: string }>(`/tenant/payments/stripe/${encodeURIComponent(paymentIntentId)}/refresh`, { method: "POST" }),
   updateProfile: (name: string, phone: string) =>
     call<{ ok: true }>("/tenant/profile", { method: "PUT", body: JSON.stringify({ name, phone }) }),
   saveNotificationPrefs: (prefs: NotificationPrefs) =>
@@ -222,6 +241,13 @@ export function messageFor(error: unknown): string {
     }
     if (error.code === "ALREADY_REPORTED") return "Your last payment is still waiting for the office to confirm it. Once it's confirmed (or if it can't be matched) you'll see it here.";
     if (error.code === "METHOD_NOT_AVAILABLE") return "The office doesn't take that payment method right now. Choose another one.";
+    if (error.code === "STRIPE_NOT_CONFIGURED") return "Card payments are not set up on this server yet.";
+    if (error.code === "STRIPE_ERROR") {
+      const message = error.details?.message ?? "The card payment could not start. Please try again.";
+      return error.details?.stripeCode ? `${message} (Stripe: ${error.details.stripeCode})` : message;
+    }
+    if (error.code === "CARD_DECLINED") return error.details?.message ?? "Your card was declined. Try another card.";
+    if (error.code === "CHECKOUT_AMOUNT_CHANGED") return "The amount changed. Please press Pay again.";
     if (error.code === "VALIDATION_ERROR") return "Check what you entered and try again.";
     if (error.code === "RATE_LIMITED") return "Too many attempts in a short time. Wait a few minutes and try again.";
     if (error.code === "FILE_INVALID") return "That photo couldn't be read. Upload a JPEG, PNG or WebP photo.";

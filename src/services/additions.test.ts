@@ -510,7 +510,7 @@ describe("NoticesService", () => {
     ]
     const s = {
         listNotices: vi.fn(async () => []),
-        sendNotice: vi.fn(async () => 12),
+        sendNotice: vi.fn(async () => ({ recipients: 12, emailsQueued: 0, emailsSkipped: 0 })),
         tenantNotices: vi.fn(async () => []),
         markNoticeRead: vi.fn(async () => undefined),
         listHubDocuments: vi.fn(async () => []),
@@ -525,7 +525,9 @@ describe("NoticesService", () => {
 
     it("in-app only: no emails go out", async () => {
         expect(notices.emailEnabled).toBe(false)
-        expect(await runAs(admin, () => notices.send({ kind: "all" } as never, "Hi", "Body"))).toEqual({ recipients: 12, emailsQueued: 0, emailsSkipped: 0 })
+        // Asked to email, but no email is set up: in the portal only.
+        expect(await runAs(admin, () => notices.send({ kind: "all" } as never, "Hi", "Body", true))).toEqual({ recipients: 12, emailsQueued: 0, emailsSkipped: 0 })
+        expect(s.sendNotice).toHaveBeenLastCalledWith({ kind: "all" }, "Hi", "Body", expect.any(String), false)
         expect(await notices.notices({} as never)).toEqual([])
         expect(await notices.tenantNotices()).toEqual([])
         await notices.markRead(1)

@@ -9,6 +9,7 @@ import { officeConfirmation } from "../utils/confirmations"
 import { newInvite, randomToken } from "../utils/tokens"
 import { parseUserId } from "../utils/user-id"
 import { buildLedger, formatDate, localDate } from "./ledger"
+import type { NotificationService } from "./notifications"
 
 // active lease object, relates calculated current balance to a lease record
 type ActiveLease = { lease: LeaseRecord; balance: number }
@@ -26,7 +27,20 @@ export class ManagerService {
         private readonly db: ManagerStore,
         private readonly timeZone: string,
         private readonly log: LogService = silentLogger,
+        /** Emails the resident when their request moves to a new stage (011); left out in tests. */
+        private readonly notify?: Pick<NotificationService, "maintenanceUpdated" | "enabled">,
     ) {}
+
+    /** Run a maintenance change; if it moved a resident's request to a new stage, tell them. */
+    private async changeStage(id: number, work: () => Promise<void>): Promise<void> {
+        const before = this.notify?.enabled ? await this.db.findMaintenanceStage(id) : null
+        await work()
+        if (!before?.tenantId) return
+        const after = await this.db.findMaintenanceStage(id)
+        if (after && after.status !== before.status && after.status !== "submitted") {
+            void this.notify!.maintenanceUpdated({ requestId: id, tenantId: before.tenantId, title: after.title, status: after.status })
+        }
+    }
 
     /**
      * Log an office change as `<event>.succeeded` / `<event>.failed`, with `by`: the staff
@@ -314,14 +328,15 @@ export class ManagerService {
 
     // change the status of a maintenance ticket
     setMaintenanceStatus(id: number, status: MaintenanceState): Promise<void> {
-        return this.change("maintenance.status", { requestId: id, status }, () => this.db.setMaintenanceStatus(id, status))
+        return this.change("maintenance.status", { requestId: id, status }, () => this.changeStage(id, () => this.db.setMaintenanceStatus(id, status)))
     }
 
     /** Stage, priority, type or scheduled day (008). */
     // logs maintenance.update.succeeded { requestId, ...change }
     updateMaintenance(id: number, change: MaintenanceChange): Promise<void> {
         if (Object.keys(change).length === 0) return Promise.reject(new AppError("VALIDATION_ERROR"))
-        return this.change("maintenance.update", { requestId: id, ...change }, () => this.db.updateMaintenance(id, change))
+        return this.change("maintenance.update", { requestId: id, ...change },
+            () => (change.status === undefined ? this.db.updateMaintenance(id, change) : this.changeStage(id, () => this.db.updateMaintenance(id, change))))
     }
 
     // ---- Retiring records (nothing is deleted; history stays on record)

@@ -84,6 +84,12 @@ export interface TenantSummary {
     plaidEnabled: boolean
     /** Development only: a payment without a linked bank account is recorded as a test transfer. Never in production. */
     testPayments: boolean
+    /** Cards, Apple Pay and Google Pay through Stripe (010): false when STRIPE_SECRET_KEY / STRIPE_PUBLISHABLE_KEY are not set. */
+    cardsEnabled: boolean
+    /** For Stripe.js in the browser; null when Stripe is off. */
+    stripePublishableKey: string | null
+    /** The processing fee card payments add (2.9% = 290 basis points, + fixed cents); null for none. */
+    cardFee: { basisPoints: number; fixedCents: number } | null
     /** The signed lease on file (008), opened at GET /api/tenant/lease-document; null if none. */
     leaseDocument: { filename: string; uploadedOn: string } | null
 }

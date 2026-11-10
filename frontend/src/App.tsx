@@ -15,6 +15,7 @@ import { currentUser, login, logout, type SessionUser } from "./api/auth";
 import { SESSION_CHECK } from "./api/session";
 import { ManagerApp } from "./manager/ManagerApp";
 import { isPlaidOAuthReturn } from "./components/PlaidLinkButton";
+import { isStripeReturn } from "./components/stripeClient";
 import "./styles/portal.css";
 
 const pageTitles: Record<PageKey, string> = {
@@ -36,8 +37,9 @@ export default function App() {
   // tenant's own lease, ledger, requests and notices from /api/tenant/summary.
   const [user, setUser] = useState<SessionUser | null>(null);
   const [checked, setChecked] = useState(false);
-  // back from a bank's own sign-in page (plaid oauth): finish linking on the pay page
-  const [activePage, setActivePage] = useState<PageKey>(isPlaidOAuthReturn() ? "pay" : "home");
+  // back from a bank's own sign-in page (plaid oauth): finish linking on the pay page,
+  // or back from a card's bank check (Stripe): show the payment's result on the pay page
+  const [activePage, setActivePage] = useState<PageKey>(isPlaidOAuthReturn() || isStripeReturn() ? "pay" : "home");
 
   useEffect(() => {
     currentUser()
@@ -60,7 +62,7 @@ export default function App() {
 
   async function handleLogin(email: string, password: string) {
     setUser(await login(email, password));
-    setActivePage(isPlaidOAuthReturn() ? "pay" : "home");
+    setActivePage(isPlaidOAuthReturn() || isStripeReturn() ? "pay" : "home");
   }
 
   async function handleLogout() {

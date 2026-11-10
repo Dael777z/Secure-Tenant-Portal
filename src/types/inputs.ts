@@ -128,3 +128,51 @@ export interface BankAccountInput {
     mask: string | null
     subtype: string | null
 }
+
+// Card payments through Stripe (010)
+
+/** A card as Stripe shows it (never the number). `wallet`: apple_pay, google_pay, ... or null for a typed-in card. */
+export interface CardDetails {
+    brand: string | null
+    last4: string | null
+    funding: string | null
+    wallet: string | null
+}
+
+/** A tenant's checkout, written 'pending' before Stripe finishes it. */
+export interface NewStripePayment {
+    leaseId: number
+    tenantId: number
+    /** Everything charged, fee included. */
+    amount: number
+    /** The processing fee inside `amount`, in cents. */
+    feeCents: number
+    paymentIntentId: string
+    methodType: "card"
+    /** Payment_Details.method: "Visa •••• 4242", "Apple Pay (Visa •••• 4242)". */
+    method: string
+    /** What Stripe shows of the card. */
+    card?: CardDetails | null
+    stripeStatus: string
+    /** Scoped to the tenant ("tenant:<id>:<key>"): one checkout, one Payment row. */
+    idempotencyKey: string
+}
+
+/** What Stripe says about a PaymentIntent now, and the ledger status that follows from it. */
+export interface StripePaymentUpdate {
+    paymentIntentId: string
+    status: import("./records").PaymentState
+    stripeStatus: string
+    amountReceivedCents: number
+    currency: string
+    failureMessage: string | null
+    /** "YYYY-MM-DD": the due date of the processing-fee charge, if this update completes the payment. */
+    today: string
+}
+
+/** A refund made in Stripe, recorded as a 'refund' Payment row on the same lease. */
+export interface NewStripeRefund {
+    paymentIntentId: string
+    refundId: string
+    amount: number
+}

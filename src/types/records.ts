@@ -96,6 +96,8 @@ export interface LeaseBalance {
 }
 
 export type ChargeKind = "rent" | "deposit" | "late_fee" | "utility" | "proration" | "other" | "parking" | "hoa" | "repair" | "non_compliance" | "misc_income"
+    /** 010: the card processing fee, added by the system when a card payment completes (never by hand). */
+    | "processing_fee"
 
 export interface ChargeRecord {
     id: number
@@ -221,3 +223,65 @@ export interface ThreadRecord {
     unitNum: string | null
     propertyName: string | null
 }
+
+// Card payments through Stripe (010)
+
+export type PaymentState = PaymentRecord["status"]
+
+/** A Payment that went through Stripe, with what Stripe last said about it. */
+export interface StripePaymentRecord {
+    payId: number
+    leaseId: number
+    tenantId: number | null
+    paymentIntentId: string
+    /** The ledger's status: only 'completed' moves the balance. */
+    status: PaymentState
+    /** Everything charged: rent + feeCents. */
+    amountCents: number
+    /** The processing fee inside amountCents. */
+    feeCents: number
+    /** The PaymentIntent's own status (requires_action, processing, succeeded, canceled, ...). */
+    stripeStatus: string
+    methodType: "card"
+    /** Payment_Details.method, as the ledger shows it. */
+    method: string | null
+}
+
+// Email notifications (011): who the emails go to, from the notify_* functions
+
+export interface Recipient {
+    name: string
+    email: string
+}
+
+/** A lease behind on rent today: a line in the office's late-rent summary. */
+export interface PastDueRecord {
+    leaseId: number
+    unitLabel: string
+    tenantNames: string
+    /** The oldest charge still unpaid. */
+    dueDate: string
+    balance: number
+}
+
+/** A lease ending soon, for the office. */
+export interface LeaseEndingRecord {
+    leaseId: number
+    endDate: string
+    unitLabel: string
+    tenantNames: string
+}
+
+/** A notice's email, taken from the queue to send now. */
+export interface QueuedNoticeEmail extends Recipient {
+    id: number
+    tenantId: number
+    template: string
+    subject: string
+    body: string
+}
+
+/** What an office email is about (Office_Settings, 008, says which the office wants). */
+export type OfficeEmailTopic = "message" | "maintenance" | "reported_payment" | "late_rent" | "lease_ending"
+/** A tenant's email choices (006). */
+export type TenantEmailChoice = "rent_due" | "payment_receipts" | "maintenance" | "messages"

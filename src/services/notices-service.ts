@@ -7,6 +7,7 @@ import { AppError } from "../types/errors"
 import type { AdditionsStore } from "../types/stores"
 import { DOCUMENT_MAX_BYTES, DOCUMENT_TYPES, readUpload } from "../utils/uploads"
 import { localDate } from "./ledger"
+import type { NotificationService } from "./notifications"
 
 export const DOCUMENT_CATEGORIES: Array<[DocumentCategory, string]> = [
     ["lease", "Lease agreements"],
@@ -25,19 +26,23 @@ export interface LeaseDocumentSource {
 
 /**
  * Notices to residents and the documents the office keeps (009). Staff write
- * notices (in-app; email is not set up on this server) and file documents
- * against a property, unit, tenant or lease, sharing any with the resident.
+ * notices (in the resident portal, and by email when email is set up, 011) and
+ * file documents against a property, unit, tenant or lease, sharing any with the resident.
  */
 export class NoticesService {
-    /** No email provider is configured: notices go to the resident portal only. */
-    readonly emailEnabled = false
-
     constructor(
         private readonly db: AdditionsStore,
         private readonly leases: LeaseDocumentSource,
         private readonly timeZone: string,
         private readonly log: LogService = silentLogger,
+        /** Sends the queued notice emails (011); left out in tests, and email is then off. */
+        private readonly mailer?: Pick<NotificationService, "enabled" | "deliverSoon">,
     ) {}
+
+    /** Whether notices can also go by email (RESEND_API_KEY and EMAIL_FROM are set). */
+    get emailEnabled(): boolean {
+        return this.mailer?.enabled ?? false
+    }
 
     private today() {
         return localDate(new Date(), this.timeZone)
@@ -54,12 +59,14 @@ export class NoticesService {
         return this.db.listNotices(filter)
     }
 
-    send(audience: NoticeAudience, subject: string, body: string): Promise<{ recipients: number; emailsQueued: number; emailsSkipped: number }> {
-        return this.change("office.notice.send", { audience: audience.kind }, async () => ({
-            recipients: await this.db.sendNotice(audience, subject, body, this.today()),
-            emailsQueued: 0,
-            emailsSkipped: 0,
-        }))
+    /** `email`: also email each resident (only when email is set up; otherwise the notice is in-app only). */
+    send(audience: NoticeAudience, subject: string, body: string, email = false): Promise<{ recipients: number; emailsQueued: number; emailsSkipped: number }> {
+        const byEmail = email && this.emailEnabled
+        return this.change("office.notice.send", { audience: audience.kind, email: byEmail }, async () => {
+            const result = await this.db.sendNotice(audience, subject, body, this.today(), byEmail)
+            if (result.emailsQueued) this.mailer!.deliverSoon()
+            return result
+        })
     }
 
     tenantNotices(): Promise<TenantNotice[]> {

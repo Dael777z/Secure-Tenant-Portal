@@ -33,6 +33,7 @@ export const CHARGE_KIND_LABELS: Record<string, string> = {
     repair: "Repairs billed to residents",
     non_compliance: "Non-compliance fees",
     misc_income: "Miscellaneous income",
+    processing_fee: "Card processing fees",
     other: "Other charges",
 }
 

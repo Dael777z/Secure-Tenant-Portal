@@ -92,6 +92,15 @@ function ensureProductionEnv() {
             "# PLAID_SECRET=",
             "# PLAID_ENV=sandbox",
             "",
+            "# Cards, Apple Pay and Google Pay through Stripe. Production needs the webhook secret from the dashboard's webhook endpoint.",
+            "# STRIPE_SECRET_KEY=",
+            "# STRIPE_PUBLISHABLE_KEY=",
+            "# STRIPE_WEBHOOK_SECRET=",
+            "",
+            "# Email notifications through Resend. EMAIL_FROM must use a domain verified in Resend.",
+            "# RESEND_API_KEY=",
+            "# EMAIL_FROM=Summit Property <notifications@example.com>",
+            "",
         ].join("\n"))
         console.log("  created .env.prod with new random secrets")
         return
@@ -276,7 +285,7 @@ function localProduction() {
 
 async function databaseTask(taskArgs) {
     const env = readEnv(envFileFor(false))
-    if (taskArgs.length && taskArgs[0] !== "help") startDevDatabase(env)
+    if (taskArgs.length && !["help", "email-test"].includes(taskArgs[0])) startDevDatabase(env)
     const password = taskArgs[0] === "admin" ? process.env.ADMIN_PASSWORD ?? await askPassword() : undefined
     node("tsx", ["src/cli.ts", ...taskArgs], { ADMIN_PASSWORD: password })
 }

@@ -22,9 +22,18 @@ import { id, idempotencyKey, money, text } from "./validate"
  *   PUT  /tenant/profile          { name, phone? }   the tenant's own name and phone
  *   PUT  /tenant/notifications    { rentDue, paymentReceipts, maintenance, messages }  email choices
  */
-export function createTenantRouter(deps: { tenant: TenantService; guard: Auth; limits: RateLimits; plaidEnabled: boolean; testPayments: boolean }): Router {
+export function createTenantRouter(deps: {
+    tenant: TenantService; guard: Auth; limits: RateLimits; plaidEnabled: boolean; testPayments: boolean
+    /** Null when Stripe is not configured (no card payments). */
+    stripePublishableKey: string | null
+    /** The fee card payments add, for the pay page to show; null for none. */
+    cardFee: { basisPoints: number; fixedCents: number } | null
+}): Router {
     const { tenant, guard, limits } = deps
-    const flags = { plaidEnabled: deps.plaidEnabled, testPayments: deps.testPayments }
+    const flags = {
+        plaidEnabled: deps.plaidEnabled, testPayments: deps.testPayments,
+        cardsEnabled: deps.stripePublishableKey !== null, stripePublishableKey: deps.stripePublishableKey, cardFee: deps.cardFee,
+    }
     const router = Router()
 
     // return a summary of all the pertinent information related to the tenant

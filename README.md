@@ -65,6 +65,7 @@ npm run db admin you@example.com "Name" add a staff login (asks for its password
 npm run db seed                         load the sample data (does nothing if staff exist)
 npm run db setup                        migrate + seed (every dev flow runs this first)
 npm run db reset                        wipe, migrate, seed
+npm run db email-test you@example.com   send one of each notification email (see Email)
 ```
 
 These act on the development database. Add `clean` (`npm run db reset clean`) for a
@@ -159,6 +160,98 @@ pick any bank and sign in with `user_good` / `pass_good` (code `1234` if asked).
 Plaid call fails, the server logs `plaid.request.failed` with Plaid's error type, code,
 message and request id, and the page shows Plaid's code.
 
+## Cards, Apple Pay and Google Pay (Stripe)
+
+Tenants can pay by **Credit/Debit Card** (Stripe's card form) or **Apple Pay / Google Pay**
+(the device's own button, shown only where it works) when `STRIPE_SECRET_KEY` and
+`STRIPE_PUBLISHABLE_KEY` are set (`.env`, or `.env.prod`). Test keys (`sk_test_`/`pk_test_`)
+move no money. The card is typed into Stripe's frame or picked in the wallet sheet; its
+number never reaches this server. The browser sends a ConfirmationToken, the server reads
+which card it is and charges it at once, so the payment is usually on the ledger before the
+page updates. The ledger names it like `Visa •••• 4242` or `Apple Pay (Visa •••• 4242)`;
+`Stripe_Payments` keeps the brand, last four digits, debit/credit and wallet.
+
+- **The usual rules apply**: at least the full balance, at most three months of rent ahead,
+  and not while a Cash App / Zelle report waits for the office (`AMOUNT_BELOW_BALANCE`,
+  `AMOUNT_ABOVE_LIMIT`, `ALREADY_REPORTED`, as for bank payments). Nothing reaches Stripe then.
+- A declined card answers `402 CARD_DECLINED` with Stripe's message, and nothing is recorded.
+- A bank check (3-D Secure) shows in Stripe's own window; the payment completes after it.
+  Until Stripe confirms, the payment is `pending` and not on the balance.
+- **Card fee passed on.** Every card, Apple Pay and Google Pay payment adds Stripe's 2.9% +
+  30¢. Because Stripe takes its cut from the whole amount charged, the fee is grossed up so
+  the office still receives the full rent ($950 rent → $28.69 fee → $978.69 charged). The pay
+  page shows it before paying; when the payment completes, the fee is its own
+  `processing_fee` charge ("Card processing fee") and the payment is the whole amount, so
+  the balance drops by exactly the rent. It is `CARD_FEE` in `src/services/fees.ts` (null
+  would mean no fee). Visa and Mastercard rules forbid surcharging debit and prepaid cards,
+  and credit-card surcharges need registering with the networks and are banned in some
+  states: check before going live. International cards cost a further 1.5%, which the flat
+  rate does not cover. Bank transfers, Cash App and Zelle have no fee.
+- **Apple Pay** needs your domain registered in Stripe (Settings → Payment method domains)
+  and HTTPS; **Google Pay** needs HTTPS. On `http://localhost` they do not appear; use the
+  Cloudflare tunnel (`npm run cloudflare:dev`) to try them on a phone.
+
+A refund made in Stripe's dashboard comes back through the webhook as a `refund` row. Every
+webhook event handled is kept in `Stripe_Events`. A payment's status only moves forward
+(pending → completed or failed), and the database enforces it.
+
+**Webhook.** In the dashboard, add an endpoint `https://<your site>/api/stripe/webhook` with
+the events `payment_intent.succeeded`, `payment_intent.processing`,
+`payment_intent.payment_failed`, `payment_intent.canceled`, `charge.refunded` and
+`charge.refund.updated`, and put its signing secret in `STRIPE_WEBHOOK_SECRET` (required in
+production). In development, the [Stripe CLI](https://docs.stripe.com/stripe-cli) forwards
+events and prints the secret to use:
+
+```
+stripe listen --forward-to localhost:3000/api/stripe/webhook --events payment_intent.succeeded,payment_intent.processing,payment_intent.payment_failed,payment_intent.canceled,charge.refunded,charge.refund.updated
+```
+
+Test cards (test keys only): `4242 4242 4242 4242` succeeds, `4000 0000 0000 0002` is
+declined, `4000 0027 6000 3184` asks for a bank check. Any future expiry, any CVC and ZIP.
+
+## Email (Resend)
+
+Email notifications turn on when `RESEND_API_KEY` and `EMAIL_FROM` are set (in `.env`, or
+`.env.prod`). `EMAIL_FROM` must be on a domain verified in Resend, e.g.
+`Summit Property <notifications@your-domain.com>`. Without them nothing is sent, and notices
+stay in the resident portal.
+
+Who gets what follows the choices the portal already keeps: each tenant's (Settings →
+Notifications) and the office's (manager Settings → Notifications: where to send, and which
+topics). Office emails go to the office's notification address, or, when that is empty, to
+every property manager's sign-in email.
+
+| Who | When | Turned off by |
+| --- | --- | --- |
+| Tenant | a rent reminder (the office's reminder rules, Payment Rules); sent from 8:00 local time | Rent due reminders |
+| Tenant | a payment is received | Payment receipts |
+| Tenant | the office sends a notice with **email** ticked (Communications → Notices) | Messages from the office |
+| Tenant | the office sends a message | Messages from the office |
+| Tenant | a maintenance request moves to a new stage | Maintenance updates |
+| Office | a tenant sends a message | A tenant sends a message |
+| Office | a tenant files a maintenance request | A tenant submits a maintenance request |
+| Office | a tenant reports a Cash App or Zelle payment to confirm | A tenant reports a Cash App or Zelle payment |
+| Office | rent is late: one summary a day, from 8:00 | Rent becomes late |
+| Office | a lease ends within 90 days (once per lease; skipped if the unit's next lease exists) | (always) |
+
+A notice's email is a `Notifications_Sent` row of its own (channel `email`, `email_of` = the
+in-app notice), so the Notices page shows each one as sent, failed (with Resend's reason),
+waiting, or not sent (turned off, or too old: an email that could not go out within two days
+is skipped rather than sent late). The queue is checked every minute. Message emails say
+there is a message and link to the portal; the text itself is never emailed. A burst of
+messages sends one email, until the other side opens the conversation. The office's daily
+emails are recorded in `Scheduled_Emails_Sent`, so each goes out once.
+
+To see every email in a real inbox, send one of each (sample details, subjects start
+with `[Test]`; no database needed):
+
+```
+npm run db email-test you@example.com
+```
+
+With `EMAIL_FROM` on `onboarding@resend.dev` (before you verify a domain), Resend only
+delivers to the address your Resend account is registered with.
+
 ## Logs
 
 One JSON line per event, on the console (and in `LOG_FILE` when set). Every line written
@@ -184,6 +277,12 @@ Both have `durationMs`. Office changes add `by`, the staff member (`admin:3`).
 | `maintenance.create.*` / `.status.*` / `.deactivate.*` | userId or by, requestId, status |
 | `plaid.request.succeeded` / `.failed` | operation, env, Plaid's requestId, itemId, account counts / Plaid's code and message |
 | `plaid.accounts_saved.*` | userId, itemId, linked, total |
+| `payment.card.start.*` | userId, amount, leaseId, paymentIntentId, fee, wallet, status |
+| `payment.stripe.settled`, `payment.stripe.refunded`, `payment.stripe.amount_mismatch` | paymentIntentId, leaseId, amount, from/to / refundId / problem |
+| `stripe.webhook.*` | eventId, type, paymentIntentId |
+| `stripe.request.succeeded` / `.failed`, `stripe.card.declined` | operation, mode (test/live), Stripe's code, requestId |
+| `notify.*` (`tenant_message`, `office_message`, `maintenance`, `maintenance_update`, `reported_payment`, `notices`, `office_daily`) | tenantId / requestId, queued, sent, failed |
+| `email.failed`, `email.retry` | noticeId or key (e.g. `late_rent:2026-11-06`) / Resend's status, attempt |
 | `rent.charges.*` | today, added |
 
 To follow one request in Docker: `docker compose logs app | grep <request id>`.

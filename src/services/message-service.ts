@@ -4,6 +4,7 @@ import type { MessageRecord, ThreadRecord } from "../types/records"
 import type { MessagingStore } from "../types/stores"
 import { parseUserId, tenantIdOf } from "../utils/user-id"
 import { localDate } from "./ledger"
+import type { NotificationService } from "./notifications"
 
 /**
  * Messages between a tenant and the property office (004). Each tenant has one
@@ -15,6 +16,8 @@ export class MessageService {
     constructor(
         private readonly db: MessagingStore,
         private readonly timeZone: string,
+        /** Emails the other side (011); left out in tests. */
+        private readonly notify?: Pick<NotificationService, "tenantMessaged" | "officeMessaged">,
     ) {}
 
     private today(): string {
@@ -59,7 +62,9 @@ export class MessageService {
         const staff = parseUserId(staffUserId)
         if (!staff || staff.table !== "admin") throw new AppError("FORBIDDEN")
         if (!(await this.db.findPerson(tID))) throw new AppError("NOT_FOUND")
-        return toMessage(await this.db.sendMessage({ tenantId: tID, adminId: staff.id, body }))
+        const sent = await this.db.sendMessage({ tenantId: tID, adminId: staff.id, body })
+        void this.notify?.officeMessaged(tID, sent.senderName)
+        return toMessage(sent)
     }
 
     setArchived(tID: number, archived: boolean): Promise<void> {
@@ -74,7 +79,10 @@ export class MessageService {
     }
 
     async tenantSend(userId: string, body: string): Promise<Message> {
-        return toMessage(await this.db.sendMessage({ tenantId: tenantIdOf(userId), adminId: null, body }))
+        const tID = tenantIdOf(userId)
+        const sent = await this.db.sendMessage({ tenantId: tID, adminId: null, body })
+        void this.notify?.tenantMessaged(tID)
+        return toMessage(sent)
     }
 
     /** The tenant opened the conversation: the office's messages are now read. */
