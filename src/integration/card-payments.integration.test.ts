@@ -159,7 +159,7 @@ describe.skipIf(!hasDatabase)("cards, Apple Pay and Google Pay through Stripe", 
         const owed = (await james.get("/api/tenant/summary")).body.currentBalance as number
         expect(owed).toBeGreaterThan(1)
         const partial = await james.post("/api/tenant/payments/card", { amount: 1, idempotencyKey: "checkout-card-0010", confirmationTokenId: "ctoken_visa" })
-        expect(partial).toMatchObject({ status: 409, body: { error: "AMOUNT_BELOW_BALANCE" } })
+        expect(partial).toMatchObject({ status: 409, body: { error: "AMOUNT_BELOW_MINIMUM" } })
 
         // Lucia's Zelle report is waiting for the office: no card payment until it is decided.
         const lucia = await signIn({ email: "lucia.reyes@example.com", password: PASSWORDS.tenant })

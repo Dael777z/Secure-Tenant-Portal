@@ -171,8 +171,8 @@ which card it is and charges it at once, so the payment is usually on the ledger
 page updates. The ledger names it like `Visa •••• 4242` or `Apple Pay (Visa •••• 4242)`;
 `Stripe_Payments` keeps the brand, last four digits, debit/credit and wallet.
 
-- **The usual rules apply**: at least the full balance, at most three months of rent ahead,
-  and not while a Cash App / Zelle report waits for the office (`AMOUNT_BELOW_BALANCE`,
+- **The usual rules apply**: at least 25% of the balance (or all of it), at most three months of rent ahead,
+  and not while a Cash App / Zelle report waits for the office (`AMOUNT_BELOW_MINIMUM`,
   `AMOUNT_ABOVE_LIMIT`, `ALREADY_REPORTED`, as for bank payments). Nothing reaches Stripe then.
 - A declined card answers `402 CARD_DECLINED` with Stripe's message, and nothing is recorded.
 - A bank check (3-D Secure) shows in Stripe's own window; the payment completes after it.

@@ -20,7 +20,7 @@ these answer 503 STRIPE_NOT_CONFIGURED. `amount` is the rent being paid; the ser
     POST /tenant/payments/card                 { amount, idempotencyKey, confirmationTokenId } (a ctoken_ from Stripe.js)
                                                → { paymentIntentId, clientSecret, status, requiresAction, fee, total };
                                                402 CARD_DECLINED with Stripe's message when the card is refused;
-                                               the amount follows the usual rules (AMOUNT_BELOW_BALANCE, AMOUNT_ABOVE_LIMIT, ALREADY_REPORTED)
+                                               the amount follows the usual rules (AMOUNT_BELOW_MINIMUM, AMOUNT_ABOVE_LIMIT, ALREADY_REPORTED)
     POST /tenant/payments/stripe/:id/refresh   → { status: pending | completed | failed, confirmation }
  */
 export function createStripePaymentRouter(deps: { payments: StripePaymentService; guard: Auth; limits: RateLimits }): Router {

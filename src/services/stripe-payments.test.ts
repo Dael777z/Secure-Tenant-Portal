@@ -132,9 +132,9 @@ describe("card, Apple Pay and Google Pay checkout", () => {
 
     it("follows the tenant payment rules: a refused amount charges nothing", async () => {
         const f = fakes()
-        f.rules.refuse = new AppError("AMOUNT_BELOW_BALANCE", { balance: 950, minimum: 950 })
+        f.rules.refuse = new AppError("AMOUNT_BELOW_MINIMUM", { balance: 950, minimum: 237.5, minimumPartialPercent: 25 })
         await expect(service(f).startCard("tenant:5", { amount: 100, idempotencyKey: "checkout-0001", confirmationTokenId: "ctoken_abc" }))
-            .rejects.toMatchObject({ code: "AMOUNT_BELOW_BALANCE" })
+            .rejects.toMatchObject({ code: "AMOUNT_BELOW_MINIMUM" })
         expect(f.cardCalls).toHaveLength(0)
         expect(f.saved).toHaveLength(0)
     })
