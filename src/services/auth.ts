@@ -39,7 +39,7 @@ export class AuthService {
             if (!inviteToken || inviteToken.length > 300 || password.length < 8) throw new AppError("VALIDATION_ERROR")
             if (isTooCommon(password)) throw new AppError("PASSWORD_TOO_COMMON")
 
-            // Hash first, so the response takes the same time whether or not the invitation is good.
+            // Hash first, so the response takes the same time regardless,
             const passwordHash = await bcrypt.hash(password, this.config.bcryptRounds)
             const user = await this.db.completeSignup(hashToken(inviteToken), passwordHash)
             if (!user) throw new AppError("SIGNUP_NOT_ALLOWED")

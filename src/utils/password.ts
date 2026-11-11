@@ -8,7 +8,7 @@ const COMMON = new Set([
     "password", "passw0rd", "p@ssword", "p@ssw0rd", "qwertyui", "qwerty", "qwertyuiop", "asdfghjk", "asdfghjkl", "zxcvbnm", "zxcvbnm1",
     "letmein", "welcome", "welcome1", "admin", "administrator", "iloveyou", "monkey", "dragon", "football", "baseball", "sunshine",
     "princess", "superman", "trustno1", "changeme", "default", "secret", "master", "login", "abc123", "abcd1234", "abcdefgh",
-    "summit", "portal", "tenant", "manager", "resident", "apartment", "landlord",
+    "portal", "tenant", "manager", "resident", "apartment", "landlord",
 ])
 
 /** Lower case, with trailing digits and punctuation removed: "Password123!" becomes "password". */

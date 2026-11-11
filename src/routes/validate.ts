@@ -17,9 +17,9 @@ export const text = (value: unknown, max: number, { optional = false } = {}): st
     return value.trim()
 }
 
-/** A positive dollar amount with at most two decimals, up to $100,000. (The tolerance absorbs floating-point dust: 19.99 * 100 is 1998.9999999999998.) */
+/** A positive dollar amount with at most two decimals, up to $100,000. **/
 export const money = (value: unknown): number => {
-    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > 100_000 || Math.abs(value * 100 - Math.round(value * 100)) > 1e-6) {
+    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > 100_000 || Math.abs(value * 100 - Math.round(value * 100)) > 1e-3) {
         throw new AppError("VALIDATION_ERROR")
     }
     return value
