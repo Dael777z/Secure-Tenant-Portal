@@ -1,7 +1,9 @@
 // Every add/edit form on the manager side, opened as a dialog from the quick
 // actions bar or from a screen. Each one closes and refreshes on success.
 import { useRef, useState, type FormEvent } from "react";
-import { managerApi, PAYMENT_METHODS, RECEIPT_ACCEPT, readReceipt, type NewPerson, type ReceiptUpload, type UnitRow } from "./api";
+import { managerApi, PAYMENT_METHODS, RECEIPT_ACCEPT, readReceipt, REQUEST_PRIORITIES, REQUEST_TYPES, type NewPerson, type ReceiptUpload, type RequestPriority, type RequestType, type UnitRow } from "./api";
+import { ChargeWizard, CreateNewDialog, LateFeeRuleDialog, LeaseDocumentDialog, ReminderRuleDialog } from "./ops";
+import { ExpenseDialog, RejectReportDialog, RenewalDialog } from "./finance";
 import { Field, LocalError, Modal, money, todayIso, useLoad, useManager, useSubmit, type Dialog } from "./ui";
 
 type Props<K extends Dialog["kind"]> = Extract<Dialog, { kind: K }> & { onClose: () => void };
@@ -30,6 +32,22 @@ export function DialogHost({ dialog, onClose }: { dialog: Dialog; onClose: () =>
       return <AddResidentDialog {...dialog} onClose={onClose} />;
     case "attachReceipt":
       return <AttachReceiptDialog {...dialog} onClose={onClose} />;
+    case "charge":
+      return <ChargeWizard {...dialog} onClose={onClose} />;
+    case "lateFeeRule":
+      return <LateFeeRuleDialog {...dialog} onClose={onClose} />;
+    case "reminderRule":
+      return <ReminderRuleDialog {...dialog} onClose={onClose} />;
+    case "leaseDocument":
+      return <LeaseDocumentDialog {...dialog} onClose={onClose} />;
+    case "create":
+      return <CreateNewDialog {...dialog} onClose={onClose} />;
+    case "expense":
+      return <ExpenseDialog {...dialog} onClose={onClose} />;
+    case "renewal":
+      return <RenewalDialog {...dialog} onClose={onClose} />;
+    case "rejectReport":
+      return <RejectReportDialog {...dialog} onClose={onClose} />;
     case "confirm":
       return <ConfirmDialog {...dialog} onClose={onClose} />;
   }
@@ -120,7 +138,7 @@ function NewLeaseDialog({ unitId, onClose }: Props<"lease">) {
   const createdId = useRef(0);
   const { busy, error, run } = useSubmit(() => {
     onClose();
-    changed("Lease created.");
+    changed("Lease created. Send new residents their sign-up link from Tenants.");
     if (createdId.current) go({ name: "lease", id: createdId.current });
   });
 
@@ -430,7 +448,7 @@ function InviteTenantDialog({ onClose }: Props<"tenant">) {
   const [person, setPerson] = useState<NewPerson>({ name: "", email: "", phone: "" });
   const { busy, error, run } = useSubmit(() => {
     onClose();
-    changed(`${person.name.trim()} invited. Add them to a lease from New lease.`);
+    changed(`${person.name.trim()} invited. Copy their sign-up link from Tenants, and add them to a lease from New lease.`);
   });
   return (
     <Modal title="Invite tenant" onClose={onClose}>
@@ -448,7 +466,7 @@ function InviteTenantDialog({ onClose }: Props<"tenant">) {
         <Field label="Full name">
           <input value={person.name} onChange={(e) => setPerson({ ...person, name: e.target.value })} required maxLength={255} />
         </Field>
-        <Field label="Email" hint="They sign up with this address and choose their own password.">
+        <Field label="Email" hint="They sign in with this address. Send them the sign-up link from Tenants to choose a password.">
           <input type="email" value={person.email} onChange={(e) => setPerson({ ...person, email: e.target.value })} required maxLength={255} />
         </Field>
         <Field label="Phone (optional)">
@@ -502,6 +520,8 @@ function MaintenanceDialog({ unitId, onClose }: Props<"maintenance">) {
   const [unit, setUnit] = useState(unitId ? String(unitId) : "");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [priority, setPriority] = useState<RequestPriority>("none");
+  const [requestType, setRequestType] = useState<RequestType>("other");
   const { busy, error, run } = useSubmit(() => {
     onClose();
     changed("Request added to the queue.");
@@ -514,7 +534,7 @@ function MaintenanceDialog({ unitId, onClose }: Props<"maintenance">) {
           e.preventDefault();
           void run(async () => {
             if (!unit) throw new LocalError("Choose the unit.");
-            await managerApi.createMaintenance({ unitId: Number(unit), title: title.trim(), description: description.trim() });
+            await managerApi.createMaintenance({ unitId: Number(unit), title: title.trim(), description: description.trim(), priority, requestType });
           });
         }}
       >
@@ -531,6 +551,26 @@ function MaintenanceDialog({ unitId, onClose }: Props<"maintenance">) {
         <Field label="What needs fixing">
           <input value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={120} placeholder="Water heater leaking" />
         </Field>
+        <div className="mgr-form__row">
+          <Field label="Type">
+            <select value={requestType} onChange={(e) => setRequestType(e.target.value as RequestType)}>
+              {REQUEST_TYPES.map(([k, label]) => (
+                <option key={k} value={k}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Priority">
+            <select value={priority} onChange={(e) => setPriority(e.target.value as RequestPriority)}>
+              {REQUEST_PRIORITIES.map(([k, label]) => (
+                <option key={k} value={k}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
         <Field label="Details (optional)">
           <textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={4000} />
         </Field>

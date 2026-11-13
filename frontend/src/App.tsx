@@ -7,10 +7,15 @@ import { PayRentPage } from "./pages/PayRentPage";
 import { LedgerPage } from "./pages/LedgerPage";
 import { MaintenancePage } from "./pages/MaintenancePage";
 import { NoticesPage } from "./pages/NoticesPage";
+import { DocumentsPage } from "./pages/DocumentsPage";
+import { SettingsPage } from "./pages/SettingsPage";
+import { applyTextSize, getTextSize } from "./components/textSize";
 import { TenantDataProvider, useTenantData } from "./data/tenantData";
 import { currentUser, login, logout, type SessionUser } from "./api/auth";
 import { SESSION_CHECK } from "./api/session";
 import { ManagerApp } from "./manager/ManagerApp";
+import { isPlaidOAuthReturn } from "./components/PlaidLinkButton";
+import { isStripeReturn } from "./components/stripeClient";
 import "./styles/portal.css";
 
 const pageTitles: Record<PageKey, string> = {
@@ -18,8 +23,13 @@ const pageTitles: Record<PageKey, string> = {
   pay: "Pay Rent",
   ledger: "Ledger View",
   maintenance: "Maintenance",
+  documents: "Documents",
   notices: "Notices",
+  settings: "Settings",
 };
+
+// Juan's text size (Settings → Display) is a per-device choice: apply it on load.
+applyTextSize(getTextSize(), false);
 
 /* Root of the portal: residents get the resident portal, staff the manager side. */
 export default function App() {
@@ -27,7 +37,9 @@ export default function App() {
   // tenant's own lease, ledger, requests and notices from /api/tenant/summary.
   const [user, setUser] = useState<SessionUser | null>(null);
   const [checked, setChecked] = useState(false);
-  const [activePage, setActivePage] = useState<PageKey>("home");
+  // back from a bank's own sign-in page (plaid oauth): finish linking on the pay page,
+  // or back from a card's bank check (Stripe): show the payment's result on the pay page
+  const [activePage, setActivePage] = useState<PageKey>(isPlaidOAuthReturn() || isStripeReturn() ? "pay" : "home");
 
   useEffect(() => {
     currentUser()
@@ -50,7 +62,7 @@ export default function App() {
 
   async function handleLogin(email: string, password: string) {
     setUser(await login(email, password));
-    setActivePage("home");
+    setActivePage(isPlaidOAuthReturn() || isStripeReturn() ? "pay" : "home");
   }
 
   async function handleLogout() {
@@ -105,7 +117,9 @@ function TenantShell({
           {activePage === "pay" && <PayRentPage />}
           {activePage === "ledger" && <LedgerPage />}
           {activePage === "maintenance" && <MaintenancePage />}
+          {activePage === "documents" && <DocumentsPage />}
           {activePage === "notices" && <NoticesPage />}
+          {activePage === "settings" && <SettingsPage />}
         </div>
       </main>
     </div>

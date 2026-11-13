@@ -1,62 +1,59 @@
 import { Router } from "express"
 
-import { env } from "../config/env"
-import { authenticateJWT } from "../middleware/auth"
-import { requirePermission } from "../middleware/rbac"
+import type { Auth } from "../middleware/auth"
+import type { RateLimits } from "../middleware/rate-limit"
 import type { PlaidGateway } from "../services/plaid"
-import type { TenantStore } from "../services/tenant-store"
+import type { TenantService } from "../services/tenant-service"
 import { AppError } from "../types/errors"
-import type { ValidRequest } from "../types/interfaces"
+import type { ValidRequest } from "../types/access"
 import { encryptSecret } from "../utils/secrets"
 
-/**
- * Dael's Plaid prototype (feature/plaid-connector), mounted in the main app
- * with the same two paths, now for a signed-in tenant:
- *
- *   POST /api/create_link_token       → { link_token }
- *   POST /api/exchange_and_get_auth   → { accounts, bankAccounts }
- *
- * Changes from the prototype: the Plaid user is the real signed-in tenant; the
- * linked accounts are saved (access token encrypted, last four digits only);
- * and the response shows the routing number but only the last four digits of
- * the account number.
+/*
+Linking a tenant's bank account with Plaid:
+
+POST /api/create_link_token       → { link_token }
+POST /api/exchange_and_get_auth   { public_token } → { accounts, bankAccounts }
+
+The access token is stored encrypted, and account numbers leave only as
+their last four digits. Without Plaid keys both routes answer 503 PLAID_NOT_CONFIGURED.
  */
-export function createPlaidRouter(plaid: PlaidGateway | null, store: TenantStore | null): Router {
+export function createPlaidRouter(deps: {
+    plaid: PlaidGateway | null
+    tenant: TenantService
+    guard: Auth
+    limits: RateLimits
+    tokenEncryptionKey: string
+}): Router {
+    const { tenant, guard, tokenEncryptionKey, limits } = deps
     const router = Router()
 
-    const ready = () => {
-        if (!plaid) throw new AppError("PLAID_NOT_CONFIGURED")
-        if (!store) throw new AppError("DATABASE_REQUIRED")
-        return { plaid, store }
+    const gateway = (): PlaidGateway => {
+        if (!deps.plaid) throw new AppError("PLAID_NOT_CONFIGURED")
+        return deps.plaid
     }
 
-    router.post("/create_link_token", authenticateJWT, requirePermission("payment:create:self"), async (req: ValidRequest, res) => {
-        const { plaid } = ready()
-        try {
-            res.json({ link_token: await plaid.createLinkToken(req.user!.id) })
-        } catch {
-            throw new AppError("PLAID_ERROR")
-        }
+    // create link token by client user id
+    router.post("/create_link_token", limits.sensitive, ...guard.can("payment:create:self"), async (req: ValidRequest, res) => {
+        // plaid failures arrive as PLAID_ERROR with plaid's code and request id (services/plaid.ts)
+        res.json({ link_token: await gateway().createLinkToken(req.user!.id) })
     })
 
-    router.post("/exchange_and_get_auth", authenticateJWT, requirePermission("payment:create:self"), async (req: ValidRequest, res) => {
-        const { plaid, store } = ready()
+    // exchange public link token and return the plaid auth service/account data
+    router.post("/exchange_and_get_auth", limits.sensitive, ...guard.can("payment:create:self"), async (req: ValidRequest, res) => {
+        const plaid = gateway()
         const { public_token } = req.body as { public_token?: unknown }
         if (typeof public_token !== "string" || !public_token || public_token.length > 300) throw new AppError("VALIDATION_ERROR")
 
-        let linked
-        try {
-            linked = await plaid.exchangeAndGetAuth(public_token)
-        } catch {
-            throw new AppError("PLAID_ERROR")
-        }
+        const linked = await plaid.exchangeAndGetAuth(public_token)
 
-        const bankAccounts = await store.saveBankAccounts(
+        // save bank account information with mask for obfuscation
+        const bankAccounts = await tenant.saveBankAccounts(
             req.user!.id,
-            { itemId: linked.itemId, accessTokenEnc: encryptSecret(linked.accessToken, env.tokenEncryptionKey) },
+            { itemId: linked.itemId, accessTokenEnc: encryptSecret(linked.accessToken, tokenEncryptionKey) },
             linked.accounts.map((a) => ({ accountId: a.accountId, name: a.name, mask: a.mask, subtype: a.subtype })),
         )
 
+        // return ephemeral bank account information and obfuscated bank account information?
         res.json({
             accounts: linked.accounts.map((a) => ({
                 name: a.name,
