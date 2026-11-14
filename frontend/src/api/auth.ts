@@ -27,10 +27,24 @@ async function errorFrom(res: Response): Promise<AuthError> {
   return new AuthError(body.error ?? "UNKNOWN", res.status);
 }
 
-export async function login(email: string, password: string): Promise<SessionUser> {
-  const res = await call("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+/** `code` is the 6 digits from a staff member's authenticator app (see `secondStepFor`). */
+export async function login(email: string, password: string, code?: string): Promise<SessionUser> {
+  const res = await call("/auth/login", { method: "POST", body: JSON.stringify({ email, password, code }) });
   if (!res.ok) throw await errorFrom(res);
   return ((await res.json()) as { user: SessionUser }).user;
+}
+
+/** What a staff sign-in still needs after a right password: a "code", a first-time "setup", or null (some other failure). */
+export function secondStepFor(error: unknown): "code" | "setup" | null {
+  const code = error instanceof AuthError ? error.code : "";
+  return code === "MFA_REQUIRED" ? "code" : code === "MFA_SETUP_REQUIRED" ? "setup" : null;
+}
+
+/** A new authenticator secret for a staff account that has not set two-step sign-in up yet. */
+export async function beginMfaSetup(email: string, password: string): Promise<{ secret: string; uri: string }> {
+  const res = await call("/auth/mfa/setup", { method: "POST", body: JSON.stringify({ email, password }) });
+  if (!res.ok) throw await errorFrom(res);
+  return (await res.json()) as { secret: string; uri: string };
 }
 
 /**
@@ -56,6 +70,9 @@ export async function logout(): Promise<void> {
 export function loginMessage(error: unknown): string {
   if (error instanceof AuthError) {
     if (error.code === "INVALID_CREDENTIALS") return "That email and password do not match.";
+    if (error.code === "MFA_CODE_INVALID") return "That code is not right. Enter the newest 6-digit code from your authenticator app.";
+    if (error.code === "MFA_LOCKED") return "Too many wrong codes. Wait 15 minutes, then try again.";
+    if (error.status === 429) return "Too many attempts. Wait a few minutes, then try again.";
     if (error.status === 403) return "This page could not be verified. Reload it and try again.";
     if (error.status === 400) return "Enter your email and password.";
   }

@@ -3,6 +3,7 @@ import type { AuthStore } from "../types/stores"
 import type { NewRefreshToken } from "../types/inputs"
 import type { SessionUser, StaffProfile, UserRecord } from "../types/records"
 import { hashToken } from "../utils/tokens"
+import { totpCode, totpStep } from "../utils/totp"
 import { describe, expect, it } from "vitest"
 import { AppError } from "../types/errors"
 import { AuthService } from "./auth"
@@ -15,11 +16,30 @@ class FakeAuthStore implements AuthStore {
     private tokens = new Map<string, RefreshTokenSlot>()
     lastSignupHash = ""
     private next = 1
+    private lastStep = new Map<string, number>()
 
-    account(email: string, password: string, role: "admin" | "tenant", extra: { mfaEnabled?: boolean } = {}) {
-        this.users.push({
-            id: `${role}:${this.next++}`, email, passwordHash: bcrypt.hashSync(password, 4), role, mfaEnabled: extra.mfaEnabled ?? false,
-        })
+    /** Make every open session look `ms` older. */
+    ageSessions(ms: number) {
+        for (const slot of this.tokens.values()) slot.owner.sessionStartedAt = new Date(slot.owner.sessionStartedAt.getTime() - ms)
+    }
+
+    async beginMfa(userId: string, secretEncrypted: string) {
+        const user = this.users.find((u) => u.id === userId)
+        if (!user || user.role === "tenant" || user.mfaEnabled) return false
+        user.mfaSecretEncrypted = secretEncrypted
+        return true
+    }
+
+    async acceptMfaStep(userId: string, step: number) {
+        const user = this.users.find((u) => u.id === userId)
+        if (!user?.mfaSecretEncrypted || (this.lastStep.get(userId) ?? -1) >= step) return false
+        this.lastStep.set(userId, step)
+        user.mfaEnabled = true
+        return true
+    }
+
+    account(email: string, password: string, role: "admin" | "tenant") {
+        this.users.push({ id: `${role}:${this.next++}`, email, passwordHash: bcrypt.hashSync(password, 4), role, mfaEnabled: false })
     }
 
     /** An invited tenant: no password until sign-up. `token` is the raw token; only its hash is kept. */
@@ -50,7 +70,7 @@ class FakeAuthStore implements AuthStore {
 
     async storeRefreshToken(data: NewRefreshToken) {
         const owner = this.users.find((u) => u.id === data.userId)!
-        this.tokens.set(data.tokenHash, { owner: { id: owner.id, email: owner.email, role: owner.role }, revoked: false, expiresAt: data.expiresAt })
+        this.tokens.set(data.tokenHash, { owner: { id: owner.id, email: owner.email, role: owner.role, sessionStartedAt: data.sessionStartedAt ?? new Date() }, revoked: false, expiresAt: data.expiresAt })
     }
 
     async consumeRefreshToken(tokenHash: string) {
@@ -70,6 +90,7 @@ class FakeAuthStore implements AuthStore {
     }
 }
 
+const DAY = 24 * 60 * 60 * 1000
 const config = {
     accessSecret: "unit-test-secret",
     jwtIssuer: "portal",
@@ -77,12 +98,21 @@ const config = {
     accessTtlSeconds: 900,
     bcryptRounds: 4,
     refreshTtlMilliseconds: 60_000,
+    staffSessionMaxMilliseconds: 30 * DAY,
+    requireStaffMfa: false,
+    tokenEncryptionKey: "unit-test-encryption-key",
 }
 
-function setup() {
+function setup(over: Partial<typeof config> = {}) {
     const store = new FakeAuthStore()
-    const auth = new AuthService(store, config)
+    const auth = new AuthService(store, { ...config, ...over })
     return { store, auth }
+}
+
+/** A code no authenticator would show right now. */
+function wrongCode(secret: string): string {
+    const right = [-1, 0, 1].map((d) => totpCode(secret, totpStep() + d))
+    return ["000000", "000001", "000002", "000003"].find((c) => !right.includes(c))!
 }
 
 describe("auth service (against a fake store, no database)", () => {
@@ -129,10 +159,65 @@ describe("auth service (against a fake store, no database)", () => {
         await expect(auth.login("resident@example.com", "wrong password")).rejects.toMatchObject({ code: "INVALID_CREDENTIALS" })
     })
 
-    it("refuses an account with MFA on rather than skipping the second factor", async () => {
+    it("staff set up two-step sign-in, then need a new code at every sign-in (013)", async () => {
+        const { store, auth } = setup({ requireStaffMfa: true })
+        store.account("boss@example.com", "correct horse", "admin")
+        const boss = ["boss@example.com", "correct horse", {}] as const
+
+        // No way in without it, and the setup itself needs the password.
+        await expect(auth.login(...boss)).rejects.toMatchObject({ code: "MFA_SETUP_REQUIRED" })
+        await expect(auth.beginMfaSetup("boss@example.com", "wrong password")).rejects.toMatchObject({ code: "INVALID_CREDENTIALS" })
+        const { secret, uri } = await auth.beginMfaSetup("boss@example.com", "correct horse")
+        expect(uri).toContain(`secret=${secret}`)
+        // Having a secret is not enough: it is on only after a code from it.
+        await expect(auth.login(...boss)).rejects.toMatchObject({ code: "MFA_SETUP_REQUIRED" })
+        await expect(auth.login(...boss, wrongCode(secret))).rejects.toMatchObject({ code: "MFA_CODE_INVALID" })
+
+        const code = totpCode(secret, totpStep())
+        await expect(auth.login(...boss, code)).resolves.toMatchObject({ user: { email: "boss@example.com" } })
+        // From now on: a code every time, each code once, and no second setup with just the password.
+        await expect(auth.login(...boss)).rejects.toMatchObject({ code: "MFA_REQUIRED" })
+        await expect(auth.login(...boss, code)).rejects.toMatchObject({ code: "MFA_CODE_INVALID" })
+        await expect(auth.login(...boss, totpCode(secret, totpStep() + 1))).resolves.toMatchObject({ user: { email: "boss@example.com" } })
+        await expect(auth.beginMfaSetup("boss@example.com", "correct horse")).rejects.toMatchObject({ code: "FORBIDDEN" })
+    })
+
+    it("tenants are never asked for a code and cannot start setup", async () => {
+        const { store, auth } = setup({ requireStaffMfa: true })
+        store.account("resident@example.com", "correct horse", "tenant")
+        await expect(auth.login("resident@example.com", "correct horse")).resolves.toMatchObject({ user: { role: "tenant" } })
+        await expect(auth.beginMfaSetup("resident@example.com", "correct horse")).rejects.toMatchObject({ code: "FORBIDDEN" })
+    })
+
+    it("where it is not required, staff sign in with a password until they set it up, and with a code after", async () => {
         const { store, auth } = setup()
-        store.account("boss@example.com", "correct horse", "admin", { mfaEnabled: true })
-        await expect(auth.login("boss@example.com", "correct horse")).rejects.toMatchObject({ code: "MFA_NOT_SUPPORTED" })
+        store.account("boss@example.com", "correct horse", "admin")
+        await expect(auth.login("boss@example.com", "correct horse")).resolves.toBeTruthy()
+        const { secret } = await auth.beginMfaSetup("boss@example.com", "correct horse")
+        await auth.login("boss@example.com", "correct horse", {}, totpCode(secret, totpStep()))
+        await expect(auth.login("boss@example.com", "correct horse")).rejects.toMatchObject({ code: "MFA_REQUIRED" })
+    })
+
+    it("closes the code step after five wrong codes, even to the right one", async () => {
+        const { store, auth } = setup({ requireStaffMfa: true })
+        store.account("boss@example.com", "correct horse", "admin")
+        const { secret } = await auth.beginMfaSetup("boss@example.com", "correct horse")
+        for (let i = 0; i < 5; i++) await expect(auth.login("boss@example.com", "correct horse", {}, wrongCode(secret))).rejects.toMatchObject({ code: "MFA_CODE_INVALID" })
+        await expect(auth.login("boss@example.com", "correct horse", {}, totpCode(secret, totpStep()))).rejects.toMatchObject({ code: "MFA_LOCKED" })
+    })
+
+    it("a staff session ends 30 days after its sign-in however often it is refreshed; a tenant's does not", async () => {
+        const { store, auth } = setup()
+        store.account("boss@example.com", "correct horse", "admin")
+        store.account("resident@example.com", "correct horse", "tenant")
+        let staff = await auth.login("boss@example.com", "correct horse")
+        let tenant = await auth.login("resident@example.com", "correct horse")
+
+        store.ageSessions(29 * DAY)
+        staff = { ...staff, ...(await auth.refresh(staff.refreshToken)) }   // still inside, and the new token keeps the old start
+        store.ageSessions(2 * DAY)
+        await expect(auth.refresh(staff.refreshToken)).rejects.toMatchObject({ code: "INVALID_TOKEN" })
+        await expect(auth.refresh(tenant.refreshToken)).resolves.toBeTruthy()
     })
 
     it("logout revokes the refresh token", async () => {

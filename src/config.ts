@@ -15,7 +15,8 @@ import { configDotenv } from "dotenv"
  *   DATABASE_URL, DATABASE_ADMIN_URL   full URLs instead of the above, for a Postgres elsewhere
  *   JWT_ACCESS_SECRET      required in production
  *   WEB_ORIGIN             where the browser loads the site from
- *   PORT, TRUST_PROXY_HOPS, LOG_FILE, PLAID_*, TOKEN_ENCRYPTION_KEY: optional
+ *   TOKEN_ENCRYPTION_KEY   required in production (encrypts staff two-step secrets and bank tokens)
+ *   PORT, TRUST_PROXY_HOPS, LOG_FILE, PLAID_*: optional
  *   RESEND_API_KEY, EMAIL_FROM   email notifications through Resend; off unless both are set
  *   STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET   cards, Apple Pay and Google Pay
  *                          through Stripe; off unless both keys are set (the webhook secret is required in production)
@@ -32,6 +33,8 @@ const FIXED = {
     jwtAudience: "portal-web",
     accessTtlSeconds: 15 * 60,
     refreshTtlMilliseconds: 7 * 24 * 60 * 60 * 1000,
+    /** Staff sign in again (password and code) this long after they last did, however active the session is. */
+    staffSessionMaxMilliseconds: 30 * 24 * 60 * 60 * 1000,
     /** Rent reminder emails and the office's daily emails (late rent, leases ending) go out from this hour, local time. */
     emailSendFromHour: 8,
     /** The office hears about a lease this many days before it ends. */
@@ -78,6 +81,11 @@ export function loadConfig(vars: NodeJS.ProcessEnv = process.env, { server = tru
         port: Number(get("PORT") || 3000),
         webOrigin,
         secureCookies: production,
+        /**
+         * Production: no staff sign-in without two-step sign-in (an account without it is sent to set it up).
+         * Elsewhere only accounts that have set it up are asked, so the sample logins keep working.
+         */
+        requireStaffMfa: production,
         trustProxyHops: Number(get("TRUST_PROXY_HOPS") || 0),
         accessSecret: get("JWT_ACCESS_SECRET") || (production ? "" : DEV_ONLY_SECRET),
         bcryptRounds: mode === "test" ? 4 : 12,
@@ -98,7 +106,7 @@ export function loadConfig(vars: NodeJS.ProcessEnv = process.env, { server = tru
          * without it: Link uses a pop-up). A path like "/plaid-oauth" is joined to WEB_ORIGIN.
          */
         plaidRedirectUri: redirectUri(get("PLAID_REDIRECT_URI"), webOrigin),
-        /** Encrypts Plaid access tokens at rest. */
+        /** Encrypts Plaid access tokens and staff authenticator secrets at rest. */
         tokenEncryptionKey: get("TOKEN_ENCRYPTION_KEY") || (production ? "" : DEV_ONLY_SECRET),
         /** Email is on when both are set. EMAIL_FROM is a sender on a domain verified in Resend: "Summit <rent@example.com>". */
         resendApiKey: get("RESEND_API_KEY"),
@@ -117,7 +125,7 @@ export function loadConfig(vars: NodeJS.ProcessEnv = process.env, { server = tru
         if (config.accessSecret.length < 32) problems.push("JWT_ACCESS_SECRET must be set (32+ characters)")
         // http is fine only on this machine (browsers treat localhost as secure, so cookies still work).
         if (!config.webOrigin.startsWith("https://") && !isLocalOrigin(config.webOrigin)) problems.push("WEB_ORIGIN must be an https:// address (or http://localhost)")
-        if (config.plaidClientId && config.tokenEncryptionKey.length < 32) problems.push("TOKEN_ENCRYPTION_KEY must be set when Plaid is on (32+ characters)")
+        if (config.tokenEncryptionKey.length < 32) problems.push("TOKEN_ENCRYPTION_KEY must be set (32+ characters): it encrypts staff two-step secrets and bank tokens")
     }
     // The development secrets are in the source code, so anyone could sign in as the manager.
     // Development mode on a public address (a tunnel, a shared server) needs real secrets.

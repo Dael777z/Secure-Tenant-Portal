@@ -13,8 +13,10 @@ export interface UserRecord {
     email: string
     passwordHash: string
     role: Role
-    /** Staff only. The schema has the flag; the app cannot verify a second factor yet. */
+    /** Staff only: two-step sign-in is set up and a code is asked for at every sign-in (013). */
     mfaEnabled: boolean
+    /** Staff only: the authenticator secret, encrypted (utils/secrets.ts). Set from the start of setup. */
+    mfaSecretEncrypted?: string | null
 }
 
 /** Who a refresh token belonged to, after it was used up. */
@@ -22,6 +24,8 @@ export interface SessionUser {
     id: string
     email: string
     role: Role
+    /** When the session this token continues was signed in to (013). */
+    sessionStartedAt: Date
 }
 
 /** A tenant the office has added who has not signed up yet. */

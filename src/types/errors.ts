@@ -9,7 +9,11 @@ export const ERROR_STATUS = {
     INVALID_CREDENTIALS: 401,
     INVALID_TOKEN: 401,
     SIGNUP_NOT_ALLOWED: 403,
-    MFA_NOT_SUPPORTED: 403,
+    // 013: staff two-step sign-in. REQUIRED: send the code too. SETUP_REQUIRED: set it up first (POST /auth/mfa/setup).
+    MFA_REQUIRED: 401,
+    MFA_SETUP_REQUIRED: 401,
+    MFA_CODE_INVALID: 401,
+    MFA_LOCKED: 429,
     FORBIDDEN: 403,
     // bad input / missing things
     VALIDATION_ERROR: 400,

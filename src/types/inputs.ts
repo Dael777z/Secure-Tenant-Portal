@@ -12,6 +12,8 @@ export interface NewRefreshToken {
     userId: string
     tokenHash: string
     expiresAt: Date
+    /** The sign-in this token continues; left out for a new sign-in. */
+    sessionStartedAt?: Date
 }
 
 export interface NewTenant {

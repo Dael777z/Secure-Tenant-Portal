@@ -60,8 +60,8 @@ export default function App() {
     return () => window.removeEventListener(SESSION_CHECK, check);
   }, []);
 
-  async function handleLogin(email: string, password: string) {
-    setUser(await login(email, password));
+  async function handleLogin(email: string, password: string, code?: string) {
+    setUser(await login(email, password, code));
     setActivePage(isPlaidOAuthReturn() || isStripeReturn() ? "pay" : "home");
   }
 

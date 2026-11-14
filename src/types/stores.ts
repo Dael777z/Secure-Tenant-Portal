@@ -36,6 +36,10 @@ export interface AccountStore {
     /** Use up an open invitation (by token hash) and set the password. Null if none matches. */
     completeSignup(tokenHash: string, passwordHash: string): Promise<UserRecord | null>
     findStaffProfile(adminId: number): Promise<StaffProfile | null>
+    /** Keep a staff account's new authenticator secret (013). False once two-step sign-in is on, and for tenants. */
+    beginMfa(userId: string, secretEncrypted: string): Promise<boolean>
+    /** A correct code for `step` was typed: turns two-step sign-in on if it was not. False when that step was already used. */
+    acceptMfaStep(userId: string, step: number): Promise<boolean>
     /**
      * The account's role and token version right now (012), or null unless it is active and signed up.
      * `authenticate` asks on every request, and a new session is issued from it.

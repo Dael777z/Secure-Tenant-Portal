@@ -34,6 +34,8 @@ const label = (r: Route) => `${r.method} ${r.path}`
 /** Routes that anyone may call (sign-in itself, health probes, the public listings page). Everything else needs a session. */
 const PUBLIC = new Set([
     "POST /api/auth/signup", "POST /api/auth/login", "POST /api/auth/refresh", "POST /api/auth/logout", "GET /health/live", "GET /health/ready",
+    // 013: starting two-step setup; like sign-in, the password in the body is the proof
+    "POST /api/auth/mfa/setup",
     // 009: the public /listings page (published homes only, through SECURITY DEFINER functions)
     "GET /api/public/listings", "GET /api/public/listings/:id/photos/:photoId", "POST /api/public/listings/:id/inquire",
     // 010: Stripe's webhook; its signature (STRIPE_WEBHOOK_SECRET) is the proof, not a session

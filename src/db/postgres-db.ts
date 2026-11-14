@@ -114,14 +114,14 @@ export class PostgresDatabase implements DatabaseInterface {
     // ---- Accounts and sessions (through the schema's SECURITY DEFINER auth_* functions)
 
     async findUserByEmail(email: string): Promise<UserRecord | null> {
-        const { rows } = await this.query<{ user_type: UserType; user_id: number; password_hash: string | null; signup_completed: boolean; role: string | null; mfa_enabled: boolean }>(
-            "SELECT user_type, user_id, password_hash, signup_completed, role, mfa_enabled FROM auth_lookup_user($1)",
+        const { rows } = await this.query<{ user_type: UserType; user_id: number; password_hash: string | null; signup_completed: boolean; role: string | null; mfa_enabled: boolean; mfa_secret_encrypted: string | null }>(
+            "SELECT user_type, user_id, password_hash, signup_completed, role, mfa_enabled, mfa_secret_encrypted FROM auth_lookup_user($1)",
             [email],
         )
         // An invited tenant has no password yet and cannot sign in.
         const row = rows.find((r) => r.signup_completed && r.password_hash)
         if (!row) return null
-        return { id: userIdOf(row.user_type, row.user_id), email, passwordHash: row.password_hash!, role: roleOf(row.user_type, row.role), mfaEnabled: row.mfa_enabled }
+        return { id: userIdOf(row.user_type, row.user_id), email, passwordHash: row.password_hash!, role: roleOf(row.user_type, row.role), mfaEnabled: row.mfa_enabled, mfaSecretEncrypted: row.mfa_secret_encrypted }
     }
 
     async completeSignup(tokenHash: string, passwordHash: string): Promise<UserRecord | null> {
@@ -148,19 +148,31 @@ export class PostgresDatabase implements DatabaseInterface {
         return rows[0] ?? null
     }
 
+    async beginMfa(userId: string, secretEncrypted: string): Promise<boolean> {
+        const owner = parseUserId(userId)
+        if (owner?.table !== "admin") return false
+        return (await this.query<{ ok: boolean }>("SELECT auth_mfa_begin($1, $2) AS ok", [owner.id, secretEncrypted])).rows[0]!.ok
+    }
+
+    async acceptMfaStep(userId: string, step: number): Promise<boolean> {
+        const owner = parseUserId(userId)
+        if (owner?.table !== "admin") return false
+        return (await this.query<{ ok: boolean }>("SELECT auth_mfa_accept($1, $2) AS ok", [owner.id, step])).rows[0]!.ok
+    }
+
     async storeRefreshToken(data: NewRefreshToken): Promise<void> {
         const owner = parseUserId(data.userId)
         if (!owner) throw new Error(`not a user id: ${data.userId}`)
-        await this.query("SELECT auth_store_refresh_token($1, $2, $3, $4)", [owner.table, owner.id, data.tokenHash, data.expiresAt])
+        await this.query("SELECT auth_store_refresh_token($1, $2, $3, $4, $5)", [owner.table, owner.id, data.tokenHash, data.expiresAt, data.sessionStartedAt ?? null])
     }
 
     async consumeRefreshToken(tokenHash: string): Promise<SessionUser | null> {
-        const { rows } = await this.query<{ user_type: UserType; user_id: number; email: string; role: string | null }>(
-            "SELECT user_type, user_id, email, role FROM auth_consume_refresh_token($1)",
+        const { rows } = await this.query<{ user_type: UserType; user_id: number; email: string; role: string | null; session_started_at: Date }>(
+            "SELECT user_type, user_id, email, role, session_started_at FROM auth_consume_refresh_token($1)",
             [tokenHash],
         )
         const row = rows[0]
-        return row ? { id: userIdOf(row.user_type, row.user_id), email: row.email, role: roleOf(row.user_type, row.role) } : null
+        return row ? { id: userIdOf(row.user_type, row.user_id), email: row.email, role: roleOf(row.user_type, row.role), sessionStartedAt: row.session_started_at } : null
     }
 
     async revokeRefreshToken(tokenHash: string): Promise<void> {

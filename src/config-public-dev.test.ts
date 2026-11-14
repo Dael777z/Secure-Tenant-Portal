@@ -42,6 +42,6 @@ describe("development mode on a public address", () => {
     it("production mode is unchanged: it still demands a long secret and an https address", () => {
         expect(() => loadConfig({ NODE_ENV: "production", WEB_ORIGIN: "https://portal.example.com" })).toThrow("JWT_ACCESS_SECRET")
         expect(() => loadConfig({ NODE_ENV: "production", JWT_ACCESS_SECRET: SECRET, WEB_ORIGIN: "http://portal.example.com" })).toThrow("WEB_ORIGIN")
-        expect(loadConfig({ NODE_ENV: "production", JWT_ACCESS_SECRET: SECRET, WEB_ORIGIN: "https://portal.example.com" }).production).toBe(true)
+        expect(loadConfig({ NODE_ENV: "production", JWT_ACCESS_SECRET: SECRET, TOKEN_ENCRYPTION_KEY: SECRET, WEB_ORIGIN: "https://portal.example.com" }).production).toBe(true)
     })
 })

@@ -56,6 +56,38 @@ signed-up tenant a link to choose a new password; their old password and session
 stop working. A tenant's payment carries a key per checkout, so a double click or a
 retry is recorded once.
 
+## Two-step sign-in (staff)
+
+In production every staff account (property managers and maintenance staff) signs
+in with a password and then a 6-digit code from an authenticator app: Google
+Authenticator, Microsoft Authenticator, the passwords app built into iPhones and
+Macs, 1Password, Bitwarden, or any other app that does standard TOTP codes.
+Tenants are not asked.
+
+- **First sign-in:** after the password, the page shows a QR code. Scan it with the
+  app (or, on the phone itself, tap "Open your authenticator app" or type the key
+  in) and enter the code the app shows. Two-step sign-in is on from then.
+- **Every sign-in after:** password, then the current code. Each code works once.
+  Five wrong codes close the code step for 15 minutes.
+- **New or lost phone:** a property manager clicks **Reset sign-in** on Team. The
+  person gets a new link, chooses a password and sets the app up again. Keep at
+  least two property managers, so one can always reset the other.
+- **Sessions:** a staff browser stays signed in while it is used at least every
+  7 days, for at most 30 days; then it is password and code again.
+
+The portal checks the codes itself (`src/utils/totp.ts`); no outside service is
+involved, and each person's secret is stored encrypted with `TOKEN_ENCRYPTION_KEY`.
+The server's clock has to be right to within about 30 seconds.
+
+**Turning it on for a portal already in use:** until a staff member sets it up,
+their password alone is enough to do so. Have everyone sign in and set it up the
+day this ships. The Team page shows who has ("2-step on").
+
+Development does not require it, so the sample logins keep working; an account
+that has set it up is still asked. To try it, `npm run prod` (the production
+build on the development database) requires it; `npm run db reset` afterwards
+clears it from the sample accounts.
+
 ## Database tasks
 
 ```
@@ -305,8 +337,8 @@ Both have `durationMs`. Office changes add `by`, the staff member (`admin:3`).
 | Event | Metadata |
 | --- | --- |
 | `request.completed` | method, path (no query string), statusCode, error code, durationMs |
-| `auth.login.succeeded` / `.failed` | userId, role / reason (`unknown email`, `wrong password`, `mfa required`) |
-| `auth.signup.*`, `auth.refresh.*`, `auth.logout` | userId |
+| `auth.login.succeeded` / `.failed` | userId, role / reason (`unknown email`, `wrong password`, `two-step setup needed`, `two-step code needed`, `wrong code`, `code already used`, `too many wrong codes`) |
+| `auth.signup.*`, `auth.refresh.*`, `auth.logout`, `auth.mfa.setup_started` | userId |
 | `auth.token.rejected`, `auth.forbidden` | reason / userId, role, permission, path |
 | `payment.tenant.*` | userId, amount, method, leaseId, confirmation |
 | `payment.office.*`, `payment.reversed.*`, `payment.receipt_attached.*` | by, leaseId, amount, paymentId, confirmation |

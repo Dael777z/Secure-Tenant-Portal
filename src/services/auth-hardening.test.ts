@@ -6,7 +6,7 @@ import { AppError } from "../types/errors"
 import type { AuthStore } from "../types/stores"
 import { AuthService } from "./auth"
 
-const config = { accessSecret: "s".repeat(32), jwtIssuer: "portal", jwtAudience: "portal-web", accessTtlSeconds: 900, bcryptRounds: 4, refreshTtlMilliseconds: 60_000 }
+const config = { accessSecret: "s".repeat(32), jwtIssuer: "portal", jwtAudience: "portal-web", accessTtlSeconds: 900, bcryptRounds: 4, refreshTtlMilliseconds: 60_000, staffSessionMaxMilliseconds: 60_000, requireStaffMfa: false, tokenEncryptionKey: "k".repeat(32) }
 const hash = bcrypt.hashSync("the-right-password", 4)
 
 function setup() {

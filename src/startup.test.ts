@@ -18,9 +18,10 @@ describe("settings problems are reported clearly", () => {
         expect(() => loadConfig({ PORT: "abc" })).toThrow("PORT must be a port number")
         expect(() => loadConfig({ TRUST_PROXY_HOPS: "-1" })).toThrow("TRUST_PROXY_HOPS must be 0 or more")
     })
-    it("production with Plaid on needs a key to encrypt bank tokens", () => {
+    it("production needs a key to encrypt staff two-step secrets and bank tokens", () => {
         const production = { NODE_ENV: "production", JWT_ACCESS_SECRET: "s".repeat(32), WEB_ORIGIN: "https://portal.example.com", APP_DB_PASSWORD: "a", POSTGRES_PASSWORD: "b" }
-        expect(() => loadConfig({ ...production, PLAID_CLIENT_ID: "id", PLAID_SECRET: "secret" })).toThrow("TOKEN_ENCRYPTION_KEY must be set when Plaid is on")
+        expect(() => loadConfig({ ...production, PLAID_CLIENT_ID: "id", PLAID_SECRET: "secret" })).toThrow("TOKEN_ENCRYPTION_KEY must be set")
+        expect(() => loadConfig(production)).toThrow("TOKEN_ENCRYPTION_KEY must be set")
         expect(loadConfig({ ...production, PLAID_CLIENT_ID: "id", PLAID_SECRET: "secret", TOKEN_ENCRYPTION_KEY: "k".repeat(32) }).production).toBe(true)
     })
     it("configFromEnvironment reads the process environment (vitest runs as NODE_ENV=test)", () => {

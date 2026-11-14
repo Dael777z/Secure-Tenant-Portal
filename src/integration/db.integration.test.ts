@@ -89,7 +89,7 @@ describe.skipIf(!hasDatabase)("PostgresDatabase on the Summit schema", () => {
 
         it("a refresh token is used up once, and a deactivated account's token is dead", async () => {
             await t.db.storeRefreshToken({ userId: `tenant:${tenantTid}`, tokenHash: hashToken("rt-1"), expiresAt: new Date(Date.now() + 60_000) })
-            expect(await t.db.consumeRefreshToken(hashToken("rt-1"))).toEqual({ id: `tenant:${tenantTid}`, email: "tenant@example.com", role: "tenant" })
+            expect(await t.db.consumeRefreshToken(hashToken("rt-1"))).toEqual({ id: `tenant:${tenantTid}`, email: "tenant@example.com", role: "tenant", sessionStartedAt: expect.any(Date) })
             expect(await t.db.consumeRefreshToken(hashToken("rt-1"))).toBeNull()
             expect(await t.db.consumeRefreshToken(hashToken("never-issued"))).toBeNull()
 

@@ -25,7 +25,7 @@ describe("loadConfig", () => {
         expect(() => loadConfig({ NODE_ENV: "production", WEB_ORIGIN: "http://portal.example.com" })).toThrow(
             /JWT_ACCESS_SECRET must be set[\s\S]*WEB_ORIGIN must be an https:\/\/ address/,
         )
-        const config = loadConfig({ NODE_ENV: "production", JWT_ACCESS_SECRET: "s".repeat(32), WEB_ORIGIN: "http://localhost:8080" })
+        const config = loadConfig({ NODE_ENV: "production", JWT_ACCESS_SECRET: "s".repeat(32), TOKEN_ENCRYPTION_KEY: "k".repeat(32), WEB_ORIGIN: "http://localhost:8080" })
         expect(config.secureCookies).toBe(true)
         expect(config.databaseUrl).toBe("")   // no APP_DB_PASSWORD: the server refuses to start
     })

@@ -1299,6 +1299,22 @@ html[data-text-size="xlarge"] .portal-main {
   font-size: 0.9em;
   font-weight: 400;
 }
+.login-mfa-setup {
+  margin: 0 0 14px;
+}
+.login-mfa-setup p {
+  margin: 0 0 10px;
+}
+.login-mfa-qr {
+  display: block;
+  margin: 0 auto 10px;
+  border-radius: 8px;
+}
+.login-mfa-key {
+  font-family: ui-monospace, Consolas, monospace;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
 .login-reset-help {
   background: var(--p-accent-soft);
   text-align: left;

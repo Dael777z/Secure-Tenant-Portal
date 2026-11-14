@@ -7,7 +7,7 @@ import type { FormEvent } from "react";
 
 interface SignUpFormProps {
   /** Signs in once the account exists. */
-  onLogin: (email: string, password: string) => Promise<void>;
+  onLogin: (email: string, password: string) => Promise<void>;   // may hand over to the sign-in form's two-step screen
   onBack: () => void;
 }
 

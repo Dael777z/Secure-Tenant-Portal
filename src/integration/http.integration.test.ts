@@ -285,7 +285,7 @@ describe.skipIf(!hasDatabase)("HTTP API on a seeded database", () => {
             createLinkToken: async () => { throw new AppError("PLAID_ERROR", { operation: "link_token_create", plaidCode: "INVALID_API_KEYS", requestId: "req1", message: "invalid client_id or secret provided" }) },
             exchangeAndGetAuth: async () => { throw new Error("not called") },
         }
-        const production = loadConfig({ NODE_ENV: "production", JWT_ACCESS_SECRET: "p".repeat(32), WEB_ORIGIN: ORIGIN })
+        const production = loadConfig({ NODE_ENV: "production", JWT_ACCESS_SECRET: "p".repeat(32), TOKEN_ENCRYPTION_KEY: "k".repeat(32), WEB_ORIGIN: ORIGIN })
         const prodServer = createApp(createContainer({ config: production, db: t.db, plaid: failing })).listen(0)
         await new Promise((resolve) => prodServer.once("listening", resolve))
         try {
@@ -307,7 +307,7 @@ describe.skipIf(!hasDatabase)("HTTP API on a seeded database", () => {
     })
 
     it("production records no test transfers: without Plaid, a tenant cannot pay online", async () => {
-        const production = loadConfig({ NODE_ENV: "production", JWT_ACCESS_SECRET: "p".repeat(32), WEB_ORIGIN: ORIGIN })
+        const production = loadConfig({ NODE_ENV: "production", JWT_ACCESS_SECRET: "p".repeat(32), TOKEN_ENCRYPTION_KEY: "k".repeat(32), WEB_ORIGIN: ORIGIN })
         const prodApp = createApp(createContainer({ config: production, db: t.db, plaid: null }))
         const prodServer = prodApp.listen(0)
         await new Promise((resolve) => prodServer.once("listening", resolve))
