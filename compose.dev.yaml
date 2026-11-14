@@ -16,6 +16,10 @@ services:
       APP_DB_PASSWORD: ${APP_DB_PASSWORD:-summit-dev-only}
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
 
+  backup:
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-portal-dev-only}
+
   app:
     environment:
       NODE_ENV: development

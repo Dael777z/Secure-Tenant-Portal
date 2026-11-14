@@ -13,6 +13,7 @@
 //   npm run docker:prod status     list the containers
 //   npm run docker:prod db admin you@example.com "Your Name"   add a staff login (asks for the password)
 //   npm run docker:prod db seed    sample data, for a synthetic demo (asks first)
+//   npm run docker:prod backup     back up now (also: backup restore-test, backup restore, backup snapshots)
 //   npm run docker:prod down       stop it (add "-- --volumes" to also delete its database)
 //
 // Development settings are optional (.env, see .env.example). Production settings live in
@@ -101,6 +102,15 @@ function ensureProductionEnv() {
             "# RESEND_API_KEY=",
             "# EMAIL_FROM=Summit Property <notifications@example.com>",
             "",
+            "# Hourly encrypted backups to off-host storage (README, \"Backups\"). Keep RESTIC_PASSWORD and a copy",
+            "# of this whole file somewhere off this machine: without them the backups cannot be read.",
+            "# RESTIC_REPOSITORY=s3:https://<account id>.r2.cloudflarestorage.com/<bucket>",
+            "# RESTIC_PASSWORD=",
+            "# AWS_ACCESS_KEY_ID=",
+            "# AWS_SECRET_ACCESS_KEY=",
+            "# AWS_DEFAULT_REGION=auto",
+            "# BACKUP_PING_URL=",
+            "",
         ].join("\n"))
         console.log("  created .env.prod with new random secrets")
         return
@@ -187,7 +197,8 @@ async function stack(name, { production, tunnel }, action = "up", rest = []) {
             }
             compose(production, ["build"], derived)
             compose(production, ["run", "--rm", "migrate"], derived)
-            compose(production, [...(tunnel ? ["--profile", "cloudflare"] : []), "up", "-d", "--remove-orphans", "app", ...(tunnel ? ["cloudflared"] : [])], derived)
+            compose(production, [...(tunnel ? ["--profile", "cloudflare"] : []), "up", "-d", "--remove-orphans", "app", ...(env.RESTIC_REPOSITORY ? ["backup"] : []), ...(tunnel ? ["cloudflared"] : [])], derived)
+            if (production && !env.RESTIC_REPOSITORY) console.log("\n  WARNING: no backups. Set RESTIC_REPOSITORY and RESTIC_PASSWORD in .env.prod (see README, \"Backups\").")
             if (!tunnel) compose(production, [...all, "stop", "cloudflared"], derived, { allowFailure: true })
             if (!(await waitForHealth(`${local}/health/ready`))) fail(`The app did not become ready. See: npm run ${name} logs`)
             console.log(`\n  Portal (${production ? "production" : "development"}) is running at ${tunnel ? `${env.WEB_ORIGIN} (tunnel) and ` : ""}${local}`)
@@ -216,8 +227,19 @@ async function stack(name, { production, tunnel }, action = "up", rest = []) {
             }
             return compose(production, ["run", "--rm", "migrate", "node", "dist/server/cli.js", task, ...flags.filter((f) => f !== "--yes")], derived)
         }
+        case "backup": {
+            const [task = "once", ...flags] = rest
+            if (task === "restore") {
+                if (!flags.includes("--yes") && !(await confirm(`\`restore\` REPLACES the ${production ? "PRODUCTION" : "development"} database with a backup.`))) fail("Cancelled.")
+                // The restore drops the database, which Postgres refuses while anything is connected.
+                compose(production, ["stop", "app", "backup"], derived)
+            }
+            compose(production, ["run", "--rm", "backup", task, ...flags.filter((f) => f !== "--yes")], derived)
+            if (task === "restore") console.log(`\n  Restored. Start the app again: npm run ${name}\n`)
+            return
+        }
         default:
-            fail(`Unknown action "${action}". Use: up, down, logs, status, db <task>.`)
+            fail(`Unknown action "${action}". Use: up, down, logs, status, db <task>, backup [task].`)
     }
 }
 
@@ -279,6 +301,8 @@ function localProduction() {
             APP_DB_PASSWORD: env.APP_DB_PASSWORD || DEV_DB.app,
             // A fresh secret each run: sessions end when it restarts, which is fine for a local check.
             JWT_ACCESS_SECRET: env.JWT_ACCESS_SECRET || randomBytes(24).toString("hex"),
+            // The development key (src/config.ts), so a two-step secret saved here still opens under npm run dev.
+            TOKEN_ENCRYPTION_KEY: env.TOKEN_ENCRYPTION_KEY || "development-only-secret-never-use-in-production",
         },
     }])
 }

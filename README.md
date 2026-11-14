@@ -87,6 +87,45 @@ A production database only gets data you add on purpose:
 The same tasks work with `cloudflare:prod`. Starting or updating a production stack
 only ever migrates.
 
+### Backups
+
+Everything the portal stores, uploaded files included, is in the database. With
+backups on, the `backup` container dumps it every hour into an encrypted
+[restic](https://restic.net) repository in storage off this machine, and keeps
+hourly snapshots for 2 days, daily for 2 weeks, weekly for 2 months and monthly
+for a year.
+
+Turn them on in `.env.prod` (a production start warns while they are off):
+
+```
+RESTIC_REPOSITORY=s3:https://<account id>.r2.cloudflarestorage.com/<bucket>   any restic repository works
+RESTIC_PASSWORD=<long random text>      encrypts the backups
+AWS_ACCESS_KEY_ID=...                   the bucket's access key
+AWS_SECRET_ACCESS_KEY=...
+AWS_DEFAULT_REGION=auto                 for Cloudflare R2
+BACKUP_PING_URL=https://hc-ping.com/... optional: fetched after each backup that worked
+```
+
+then `npm run docker:prod` (or `cloudflare:prod`). Point `BACKUP_PING_URL` at a
+check that emails you when the hourly ping stops arriving (healthchecks.io or
+similar); otherwise nobody notices backups that have stopped.
+
+**Keep a copy of `.env.prod` off this machine**, in a password manager. Without
+`RESTIC_PASSWORD` the backups cannot be read, and without `TOKEN_ENCRYPTION_KEY`
+the bank tokens inside a restored database cannot be decrypted.
+
+```
+npm run docker:prod backup                back up now
+npm run docker:prod backup snapshots      list the backups
+npm run docker:prod backup restore-test   restore the latest into a scratch database and compare it with the live one
+npm run docker:prod backup restore        replace the database with the latest backup (asks first; stops the app)
+npm run docker:prod backup restore <id>   ... or with an earlier one, by snapshot id
+```
+
+Run `restore-test` before going live and every month after. On a new machine:
+put the saved `.env.prod` back, `npm run docker:prod`, then
+`npm run docker:prod backup restore` and `npm run docker:prod` again.
+
 ## Tests
 
 `npm test` runs everything, including the integration tests on the development

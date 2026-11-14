@@ -1,2 +1,4 @@
 # Migrations are checksummed; keep their line endings the same on every machine.
 *.sql text eol=lf
+# Runs in a Linux container, where CRLF breaks the shell.
+*.sh text eol=lf

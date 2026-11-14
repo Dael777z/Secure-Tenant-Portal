@@ -69,6 +69,26 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  # Hourly encrypted backups to off-host storage (backup/backup.sh). Started by
+  # scripts/portal.mjs only when RESTIC_REPOSITORY is set; see README, "Backups".
+  backup:
+    build: ./backup
+    environment:
+      PGHOST: db
+      PGUSER: ${POSTGRES_USER:-portal}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-}
+      PGDATABASE: ${POSTGRES_DB:-portal}
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:-}
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-}
+      BACKUP_PING_URL: ${BACKUP_PING_URL:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
   # Cloudflare Tunnel: an outbound connection that serves the public hostname from
   # http://app:3000 (set that as the hostname's service in the Cloudflare dashboard).
   cloudflared:
