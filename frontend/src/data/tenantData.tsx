@@ -1,6 +1,5 @@
 // The signed-in tenant's data, loaded from the backend once and shared by
-// every page. It replaces the mock data the pages started with (mockData.ts is
-// kept as a reference for the shapes).
+// every page.
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { messageFor, tenantApi, type TenantSummary } from "../api/tenant";

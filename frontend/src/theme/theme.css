@@ -1,0 +1,362 @@
+/* Summit Realty design tokens (light and dark), the theme switch and the brand mark. Every other stylesheet reads these --s-* variables. */
+:root {
+  --s-navy: #13213a;
+  --s-navy-2: #0e1a2e;
+  --s-navy-3: #1b2d4d;
+  --s-ridge: #2f5d8a;
+  --s-sky: #dce8f5;
+  --s-pine: #1f7a5c;
+  --s-amber: #c98a1b;
+  --s-brick: #b23a3a;
+  --s-n50: #f7f8fa;
+  --s-n100: #eef1f5;
+  --s-n200: #dfe4eb;
+  --s-n300: #c8d0da;
+  --s-n400: #9aa7b5;
+  --s-n500: #6b7988;
+  --s-n600: #4f5d6c;
+  --s-n700: #37434f;
+  --s-n800: #232c37;
+  --s-n900: #141a22;
+  --s-canvas: var(--s-n50);
+  --s-surface: #fff;
+  --s-surface-2: var(--s-n100);
+  --s-surface-3: var(--s-n200);
+  --s-surface-raised: #fff;
+  --s-line: var(--s-n200);
+  --s-line-strong: var(--s-n300);
+  --s-text: var(--s-n900);
+  --s-text-muted: var(--s-n500);
+  --s-text-faint: var(--s-n400);
+  --s-heading: var(--s-navy);
+  --s-scrim: #0a122080;
+  --s-primary: var(--s-ridge);
+  --s-primary-hover: #27507a;
+  --s-primary-soft: var(--s-sky);
+  --s-primary-soft-2: #c4d8ee;
+  --s-primary-border: #b7cde5;
+  --s-on-primary: #fff;
+  --s-link: var(--s-ridge);
+  --s-link-hover: #27507a;
+  --s-focus: #8db4de;
+  --s-selection: #2f5d8a2e;
+  --s-success: var(--s-pine);
+  --s-success-text: #176a4f;
+  --s-success-soft: #e3f3ec;
+  --s-success-border: #a9d9c3;
+  --s-warn: var(--s-amber);
+  --s-warn-text: #8a5e0e;
+  --s-warn-soft: #fbf1dc;
+  --s-warn-border: #ecd39a;
+  --s-danger: var(--s-brick);
+  --s-danger-text: #9e2f2f;
+  --s-danger-soft: #f9e6e6;
+  --s-danger-border: #ebb9b9;
+  --s-info-soft: #e9eef5;
+  --s-violet: #5b3aa8;
+  --s-violet-soft: #f1ecfb;
+  --s-teal: #0e6170;
+  --s-teal-soft: #e6f4f6;
+  --s-sidebar-bg: var(--s-navy);
+  --s-navy-fill: var(--s-navy);
+  --s-sidebar-text: #dce8f5;
+  --s-sidebar-muted: #9fb3cc;
+  --s-sidebar-line: #ffffff24;
+  --s-sidebar-hover: #ffffff14;
+  --s-sidebar-active-bg: #fff;
+  --s-sidebar-active-text: var(--s-navy);
+  --s-sidebar-badge: var(--s-brick);
+  --s-on-navy: #fff;
+  --s-on-navy-muted: #c6d7ea;
+  --s-danger-on-navy: #ffb4ab;
+  --s-chart-income: var(--s-ridge);
+  --s-chart-expense: #c8691f;
+  --s-chart-net: var(--s-navy);
+  --s-chart-billed: #9db8d9;
+  --s-chart-paid: var(--s-pine);
+  --s-chart-open: var(--s-amber);
+  --s-chart-late: var(--s-brick);
+  --s-chart-track: var(--s-n200);
+  --s-chart-grid: #e9edf2;
+  --s-chart-axis: #b7c2cf;
+  --s-chart-axis-text: var(--s-n500);
+  --s-chart-point-ring: #fff;
+  --s-chart-hover: #2f5d8a0f;
+  --s-aging-0: #e7c56a;
+  --s-aging-1: #d99a3d;
+  --s-aging-2: #c8691f;
+  --s-aging-3: #a63c1c;
+  --s-aging-current: #c9d3de;
+  --s-radius: 10px;
+  --s-radius-sm: 8px;
+  --s-radius-lg: 14px;
+  --s-shadow-sm: 0 1px 3px #13213a1a;
+  --s-shadow-md: 0 2px 10px #13213a14;
+  --s-shadow-lg: 0 8px 24px #13213a24;
+  --s-shadow-xl: 0 18px 50px #13213a4d;
+  --s-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --s-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --s-ease: cubic-bezier(0.2, 0, 0, 1);
+  --s-motion: 0.16s;
+  --lightningcss-light: initial;
+  --lightningcss-dark: ;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --s-canvas: #0f1623;
+  --s-surface: #182130;
+  --s-surface-2: #1f2a3b;
+  --s-surface-3: #283446;
+  --s-surface-raised: #1f2a3b;
+  --s-line: #2c3a4e;
+  --s-line-strong: #3a4a61;
+  --s-text: #e8edf4;
+  --s-text-muted: #9faec2;
+  --s-text-faint: #6f7f95;
+  --s-heading: #f2f6fb;
+  --s-scrim: #030810a6;
+  --s-primary: #3573b8;
+  --s-primary-hover: #4584c9;
+  --s-primary-soft: #1e3350;
+  --s-primary-soft-2: #26406a;
+  --s-primary-border: #35527c;
+  --s-on-primary: #fff;
+  --s-link: #8fbceb;
+  --s-link-hover: #a9cdf3;
+  --s-focus: #6fa3da;
+  --s-selection: #8fbceb40;
+  --s-success: #4fbf8f;
+  --s-success-text: #6fd1a6;
+  --s-success-soft: #15342a;
+  --s-success-border: #2a6a51;
+  --s-warn: #e0a53f;
+  --s-warn-text: #f0bf62;
+  --s-warn-soft: #3a2d14;
+  --s-warn-border: #6c5323;
+  --s-danger: #e06a6a;
+  --s-danger-text: #f19393;
+  --s-danger-soft: #3b1f22;
+  --s-danger-border: #6b3030;
+  --s-info-soft: #1f2a3b;
+  --s-violet: #c4b0f0;
+  --s-violet-soft: #2c2347;
+  --s-teal: #7fd1de;
+  --s-teal-soft: #11323a;
+  --s-sidebar-bg: #0b1322;
+  --s-navy-fill: #27446b;
+  --s-sidebar-text: #d2deee;
+  --s-sidebar-muted: #8fa3bd;
+  --s-sidebar-line: #ffffff1a;
+  --s-sidebar-hover: #ffffff0f;
+  --s-sidebar-active-bg: #283446;
+  --s-sidebar-active-text: #fff;
+  --s-chart-income: #6fa3da;
+  --s-chart-expense: #e08a4a;
+  --s-chart-net: #e8edf4;
+  --s-chart-billed: #4a6a90;
+  --s-chart-paid: #4fbf8f;
+  --s-chart-open: #e0a53f;
+  --s-chart-late: #e06a6a;
+  --s-chart-track: #283446;
+  --s-chart-grid: #263243;
+  --s-chart-axis: #3a4a61;
+  --s-chart-axis-text: #9faec2;
+  --s-chart-point-ring: #182130;
+  --s-chart-hover: #8fbceb14;
+  --s-aging-0: #d8b75a;
+  --s-aging-1: #d09243;
+  --s-aging-2: #c56f3a;
+  --s-aging-3: #b04a32;
+  --s-aging-current: #3a4a61;
+  --s-shadow-sm: 0 1px 3px #0006;
+  --s-shadow-md: 0 2px 10px #00000059;
+  --s-shadow-lg: 0 8px 24px #00000073;
+  --s-shadow-xl: 0 18px 50px #0009;
+  --lightningcss-light: ;
+  --lightningcss-dark: initial;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --s-canvas: #0f1623;
+    --s-surface: #182130;
+    --s-surface-2: #1f2a3b;
+    --s-surface-3: #283446;
+    --s-surface-raised: #1f2a3b;
+    --s-line: #2c3a4e;
+    --s-line-strong: #3a4a61;
+    --s-text: #e8edf4;
+    --s-text-muted: #9faec2;
+    --s-text-faint: #6f7f95;
+    --s-heading: #f2f6fb;
+    --s-scrim: #030810a6;
+    --s-primary: #3573b8;
+    --s-primary-hover: #4584c9;
+    --s-primary-soft: #1e3350;
+    --s-primary-soft-2: #26406a;
+    --s-primary-border: #35527c;
+    --s-on-primary: #fff;
+    --s-link: #8fbceb;
+    --s-link-hover: #a9cdf3;
+    --s-focus: #6fa3da;
+    --s-selection: #8fbceb40;
+    --s-success: #4fbf8f;
+    --s-success-text: #6fd1a6;
+    --s-success-soft: #15342a;
+    --s-success-border: #2a6a51;
+    --s-warn: #e0a53f;
+    --s-warn-text: #f0bf62;
+    --s-warn-soft: #3a2d14;
+    --s-warn-border: #6c5323;
+    --s-danger: #e06a6a;
+    --s-danger-text: #f19393;
+    --s-danger-soft: #3b1f22;
+    --s-danger-border: #6b3030;
+    --s-info-soft: #1f2a3b;
+    --s-violet: #c4b0f0;
+    --s-violet-soft: #2c2347;
+    --s-teal: #7fd1de;
+    --s-teal-soft: #11323a;
+    --s-sidebar-bg: #0b1322;
+    --s-navy-fill: #27446b;
+    --s-sidebar-text: #d2deee;
+    --s-sidebar-muted: #8fa3bd;
+    --s-sidebar-line: #ffffff1a;
+    --s-sidebar-hover: #ffffff0f;
+    --s-sidebar-active-bg: #283446;
+    --s-sidebar-active-text: #fff;
+    --s-chart-income: #6fa3da;
+    --s-chart-expense: #e08a4a;
+    --s-chart-net: #e8edf4;
+    --s-chart-billed: #4a6a90;
+    --s-chart-paid: #4fbf8f;
+    --s-chart-open: #e0a53f;
+    --s-chart-late: #e06a6a;
+    --s-chart-track: #283446;
+    --s-chart-grid: #263243;
+    --s-chart-axis: #3a4a61;
+    --s-chart-axis-text: #9faec2;
+    --s-chart-point-ring: #182130;
+    --s-chart-hover: #8fbceb14;
+    --s-aging-0: #d8b75a;
+    --s-aging-1: #d09243;
+    --s-aging-2: #c56f3a;
+    --s-aging-3: #b04a32;
+    --s-aging-current: #3a4a61;
+    --s-shadow-sm: 0 1px 3px #0006;
+    --s-shadow-md: 0 2px 10px #00000059;
+    --s-shadow-lg: 0 8px 24px #00000073;
+    --s-shadow-xl: 0 18px 50px #0009;
+    --lightningcss-light: ;
+    --lightningcss-dark: initial;
+    color-scheme: dark;
+  }
+}
+html {
+  background: var(--s-canvas);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizelegibility;
+}
+body {
+  font-family: var(--s-font);
+  background: var(--s-canvas);
+  color: var(--s-text);
+  margin: 0;
+}
+::selection {
+  background: var(--s-selection);
+}
+.s-num,
+.mgr-num,
+.mgr-kpi__value,
+.mgr-gauge__value,
+.mgr-table td.mgr-num,
+.rent-due-amount,
+.summary-amount,
+.summary-row,
+.ledger-row-amount,
+.ledger-row-balance,
+.amount-cell,
+.copy-row-value {
+  font-variant-numeric: tabular-nums;
+}
+.s-theme {
+  background: var(--s-sidebar-hover);
+  border: 1px solid var(--s-sidebar-line);
+  border-radius: 999px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+  padding: 3px;
+  display: grid;
+}
+.s-theme__btn {
+  font: inherit;
+  color: var(--s-sidebar-muted);
+  cursor: pointer;
+  min-width: 0;
+  transition:
+    background-color var(--s-motion) var(--s-ease),
+    color var(--s-motion) var(--s-ease);
+  background: 0 0;
+  border: none;
+  border-radius: 999px;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  display: inline-flex;
+}
+.s-theme__btn svg {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+}
+.s-theme__btn:hover {
+  color: var(--s-on-navy);
+}
+.s-theme__btn[aria-checked="true"] {
+  background: var(--s-sidebar-active-bg);
+  color: var(--s-sidebar-active-text);
+}
+.s-theme__btn:focus-visible {
+  outline: 2px solid var(--s-focus);
+  outline-offset: 1px;
+}
+.s-brand {
+  color: inherit;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  text-decoration: none;
+  display: flex;
+}
+.s-brand__mark {
+  flex-shrink: 0;
+  display: block;
+}
+.s-brand__text {
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+  display: flex;
+}
+.s-brand__name {
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 700;
+}
+.s-brand__sub {
+  color: var(--s-sidebar-muted);
+  white-space: nowrap;
+  font-size: 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --s-motion: 0s;
+  }
+}
