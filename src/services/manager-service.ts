@@ -278,10 +278,13 @@ export class ManagerService {
    // record payment for manager side, constructs a payment input for the database and a confirmation message detailing the office made the payment
     async recordPayment(
         leaseId: number,
-        input: { amount: number; method: string; tenantId: number | null; receipt?: Receipt | null },
+        input: { amount: number; method: string; tenantId: number | null; receipt?: Receipt | null; idempotencyKey?: string | null },
     ): Promise<string> {
         return this.change("payment.office", { leaseId, amount: input.amount, tenantId: input.tenantId, withReceipt: Boolean(input.receipt) }, async () => {
+            // The same key twice (a retry on a weak connection) is the same payment.
+            const key = input.idempotencyKey ? `office:${leaseId}:${input.idempotencyKey}` : null
             const recorded = await this.db.recordPayment({
+                idempotencyKey: key,
                 leaseId,
                 amount: input.amount,
                 tenantId: input.tenantId,

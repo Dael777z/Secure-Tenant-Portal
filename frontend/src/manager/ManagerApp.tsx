@@ -315,6 +315,19 @@ export function ManagerApp({ user, onLogout }: { user: SessionUser; onLogout: ()
               ☰ Menu
             </button>
             <span className="mgr-topbar__title">{BRAND_NAME}</span>
+            {/* Phones only (the top bar is hidden on wider screens): taking rent at the door is one tap. */}
+            {can("ledger:adjust") && (
+              <button
+                type="button"
+                className="mgr-topbar__pay"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setDialog({ kind: "payment" });
+                }}
+              >
+                <span aria-hidden="true">＋</span> Payment
+              </button>
+            )}
             <SearchButton onOpen={openSearch} compact />
           </div>
           <main className="mgr-content" id="main">

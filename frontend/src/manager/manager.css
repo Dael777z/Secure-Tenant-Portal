@@ -3078,3 +3078,177 @@ body:has(.mgr-shell) {
 .mgr-table td.mgr-row-actions .mgr-more__menu {
   text-align: left;
 }
+
+/* ------------------------------------------------------------------ *
+ * Phone use: taking rent in person, at the door or in the parking lot.
+ * ------------------------------------------------------------------ */
+.mgr-visually-hidden {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  width: 1px;
+  height: 1px;
+  position: absolute;
+  overflow: hidden;
+}
+.mgr-receipt-pick {
+  flex-wrap: wrap;
+  gap: 8px;
+  display: flex;
+}
+.mgr-receipt-pick .mgr-btn {
+  position: relative;
+}
+.mgr-receipt-pick .mgr-btn:focus-within {
+  outline: 2px solid var(--s-focus);
+  outline-offset: 2px;
+}
+.mgr-link-btn {
+  font: inherit;
+  color: var(--mgr-blue);
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  text-decoration: underline;
+}
+.mgr-chip-btn {
+  font: inherit;
+  color: var(--mgr-blue-dark);
+  background: var(--mgr-blue-soft);
+  border: 1px solid var(--s-primary-border);
+  cursor: pointer;
+  border-radius: 999px;
+  align-self: flex-start;
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.mgr-chip-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.mgr-alert--warn {
+  background: var(--s-warn-soft);
+  color: var(--s-warn-text);
+  border: 1px solid var(--s-warn-border);
+}
+.mgr-pay-done {
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  display: flex;
+}
+.mgr-pay-done__amount {
+  font-variant-numeric: tabular-nums;
+  font-size: 28px;
+  font-weight: 700;
+}
+.mgr-topbar__pay {
+  display: none;
+}
+@media (width<=820px) {
+  .mgr-topbar {
+    padding-top: max(10px, env(safe-area-inset-top));
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+    gap: 8px;
+  }
+  .mgr-topbar__title {
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    flex: auto;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .mgr-topbar__pay {
+    font: inherit;
+    color: #fff;
+    background: var(--mgr-blue);
+    cursor: pointer;
+    white-space: nowrap;
+    border: 1px solid #ffffff59;
+    border-radius: 8px;
+    align-items: center;
+    gap: 4px;
+    min-height: 40px;
+    padding: 6px 12px;
+    font-weight: 700;
+    display: inline-flex;
+  }
+  .mgr-search-btn--compact {
+    margin-left: 0;
+  }
+}
+/* Touch screens: fingers, not a mouse. 44px is the usual smallest comfortable target. */
+@media (width<=820px), (pointer: coarse) {
+  .mgr-shell .mgr-btn,
+  .mgr-menu-toggle,
+  .mgr-search-btn--compact {
+    min-height: 44px;
+  }
+  .mgr-shell .mgr-btn--small {
+    min-height: 40px;
+    padding: 8px 12px;
+  }
+  .mgr-nav__item,
+  .mgr-nav__subitem,
+  .mgr-section-tab,
+  .mgr-page-tab {
+    min-height: 44px;
+    align-items: center;
+    display: flex;
+  }
+  /* 16px or larger, or iPhones zoom the whole page in on every field. */
+  .mgr-shell input:not([type="checkbox"]):not([type="radio"]),
+  .mgr-shell select,
+  .mgr-shell textarea {
+    font-size: 16px;
+  }
+  .mgr-form input:not([type="checkbox"]):not([type="radio"]),
+  .mgr-form select {
+    min-height: 44px;
+  }
+  .mgr-modal__close {
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    margin: -10px -12px -10px 0;
+    display: grid;
+  }
+  .mgr-chip-btn {
+    min-height: 36px;
+  }
+}
+/* Phones: a form fills the screen, with its buttons big and easy to reach. */
+@media (width<=560px) {
+  .mgr-modal-backdrop {
+    padding: 0;
+  }
+  .mgr-modal {
+    border-radius: 0;
+    min-height: 100dvh;
+    max-width: none;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .mgr-modal__header {
+    background: var(--mgr-card);
+    z-index: 1;
+    padding-top: max(12px, env(safe-area-inset-top));
+    position: sticky;
+    top: 0;
+  }
+  .mgr-modal__actions {
+    flex-direction: column-reverse;
+    gap: 10px;
+  }
+  .mgr-modal__actions .mgr-btn {
+    width: 100%;
+    min-height: 48px;
+  }
+  .mgr-receipt-pick .mgr-btn {
+    text-align: center;
+    flex: 1;
+    justify-content: center;
+  }
+}

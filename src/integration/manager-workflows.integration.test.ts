@@ -173,6 +173,23 @@ describe.skipIf(!hasDatabase)("office workflows on the sample portfolio", () => 
         expect((await admin.post(`/api/manager/leases/${leaseId}/payments`, { amount: 120, method: "Bitcoin" })).status).toBe(400)
     })
 
+    it("office payments: a retry with the same key (dropped connection on a phone) records it once", async () => {
+        const leaseId = (await t.owner.query("SELECT LeaseID AS id FROM Lease ORDER BY LeaseID LIMIT 1")).rows[0].id
+        const count = async () => Number((await t.owner.query("SELECT count(*) AS n FROM Payment WHERE LeaseID = $1", [leaseId])).rows[0].n)
+        const before = await count()
+        const body = { amount: 75, method: "Cash", idempotencyKey: `door-${tag()}-${tag()}` }
+        const first = await admin.post(`/api/manager/leases/${leaseId}/payments`, body)
+        const again = await admin.post(`/api/manager/leases/${leaseId}/payments`, body)
+        expect(first.status).toBe(201)
+        expect(again.status).toBe(201)
+        expect(again.body.confirmation).toBe(first.body.confirmation)
+        expect(await count()).toBe(before + 1)
+        // A new key is a new payment; a malformed key is refused.
+        expect((await admin.post(`/api/manager/leases/${leaseId}/payments`, { ...body, idempotencyKey: `door-${tag()}-${tag()}` })).status).toBe(201)
+        expect(await count()).toBe(before + 2)
+        expect((await admin.post(`/api/manager/leases/${leaseId}/payments`, { ...body, idempotencyKey: "bad key!" })).status).toBe(400)
+    })
+
     it("maintenance queue: file, move along, refuse a bad status, remove", async () => {
         const queue = (await admin.get("/api/manager/maintenance")).body
         expect(queue.units.length).toBeGreaterThan(0)

@@ -72,18 +72,63 @@ export interface ReceiptUpload {
 export const RECEIPT_MAX_BYTES = 4 * 1024 * 1024;
 export const RECEIPT_ACCEPT = "image/jpeg,image/png,image/webp,application/pdf";
 
-/** Read a picked file as a receipt upload, checking type and size first. */
+/** Photos are scaled to fit this many pixels on the long side before upload. */
+const RECEIPT_MAX_SIDE = 1800;
+
+/**
+ * A phone photo as a smaller JPEG: a 12-megapixel picture of a check is often over
+ * 4 MB, and iPhones save HEIC, which the server does not store. The browser decodes
+ * the photo (Safari can read HEIC), draws it at most RECEIPT_MAX_SIDE pixels on the
+ * long side and saves it as JPEG. Null when this browser can't decode it.
+ */
+async function shrinkPhoto(file: File): Promise<Blob | null> {
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const scale = Math.min(1, RECEIPT_MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const g = canvas.getContext("2d");
+    if (!g) return null;
+    g.fillStyle = "#fff"; // a transparent PNG gets a white background, not black
+    g.fillRect(0, 0, canvas.width, canvas.height);
+    g.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    return await new Promise((done) => canvas.toBlob((b) => done(b), "image/jpeg", 0.82));
+  } catch {
+    return null;
+  }
+}
+
+const toBase64 = async (blob: Blob): Promise<string> => {
+  const buffer = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < buffer.length; i += 0x8000) binary += String.fromCharCode(...buffer.subarray(i, i + 0x8000));
+  return btoa(binary);
+};
+
+const isHeic = (file: File) => /\.(heic|heif)$/i.test(file.name) || /heic|heif/i.test(file.type);
+
+/** Read a picked file (or a photo just taken) as a receipt upload, checking type and size first. */
 export async function readReceipt(file: File): Promise<ReceiptUpload> {
-  if (/\.(heic|heif)$/i.test(file.name) || /heic|heif/i.test(file.type)) {
-    throw new Error("iPhone HEIC photos can't be stored. On the iPhone, set Camera → Formats → Most Compatible, or take a screenshot of the photo and upload that.");
+  const photo = file.type.startsWith("image/") || isHeic(file);
+  if (photo && (file.size > 1024 * 1024 || isHeic(file) || file.type === "image/png")) {
+    const small = await shrinkPhoto(file);
+    if (small && small.size <= RECEIPT_MAX_BYTES) {
+      const base = (file.name.replace(/\.[^.]*$/, "") || "receipt").slice(0, 100);
+      return { filename: `${base}.jpg`, data: await toBase64(small) };
+    }
+  }
+  if (isHeic(file)) {
+    throw new Error("This browser can't read iPhone HEIC photos. Use Take photo instead, or on the iPhone set Camera → Formats → Most Compatible.");
   }
   if (!RECEIPT_ACCEPT.split(",").includes(file.type)) throw new Error("Upload a JPEG, PNG or WebP photo, or a PDF.");
   if (file.size > RECEIPT_MAX_BYTES) throw new Error("That file is over 4 MB. Take a smaller photo or crop it.");
-  const buffer = new Uint8Array(await file.arrayBuffer());
-  let binary = "";
-  for (let i = 0; i < buffer.length; i += 0x8000) binary += String.fromCharCode(...buffer.subarray(i, i + 0x8000));
-  return { filename: file.name, data: btoa(binary) };
+  return { filename: file.name, data: await toBase64(file) };
 }
+
+/** True for the error fetch gives when the request never got an answer (no signal, dropped connection). */
+export const isNetworkError = (error: unknown) => error instanceof TypeError || (typeof navigator !== "undefined" && navigator.onLine === false);
 
 /** Where the browser opens a stored receipt (the sign-in cookie goes along). */
 export const receiptUrl = (leaseId: number, paymentId: number) => `/api/manager/leases/${leaseId}/payments/${paymentId}/receipt`;
@@ -258,7 +303,7 @@ export const managerApi = {
   addTenantToLease: (id: number, input: { tenantId: number } | { newTenant: NewPerson }) =>
     send<{ ok: true }>("POST", `/leases/${id}/tenants`, input),
   removeTenantFromLease: (id: number, tenantId: number) => send<{ ok: true }>("DELETE", `/leases/${id}/tenants/${tenantId}`),
-  recordPayment: (leaseId: number, input: { amount: number; method: string; tenantId: number | null; receipt?: ReceiptUpload | null }) =>
+  recordPayment: (leaseId: number, input: { amount: number; method: string; tenantId: number | null; receipt?: ReceiptUpload | null; idempotencyKey?: string }) =>
     send<{ confirmation: string }>("POST", `/leases/${leaseId}/payments`, input),
   attachReceipt: (leaseId: number, paymentId: number, receipt: ReceiptUpload) =>
     send<{ ok: true }>("PUT", `/leases/${leaseId}/payments/${paymentId}/receipt`, receipt),

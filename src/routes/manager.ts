@@ -9,7 +9,7 @@ import type { MaintenanceChange } from "../types/inputs"
 import { MAINTENANCE_PRIORITIES, MAINTENANCE_STATES, MAINTENANCE_TYPES } from "../types/records"
 import type { InviteResult } from "../types/manager"
 import type { ValidRequest } from "../types/access"
-import { date, id, money, person, receipt, text } from "./validate"
+import { date, id, idempotencyKey, money, person, receipt, text } from "./validate"
 
 /*
  /api/manager: the office side. Every route validates its input and makes one
@@ -193,6 +193,9 @@ export function createManagerRouter(deps: {
             method: body.method,
             tenantId: body.tenantId === undefined || body.tenantId === null ? null : id(body.tenantId),
             receipt: body.receipt === undefined || body.receipt === null ? null : receipt(body.receipt),
+            // Made once per payment on the phone/browser: a retry after a dropped
+            // connection returns the first confirmation instead of a second payment.
+            idempotencyKey: idempotencyKey(body.idempotencyKey),
         })
         res.status(201).json({ confirmation })
     })

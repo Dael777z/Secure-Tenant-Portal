@@ -1,7 +1,7 @@
 // Every add/edit form on the manager side, opened as a dialog from the quick
 // actions bar or from a screen. Each one closes and refreshes on success.
-import { useRef, useState, type FormEvent } from "react";
-import { managerApi, PAYMENT_METHODS, RECEIPT_ACCEPT, readReceipt, REQUEST_PRIORITIES, REQUEST_TYPES, type NewPerson, type ReceiptUpload, type RequestPriority, type RequestType, type UnitRow } from "./api";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { isNetworkError, managerApi, PAYMENT_METHODS, RECEIPT_ACCEPT, readReceipt, REQUEST_PRIORITIES, REQUEST_TYPES, type NewPerson, type ReceiptUpload, type RequestPriority, type RequestType, type UnitRow } from "./api";
 import { ChargeWizard, CreateNewDialog, LateFeeRuleDialog, LeaseDocumentDialog, ReminderRuleDialog } from "./ops";
 import { ExpenseDialog, RejectReportDialog, RenewalDialog } from "./finance";
 import { Field, LocalError, Modal, money, todayIso, useLoad, useManager, useSubmit, type Dialog } from "./ui";
@@ -306,66 +306,144 @@ function UnitDialog({ id, propertyId, unitNum: initialNum, onClose }: Props<"uni
   );
 }
 
-/** Pick a receipt photo or PDF; checked as soon as it is picked. */
+/** Pick a receipt photo or PDF, or take a photo with the phone's camera; checked as soon as it is picked. */
 function ReceiptPicker({ value, onChange }: { value: ReceiptUpload | null; onChange: (r: ReceiptUpload | null) => void }) {
   const [problem, setProblem] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
+  const pick = (input: HTMLInputElement) => {
+    const file = input.files?.[0];
+    setProblem(null);
+    if (!file) return;
+    setReading(true);
+    readReceipt(file)
+      .then((r) => onChange(r))
+      .catch((err: Error) => {
+        onChange(null);
+        setProblem(err.message);
+      })
+      .finally(() => {
+        input.value = "";
+        setReading(false);
+      });
+  };
   return (
-    <Field label="Receipt (optional)" hint="A photo of the check, money order or cash receipt, or a PDF. Up to 4 MB. Stored with the payment.">
-      <input
-        type="file"
-        accept={RECEIPT_ACCEPT}
-        aria-label="Receipt file"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          setProblem(null);
-          if (!file) return onChange(null);
-          setReading(true);
-          readReceipt(file)
-            .then((r) => onChange(r))
-            .catch((err: Error) => {
-              onChange(null);
-              e.target.value = "";
-              setProblem(err.message);
-            })
-            .finally(() => setReading(false));
-        }}
-      />
-      {reading && <span className="mgr-field__hint">Reading the file…</span>}
-      {value && !reading && <span className="mgr-field__hint">Attached: {value.filename}</span>}
+    <div className="mgr-field">
+      <span className="mgr-field__label">Receipt (optional)</span>
+      <div className="mgr-receipt-pick">
+        {/* On a phone this opens the camera straight away. */}
+        <label className="mgr-btn mgr-btn--secondary mgr-receipt-pick__camera">
+          Take photo
+          <input type="file" accept="image/*" capture="environment" className="mgr-visually-hidden" aria-label="Take a photo of the receipt" onChange={(e) => pick(e.currentTarget)} />
+        </label>
+        <label className="mgr-btn mgr-btn--ghost">
+          Choose file
+          <input type="file" accept={RECEIPT_ACCEPT} className="mgr-visually-hidden" aria-label="Receipt file" onChange={(e) => pick(e.currentTarget)} />
+        </label>
+      </div>
+      {reading && <span className="mgr-field__hint">Reading the photo…</span>}
+      {value && !reading && (
+        <span className="mgr-field__hint">
+          Attached: {value.filename}{" "}
+          <button type="button" className="mgr-link-btn" onClick={() => onChange(null)}>
+            Remove
+          </button>
+        </span>
+      )}
+      {!value && !reading && !problem && <span className="mgr-field__hint">A photo of the check, money order or cash receipt, or a PDF. Stored with the payment.</span>}
       {problem && <span className="mgr-alert mgr-alert--error" role="alert">{problem}</span>}
-    </Field>
+    </div>
   );
 }
 
+/** A fresh id for one payment, so a retry after a dropped connection can't record it twice. */
+const newPaymentKey = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+
+/** Whether the phone has a connection right now (updates as it comes and goes). */
+function useOnline(): boolean {
+  const [online, setOnline] = useState(() => (typeof navigator === "undefined" ? true : navigator.onLine));
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => {
+      window.removeEventListener("online", on);
+      window.removeEventListener("offline", off);
+    };
+  }, []);
+  return online;
+}
+
+const matchesUnit = (u: UnitRow, query: string) => {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const hay = `${u.unitNum} ${u.propertyName} ${u.tenants.map((t) => t.name).join(" ")}`.toLowerCase();
+  return q.split(/\s+/).every((word) => hay.includes(word));
+};
+
 /* ------------------------------------------------------------------ *
- * Record a payment (check, cash, money order taken at the office)
+ * Record a payment (check, cash, money order taken at the office or
+ * at the door). Built to be used on a phone: find the unit by number
+ * or name, one tap for the full balance, a photo of the check, and a
+ * key per payment so a retry on a weak connection is never a second
+ * payment.
  * ------------------------------------------------------------------ */
 
 function PaymentDialog({ leaseId, onClose }: Props<"payment">) {
   const { changed } = useManager();
   const units = useLoad(() => managerApi.units());
+  const online = useOnline();
   const leased = (units.data ?? []).filter((u) => u.leaseId !== null);
+  const [query, setQuery] = useState("");
   const [lease, setLease] = useState(leaseId ? String(leaseId) : "");
   const chosen = leased.find((u) => String(u.leaseId) === lease);
+  const shown = leased.filter((u) => matchesUnit(u, query) || String(u.leaseId) === lease);
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<string>(PAYMENT_METHODS[0]);
   const [payer, setPayer] = useState("");
   const [receipt, setReceipt] = useState<ReceiptUpload | null>(null);
   const [confirmation, setConfirmation] = useState<string | null>(null);
+  const [paymentKey, setPaymentKey] = useState(newPaymentKey);
+  const [mayHaveSent, setMayHaveSent] = useState(false);
   const { busy, error, run } = useSubmit(() => changed("Payment recorded."));
+
+  const choose = (value: string) => {
+    setLease(value);
+    setPayer("");
+    setAmount("");
+  };
+
+  const startOver = () => {
+    setConfirmation(null);
+    setQuery("");
+    setLease("");
+    setAmount("");
+    setPayer("");
+    setReceipt(null);
+    setMayHaveSent(false);
+    setPaymentKey(newPaymentKey());
+  };
 
   if (confirmation) {
     return (
       <Modal title="Payment recorded" onClose={onClose}>
         <div className="mgr-form">
+          <p className="mgr-pay-done">
+            <span className="mgr-pay-done__amount">{money(Number(amount || chosen?.balance || 0))}</span>
+            <span>{chosen ? `${unitLabel(chosen)} · ${method}` : method}</span>
+          </p>
           <p>
-            {chosen ? unitLabel(chosen) : "The lease"} was credited. Confirmation <strong className="mgr-mono">{confirmation}</strong>.
+            Confirmation <strong className="mgr-mono">{confirmation}</strong>
           </p>
           <p className="mgr-muted">
-            The resident sees it in their ledger right away.{receipt ? " The receipt is stored with it; open it from the lease's ledger." : ""}
+            It's on the resident's ledger now, and everyone on the lease gets a "Payment received" notice (by email too, if email is on).
+            {receipt ? " The receipt photo is stored with it." : ""}
           </p>
           <div className="mgr-modal__actions">
+            <button type="button" className="mgr-btn mgr-btn--secondary" onClick={startOver}>
+              Record another
+            </button>
             <button type="button" className="mgr-btn mgr-btn--primary" onClick={onClose}>
               Done
             </button>
@@ -382,25 +460,51 @@ function PaymentDialog({ leaseId, onClose }: Props<"payment">) {
         onSubmit={(e) => {
           e.preventDefault();
           void run(async () => {
-            if (!lease) throw new LocalError("Choose the lease this payment is for.");
+            if (!lease) throw new LocalError("Choose the unit this payment is for.");
             const amt = parseMoney(amount || (chosen && chosen.balance > 0 ? String(chosen.balance) : ""), "the amount received");
-            const result = await managerApi.recordPayment(Number(lease), { amount: amt, method, tenantId: payer ? Number(payer) : null, receipt });
-            setConfirmation(result.confirmation);
+            if (typeof navigator !== "undefined" && navigator.onLine === false) {
+              throw new LocalError("No connection, so nothing was sent. When you have signal, tap Record payment again.");
+            }
+            try {
+              const result = await managerApi.recordPayment(Number(lease), { amount: amt, method, tenantId: payer ? Number(payer) : null, receipt, idempotencyKey: paymentKey });
+              if (!amount) setAmount(amt.toFixed(2));
+              setConfirmation(result.confirmation);
+            } catch (err) {
+              if (!isNetworkError(err)) throw err;
+              // It may have reached the server. The same key makes a retry safe.
+              setMayHaveSent(true);
+              throw new LocalError("The connection dropped before the portal answered. Tap Record payment again: if it already went through, you'll see the same confirmation, not a second payment.");
+            }
           });
         }}
       >
-        <Field label="Lease">
-          <select
-            value={lease}
-            onChange={(e) => {
-              setLease(e.target.value);
-              setPayer("");
-              setAmount("");
-            }}
-            required
-          >
-            <option value="">Choose a unit…</option>
-            {leased.map((u) => (
+        {!online && (
+          <p className="mgr-alert mgr-alert--warn" role="status">
+            No connection. You can fill this in; it sends when you tap Record payment with signal.
+          </p>
+        )}
+        {!leaseId && (
+          <Field label="Find the unit" hint={units.data ? `${shown.length} of ${leased.length} leased units` : undefined}>
+            <input
+              type="search"
+              inputMode="search"
+              enterKeyHint="search"
+              autoComplete="off"
+              placeholder="Unit number or tenant name"
+              value={query}
+              onChange={(e) => {
+                const q = e.target.value;
+                setQuery(q);
+                const hits = leased.filter((u) => matchesUnit(u, q));
+                if (q.trim() && hits.length === 1) choose(String(hits[0]!.leaseId));
+              }}
+            />
+          </Field>
+        )}
+        <Field label="Unit">
+          <select value={lease} onChange={(e) => choose(e.target.value)} required disabled={mayHaveSent}>
+            <option value="">{shown.length ? "Choose a unit…" : "No unit matches"}</option>
+            {shown.map((u) => (
               <option key={u.leaseId} value={u.leaseId!}>
                 {unitLabel(u)} · {u.tenants.map((t) => t.name).join(", ")} · {u.balance > 0 ? `owes ${money(u.balance)}` : "paid up"}
               </option>
@@ -408,11 +512,23 @@ function PaymentDialog({ leaseId, onClose }: Props<"payment">) {
           </select>
         </Field>
         <div className="mgr-form__row">
-          <Field label="Amount received" hint={chosen && chosen.balance > 0 ? `Balance due: ${money(chosen.balance)}` : undefined}>
-            <input inputMode="decimal" placeholder={chosen && chosen.balance > 0 ? chosen.balance.toFixed(2) : "0.00"} value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <Field label="Amount received">
+            <input
+              inputMode="decimal"
+              enterKeyHint="done"
+              placeholder={chosen && chosen.balance > 0 ? chosen.balance.toFixed(2) : "0.00"}
+              value={amount}
+              disabled={mayHaveSent}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+            {chosen && chosen.balance > 0 && (
+              <button type="button" className="mgr-chip-btn" disabled={mayHaveSent} onClick={() => setAmount(chosen.balance.toFixed(2))}>
+                Full balance {money(chosen.balance)}
+              </button>
+            )}
           </Field>
           <Field label="Method">
-            <select value={method} onChange={(e) => setMethod(e.target.value)}>
+            <select value={method} onChange={(e) => setMethod(e.target.value)} disabled={mayHaveSent}>
               {PAYMENT_METHODS.map((m) => (
                 <option key={m}>{m}</option>
               ))}
@@ -421,7 +537,7 @@ function PaymentDialog({ leaseId, onClose }: Props<"payment">) {
         </div>
         {chosen && chosen.tenants.length > 0 && (
           <Field label="Paid by">
-            <select value={payer} onChange={(e) => setPayer(e.target.value)}>
+            <select value={payer} onChange={(e) => setPayer(e.target.value)} disabled={mayHaveSent}>
               <option value="">Not recorded</option>
               {chosen.tenants.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -431,7 +547,7 @@ function PaymentDialog({ leaseId, onClose }: Props<"payment">) {
             </select>
           </Field>
         )}
-        <ReceiptPicker value={receipt} onChange={setReceipt} />
+        {!mayHaveSent && <ReceiptPicker value={receipt} onChange={setReceipt} />}
         <ErrorText error={error} />
         <Actions busy={busy} loading={!units.data} label="Record payment" onClose={onClose} />
       </form>
