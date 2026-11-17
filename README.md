@@ -1,7 +1,7 @@
 # Secure Tenant Portal
 
-React (Vite) + Express 5 + TypeScript + PostgreSQL resident portal for Summit
-Property Management (NMSU CSCI 4980 senior project).
+React (Vite) + Express 5 + TypeScript + PostgreSQL resident portal for Dar
+Residential (formerly Summit Property Management; NMSU CSCI 4980 senior project).
 
 ## Running it
 
@@ -213,7 +213,7 @@ declined, `4000 0027 6000 3184` asks for a bank check. Any future expiry, any CV
 
 Email notifications turn on when `RESEND_API_KEY` and `EMAIL_FROM` are set (in `.env`, or
 `.env.prod`). `EMAIL_FROM` must be on a domain verified in Resend, e.g.
-`Summit Property <notifications@your-domain.com>`. Without them nothing is sent, and notices
+`Dar Residential <notifications@your-domain.com>`. Without them nothing is sent, and notices
 stay in the resident portal.
 
 Who gets what follows the choices the portal already keeps: each tenant's (Settings →

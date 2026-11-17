@@ -12,7 +12,7 @@
 import type { ChargeRecord, PaymentRecord } from "../types/records"
 import type { AgingBuckets, ExpenseCategory, ExpenseRecord, FinancePeriod, MonthRow, PeriodInfo } from "../types/finance"
 
-/** A charge counts as late this many days after its due date. (An open question for Summit: their grace period.) */
+/** A charge counts as late this many days after its due date. (An open question for the sponsors: their grace period.) */
 export const LATE_AFTER_DAYS = 0
 
 const cents = (dollars: number) => Math.round(dollars * 100)

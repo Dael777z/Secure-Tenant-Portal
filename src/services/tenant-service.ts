@@ -20,7 +20,7 @@ import type { NotificationService } from "./notifications"
 export const PREPAY_MONTHS = 3
 /** The smallest payment when nothing is due (paying ahead). */
 const MIN_PREPAYMENT = 1
-/** A partial payment must cover at least this share of what is owed right now (Summit, Nov 6). */
+/** A partial payment must cover at least this share of what is owed right now (sponsor meeting, Nov 6). */
 export const MIN_PARTIAL_SHARE = 0.25
 
 const STATUS_FOR_UI: Record<string, MaintenanceRequest["status"]> = {
@@ -149,7 +149,7 @@ export class TenantService {
     }
 
     /**
-     * What a tenant may pay now (Summit, Oct 21 + Oct 28, Nov 6): a partial
+     * What a tenant may pay now (sponsor meetings Oct 21 + Oct 28, Nov 6): a partial
      * payment is accepted when it is at least MIN_PARTIAL_SHARE (25%) of the
      * balance owed right now, rounded up to the cent; the rest stays owed. Each
      * later payment is measured against the new, smaller balance. A tenant can

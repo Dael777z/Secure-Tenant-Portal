@@ -130,10 +130,10 @@ export const sample = (dates: Dates): SeedData => {
         { name: "Luis Ortega", email: "maintenance@example.com", maintenance: true },
     ],
     // Juan's placeholders (tenant-side-ui 23d7a8e). The office changes them in Settings.
-    office: { cashapp: "$SummitPM", zelle: "payments@summitpm.example" },
+    office: { cashapp: "$DarResidential", zelle: "payments@darresidential.example" },
     // Expenses for the whole portfolio (005): software and an umbrella policy.
     expenses: [
-        ...everyMonth(dates, 12, 3, () => ({ category: "other", amount: 79, vendor: "Summit portal hosting", description: "Software and hosting" })),
+        ...everyMonth(dates, 12, 3, () => ({ category: "other", amount: 79, vendor: "Portal hosting", description: "Software and hosting" })),
         { category: "insurance", amount: 1840, on: monthsAgo(9, 15), vendor: "Rio Grande Mutual", description: "Umbrella liability policy (annual)" },
     ],
     properties: [

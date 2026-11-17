@@ -100,7 +100,7 @@ export function loadConfig(vars: NodeJS.ProcessEnv = process.env, { server = tru
         plaidRedirectUri: redirectUri(get("PLAID_REDIRECT_URI"), webOrigin),
         /** Encrypts Plaid access tokens at rest. */
         tokenEncryptionKey: get("TOKEN_ENCRYPTION_KEY") || (production ? "" : DEV_ONLY_SECRET),
-        /** Email is on when both are set. EMAIL_FROM is a sender on a domain verified in Resend: "Summit <rent@example.com>". */
+        /** Email is on when both are set. EMAIL_FROM is a sender on a domain verified in Resend: "Dar Residential <rent@example.com>". */
         resendApiKey: get("RESEND_API_KEY"),
         emailFrom: get("EMAIL_FROM"),
         /** Stripe (cards, Apple Pay, Google Pay) is on when both keys are set. Test keys (sk_test_/pk_test_) move no real money. */

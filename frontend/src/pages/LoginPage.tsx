@@ -42,12 +42,12 @@ export function LoginPage({ onLogin }: LoginPageProps) {
     <div className="login-shell">
       <div className="login-brand-panel">
         <div className="login-brand-mark">
-          <Brand sub="Summit Realty Portal" size={40} />
+          <Brand sub="Resident portal" size={40} />
         </div>
         <h1 className="login-brand-title">
-          Summit
+          Dar Residential
           <br />
-          Residential Portal
+          Resident Portal
         </h1>
         <p className="login-brand-tagline">One record, two sides.</p>
       </div>

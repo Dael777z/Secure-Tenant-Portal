@@ -72,7 +72,7 @@ describe.skipIf(!hasDatabase)("tenant settings and reported Cash App / Zelle pay
         const lucia = await resident("lucia.reyes@example.com")
         const s = (await lucia.get("/tenant/summary")).body
         expect(s.contact).toEqual({ email: "lucia.reyes@example.com", phone: "(575) 555-0202" })
-        expect(s.payOptions).toEqual({ cashapp: "$SummitPM", zelle: "payments@summitpm.example" })
+        expect(s.payOptions).toEqual({ cashapp: "$DarResidential", zelle: "payments@darresidential.example" })
         expect(s.notificationPrefs).toEqual({ rentDue: true, paymentReceipts: true, maintenance: true, messages: true })
         expect(s.reportedPayments).toHaveLength(1)
         expect(s.reportedPayments[0]).toMatchObject({ method: "zelle", amount: 1290, status: "pending", reason: null })
@@ -139,9 +139,9 @@ describe.skipIf(!hasDatabase)("tenant settings and reported Cash App / Zelle pay
 
     it("the office sets its own handles; a method turned off can't be used", async () => {
         const manager = await office()
-        expect((await manager.get("/manager/settings")).body).toMatchObject({ cashappHandle: "$SummitPM", zelleHandle: "payments@summitpm.example" })
-        expect((await manager.put("/manager/settings", { cashappHandle: "SummitPM", zelleHandle: null })).status).toBe(400)   // no $
-        expect((await manager.put("/manager/settings", { cashappHandle: "$Summit", zelleHandle: "not-an-email" })).status).toBe(400)
+        expect((await manager.get("/manager/settings")).body).toMatchObject({ cashappHandle: "$DarResidential", zelleHandle: "payments@darresidential.example" })
+        expect((await manager.put("/manager/settings", { cashappHandle: "DarResidential", zelleHandle: null })).status).toBe(400)   // no $
+        expect((await manager.put("/manager/settings", { cashappHandle: "$Dar", zelleHandle: "not-an-email" })).status).toBe(400)
         expect((await manager.put("/manager/settings", { cashappHandle: null, zelleHandle: "(575) 555-0100" })).body).toMatchObject({ cashappHandle: null, zelleHandle: "(575) 555-0100", updatedBy: "Dana Whitfield" })
 
         const raj = await resident("raj.johnson@example.com")
@@ -151,7 +151,7 @@ describe.skipIf(!hasDatabase)("tenant settings and reported Cash App / Zelle pay
         const staff = await signIn("maintenance@example.com", PASSWORDS.staff)
         expect((await staff.get("/manager/settings")).status).toBe(403)
         expect((await staff.get("/manager/payments/reported")).status).toBe(403)
-        await manager.put("/manager/settings", { cashappHandle: "$SummitPM", zelleHandle: "payments@summitpm.example" })
+        await manager.put("/manager/settings", { cashappHandle: "$DarResidential", zelleHandle: "payments@darresidential.example" })
     })
 
     it("a tenant edits their own name and phone, and their email choices", async () => {

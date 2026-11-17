@@ -1,12 +1,17 @@
-// The Summit Realty mark (a mountain and an S on a rounded square), the
-// name beside it, and the light / dark / auto switch. Shared by the sign-in
-// page, the resident sidebar and the office sidebar.
+// The Dar Residential mark (a placeholder "D" on a rounded square until the
+// real logo arrives), the name beside it, and the light / dark / auto switch.
+// Shared by the sign-in page, the resident sidebar and the office sidebar.
+// To drop in the real logo: replace the <svg> body in BrandMark (and
+// frontend/public/favicon.svg); every screen picks it up from here.
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { applyTheme, savedTheme, THEME_CHOICES, type ThemeChoice } from "./theme";
 
-const S_PATH = "M 23.5 10.5 L 17 6 L 9.5 11.5 L 9.5 15 L 22.5 17.5 L 22.5 21 L 15 26 L 8.5 21.5";
+/** The company name, everywhere it is shown. */
+export const BRAND_NAME = "Dar Residential";
 
-export function BrandMark({ size = 36, tone = "navy", title = "Summit Realty", className, style }: {
+const D_PATH = "M 10.5 8 L 10.5 24 L 15.5 24 C 20.5 24 23 20.5 23 16 C 23 11.5 20.5 8 15.5 8 Z";
+
+export function BrandMark({ size = 36, tone = "navy", title = BRAND_NAME, className, style }: {
   size?: number;
   tone?: "navy" | "light";
   title?: string;
@@ -15,23 +20,21 @@ export function BrandMark({ size = 36, tone = "navy", title = "Summit Realty", c
 }) {
   const fill = tone === "navy" ? "#13213a" : "#ffffff";
   const stroke = tone === "navy" ? "#ffffff" : "#13213a";
-  const ridge = tone === "navy" ? "#2f5d8a" : "#dce8f5";
   return (
     <svg className={`s-brand__mark${className ? ` ${className}` : ""}`} width={size} height={size} viewBox="0 0 32 32" role="img" aria-label={title} style={style}>
       <rect width="32" height="32" rx="8" fill={fill} />
-      <path d="M 4 27 L 12 17 L 17 22 L 23 13 L 30 27 Z" fill={ridge} opacity="0.45" />
-      <path d={S_PATH} fill="none" stroke={stroke} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d={D_PATH} fill="none" stroke={stroke} strokeWidth="3" strokeLinejoin="round" />
     </svg>
   );
 }
 
-/** The mark and "Summit Realty", with an optional line under the name ("Resident portal", "Office"). */
+/** The mark and the company name, with an optional line under the name ("Resident portal", "Office"). */
 export function Brand({ sub, size = 36, tone = "light" }: { sub?: ReactNode; size?: number; tone?: "navy" | "light" }) {
   return (
     <span className="s-brand">
       <BrandMark size={size} tone={tone} />
       <span className="s-brand__text">
-        <span className="s-brand__name">Summit Realty</span>
+        <span className="s-brand__name">{BRAND_NAME}</span>
         {sub && <span className="s-brand__sub">{sub}</span>}
       </span>
     </span>

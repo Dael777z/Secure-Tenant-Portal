@@ -543,7 +543,7 @@ export function PaymentOptionsPage({ embedded = false }: { embedded?: boolean } 
     void run(async () => {
       const tag = cashappValue.trim();
       const z = zelleValue.trim();
-      if (tag && !/^\$[A-Za-z][A-Za-z0-9_-]{0,19}$/.test(tag)) throw new LocalError("A $cashtag starts with $ and a letter, like $SummitPM.");
+      if (tag && !/^\$[A-Za-z][A-Za-z0-9_-]{0,19}$/.test(tag)) throw new LocalError("A $cashtag starts with $ and a letter, like $DarmitPM.");
       if (z && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(z) && z.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "").length !== 10) {
         throw new LocalError("Zelle needs the email address or 10-digit phone number the office's Zelle uses.");
       }
@@ -567,8 +567,8 @@ export function PaymentOptionsPage({ embedded = false }: { embedded?: boolean } 
             </p>
             <form className="mgr-form" onSubmit={submit}>
               <div className="mgr-form__row">
-                <Field label="Cash App $cashtag" hint="Like $SummitPM">
-                  <input maxLength={21} placeholder="$SummitPM" value={cashappValue} onChange={(e) => setCashapp(e.target.value)} disabled={!editable} />
+                <Field label="Cash App $cashtag" hint="Like $DarResidential">
+                  <input maxLength={21} placeholder="$DarResidential" value={cashappValue} onChange={(e) => setCashapp(e.target.value)} disabled={!editable} />
                 </Field>
                 <Field label="Zelle email or phone" hint="What the office's Zelle is enrolled with">
                   <input maxLength={120} placeholder="payments@yourcompany.com" value={zelleValue} onChange={(e) => setZelle(e.target.value)} disabled={!editable} />

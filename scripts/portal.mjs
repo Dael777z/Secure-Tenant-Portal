@@ -99,7 +99,7 @@ function ensureProductionEnv() {
             "",
             "# Email notifications through Resend. EMAIL_FROM must use a domain verified in Resend.",
             "# RESEND_API_KEY=",
-            "# EMAIL_FROM=Summit Property <notifications@example.com>",
+            "# EMAIL_FROM=Dar Residential <notifications@example.com>",
             "",
         ].join("\n"))
         console.log("  created .env.prod with new random secrets")

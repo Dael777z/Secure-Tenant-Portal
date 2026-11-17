@@ -28,7 +28,7 @@ import { MaintenanceDetailPage } from "./maintenance-detail";
 import { CompliancePage, PortfoliosPage, ReportsPage } from "./office";
 import { SearchButton, SearchDialog, useSearchShortcut } from "./search";
 import { ActivityPage, TeamPage } from "./team";
-import { Brand, ThemeSwitch } from "../theme/Brand";
+import { Brand, BRAND_NAME, ThemeSwitch } from "../theme/Brand";
 import "./additions.css";
 import "./manager.css";
 
@@ -314,7 +314,7 @@ export function ManagerApp({ user, onLogout }: { user: SessionUser; onLogout: ()
             <button type="button" className="mgr-menu-toggle" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>
               ☰ Menu
             </button>
-            <span className="mgr-topbar__title">Summit Realty</span>
+            <span className="mgr-topbar__title">{BRAND_NAME}</span>
             <SearchButton onOpen={openSearch} compact />
           </div>
           <main className="mgr-content" id="main">
