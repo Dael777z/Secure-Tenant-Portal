@@ -3118,9 +3118,11 @@ body:has(.mgr-shell) {
   background: var(--mgr-blue-soft);
   border: 1px solid var(--s-primary-border);
   cursor: pointer;
+  white-space: nowrap;
   border-radius: 999px;
   align-self: flex-start;
-  padding: 4px 12px;
+  max-width: 100%;
+  padding: 4px 10px;
   font-size: 13px;
   font-weight: 600;
 }
@@ -3178,6 +3180,25 @@ body:has(.mgr-shell) {
   }
   .mgr-search-btn--compact {
     margin-left: 0;
+  }
+  .mgr-menu-toggle {
+    white-space: nowrap;
+    align-items: center;
+    gap: 6px;
+    display: inline-flex;
+  }
+}
+/* Narrow phones: icons only for Menu and Search, so the name and Payment fit. */
+@media (width<=460px) {
+  .mgr-menu-toggle__word,
+  .mgr-search-btn--compact span {
+    display: none;
+  }
+  .mgr-menu-toggle,
+  .mgr-search-btn--compact {
+    justify-content: center;
+    min-width: 44px;
+    padding: 6px 10px;
   }
 }
 /* Touch screens: fingers, not a mouse. 44px is the usual smallest comfortable target. */

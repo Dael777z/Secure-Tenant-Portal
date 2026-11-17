@@ -311,8 +311,9 @@ export function ManagerApp({ user, onLogout }: { user: SessionUser; onLogout: ()
         {menuOpen && <div className="mgr-scrim" aria-hidden="true" onClick={() => setMenuOpen(false)} />}
         <div className="mgr-main">
           <div className="mgr-topbar">
-            <button type="button" className="mgr-menu-toggle" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>
-              ☰ Menu
+            <button type="button" className="mgr-menu-toggle" aria-expanded={menuOpen} aria-label="Menu" onClick={() => setMenuOpen(!menuOpen)}>
+              <span aria-hidden="true">☰</span>
+              <span className="mgr-menu-toggle__word" aria-hidden="true">Menu</span>
             </button>
             <span className="mgr-topbar__title">{BRAND_NAME}</span>
             {/* Phones only (the top bar is hidden on wider screens): taking rent at the door is one tap. */}
