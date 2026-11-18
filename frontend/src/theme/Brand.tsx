@@ -1,29 +1,35 @@
-// The Dar Residential mark (a placeholder "D" on a rounded square until the
-// real logo arrives), the name beside it, and the light / dark / auto switch.
-// Shared by the sign-in page, the resident sidebar and the office sidebar.
-// To drop in the real logo: replace the <svg> body in BrandMark (and
-// frontend/public/favicon.svg); every screen picks it up from here.
+// The Dar Residential mark (a ridge line with a peak on top and a valley below, on a
+// rounded navy tile; from the Dar Residential brand package), the name beside it,
+// and the light / dark / auto switch. Shared by the sign-in page, the resident
+// sidebar and the office sidebar. frontend/public/favicon.svg is the same drawing.
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { applyTheme, savedTheme, THEME_CHOICES, type ThemeChoice } from "./theme";
 
 /** The company name, everywhere it is shown. */
 export const BRAND_NAME = "Dar Residential";
+/** The portal's name: browser tab, and the line under the logo on the sign-in page. */
+export const PORTAL_NAME = "Dar Residential Portal";
 
-const D_PATH = "M 10.5 8 L 10.5 24 L 15.5 24 C 20.5 24 23 20.5 23 16 C 23 11.5 20.5 8 15.5 8 Z";
+/** The glyph path (32×32 grid), shared with the favicon. */
+const GLYPH = "M 23.5 10.5 L 17 6 L 9.5 11.5 L 9.5 15 L 22.5 17.5 L 22.5 21 L 15 26 L 8.5 21.5";
 
 export function BrandMark({ size = 36, tone = "navy", title = BRAND_NAME, className, style }: {
   size?: number;
+  /** navy: navy tile, white ridge. light: white tile, navy ridge (for navy backgrounds). */
   tone?: "navy" | "light";
   title?: string;
   className?: string;
   style?: CSSProperties;
 }) {
-  const fill = tone === "navy" ? "#13213a" : "#ffffff";
-  const stroke = tone === "navy" ? "#ffffff" : "#13213a";
+  const tile = tone === "navy" ? "#13213a" : "#ffffff";
+  const ridge = tone === "navy" ? "#ffffff" : "#13213a";
+  const snow = tone === "navy" ? "#2f5d8a" : "#dce8f5";
   return (
     <svg className={`s-brand__mark${className ? ` ${className}` : ""}`} width={size} height={size} viewBox="0 0 32 32" role="img" aria-label={title} style={style}>
-      <rect width="32" height="32" rx="8" fill={fill} />
-      <path d={D_PATH} fill="none" stroke={stroke} strokeWidth="3" strokeLinejoin="round" />
+      <rect width="32" height="32" rx="8" fill={tile} />
+      {/* a faint second ridge behind the glyph gives the tile some depth */}
+      <path d="M 4 27 L 12 17 L 17 22 L 23 13 L 30 27 Z" fill={snow} opacity="0.45" />
+      <path d={GLYPH} fill="none" stroke={ridge} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

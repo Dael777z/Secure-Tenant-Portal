@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { loginMessage } from "../api/auth";
 import { inviteTokenFromUrl, SignUpForm } from "../components/SignUpForm";
-import { Brand } from "../theme/Brand";
+import { Brand, PORTAL_NAME } from "../theme/Brand";
 
 interface LoginPageProps {
     /** Signs in against the backend; rejects with an AuthError on failure. */
@@ -42,12 +42,12 @@ export function LoginPage({ onLogin }: LoginPageProps) {
     <div className="login-shell">
       <div className="login-brand-panel">
         <div className="login-brand-mark">
-          <Brand sub="Resident portal" size={40} />
+          <Brand sub={PORTAL_NAME} size={40} />
         </div>
         <h1 className="login-brand-title">
-          Dar Residential
+          Dar
           <br />
-          Resident Portal
+          Residential Portal
         </h1>
         <p className="login-brand-tagline">One record, two sides.</p>
       </div>

@@ -86,7 +86,7 @@ export function createPlaidGateway(options: PlaidGatewayOptions): PlaidGateway {
         async createLinkToken(clientUserId) {
             const data = await call("link_token_create", () => plaid.linkTokenCreate({
                 user: { client_user_id: clientUserId },
-                client_name: "Dar Residential",
+                client_name: "Dar Residential Portal",
                 products: [Products.Auth],
                 country_codes: [CountryCode.Us],
                 language: "en",
