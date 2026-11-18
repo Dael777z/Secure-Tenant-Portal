@@ -22,7 +22,7 @@ const pageTitles: Record<PageKey, string> = {
   home: "Home",
   pay: "Pay Rent",
   ledger: "Ledger View",
-  maintenance: "Maintenance",
+  maintenance: "Repair",
   documents: "Documents",
   notices: "Notices",
   settings: "Settings",

@@ -13,8 +13,8 @@ const icons: Record<PageKey, ReactElement> = {
   ),
   pay: (
     <svg className="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <rect x="3" y="6" width="18" height="13" rx="2" />
-      <path d="M3 10h18" />
+      <path d="M12 2v20" />
+      <path d="M17 6H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" />
     </svg>
   ),
   ledger: (
@@ -24,9 +24,8 @@ const icons: Record<PageKey, ReactElement> = {
     </svg>
   ),
   maintenance: (
-    <svg className="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M14 7l3 3-8.5 8.5H5.5V15.5z" />
-      <path d="M17.5 3.5l3 3-2 2-3-3z" />
+    <svg className="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.8-3.8a6 6 0 01-7.9 7.9l-6.9 6.9a2.1 2.1 0 01-3-3l6.9-6.9a6 6 0 017.9-7.9z" />
     </svg>
   ),
   documents: (
@@ -58,7 +57,7 @@ const navItems: { key: PageKey; label: string }[] = [
   { key: "home", label: "Home" },
   { key: "pay", label: "Pay rent" },
   { key: "ledger", label: "Ledger" },
-  { key: "maintenance", label: "Maintenance" },
+  { key: "maintenance", label: "Repair" },
   { key: "documents", label: "Documents" },
   { key: "notices", label: "Notices" },
   { key: "settings", label: "Settings" },

@@ -1677,3 +1677,48 @@ html[data-text-size="xlarge"] .portal-main {
     animation: none;
   }
 }
+
+/* Home page shortcuts: big icon tiles */
+.home-actions:last-child {
+  margin-bottom: 0;
+}
+.home-tiles {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+  display: grid;
+}
+.home-tile {
+  background: var(--p-panel);
+  border: 1px solid var(--p-line);
+  color: var(--p-text);
+  font-family: var(--p-font);
+  cursor: pointer;
+  border-radius: 14px;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  min-height: 116px;
+  padding: 16px 6px;
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  box-shadow: 0 1px 3px #0a12201a;
+}
+.home-tile svg {
+  width: 44px;
+  height: 44px;
+}
+.home-tile:hover {
+  background: var(--p-tint);
+}
+.home-tile:focus-visible {
+  outline: 2px solid var(--s-focus);
+  outline-offset: 2px;
+}
+@media (hover: none) {
+  .home-tile:hover {
+    background: var(--p-panel);
+  }
+}

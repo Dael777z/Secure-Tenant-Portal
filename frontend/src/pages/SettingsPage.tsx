@@ -11,7 +11,7 @@ import { applyTextSize, getTextSize, type TextSize } from "../components/textSiz
 const notificationOptions: { key: keyof NotificationPrefs; label: string; hint: string }[] = [
   { key: "rentDue", label: "Rent due reminders", hint: "Before rent is due and when it is late" },
   { key: "paymentReceipts", label: "Payment receipts", hint: "When a payment is received" },
-  { key: "maintenance", label: "Maintenance updates", hint: "When a request changes status" },
+  { key: "maintenance", label: "Repair updates", hint: "When a request changes status" },
   { key: "messages", label: "Messages from the office", hint: "When property management writes to you" },
 ];
 
