@@ -35,7 +35,7 @@ function portalAppearance(): Appearance {
   return {
     theme: isDark(surface) ? "night" : "stripe",
     variables: {
-      colorPrimary: token("--s-primary", "#2f5d8a"),
+      colorPrimary: token("--s-primary", "#1d6878"),
       colorBackground: surface,
       colorText: token("--s-text", "#141a22"),
       colorDanger: token("--s-danger", "#b23a3a"),

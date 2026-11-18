@@ -1574,7 +1574,7 @@ html[data-text-size="xlarge"] .portal-main {
     position: fixed;
     inset: 0;
     z-index: 40;
-    background: rgba(8, 18, 34, 0.6);
+    background: rgba(5, 28, 33, 0.6);
   }
   .portal-more-sheet {
     width: 100%;

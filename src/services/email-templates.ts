@@ -29,8 +29,8 @@ function layout(input: { subject: string; greeting: string; paragraphs: string[]
 <tr><td>
 <p style="margin:0 0 16px;font-size:16px">${escape(greeting)}</p>
 ${paragraphs.map((p) => `<p style="margin:0 0 16px;font-size:15px;line-height:1.5;white-space:pre-line">${escape(p)}</p>`).join("\n")}
-<p style="margin:24px 0 8px"><a href="${escape(button.url)}" style="display:inline-block;background:#2f5d8a;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:6px;font-size:15px">${escape(button.label)}</a></p>
-<p style="margin:24px 0 0;font-size:12px;color:#6b7280">Secure Tenant Portal. This is an automatic message; replies are not read.</p>
+<p style="margin:24px 0 8px"><a href="${escape(button.url)}" style="display:inline-block;background:#1d6878;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:6px;font-size:15px">${escape(button.label)}</a></p>
+<p style="margin:24px 0 0;font-size:12px;color:#6b7280">Dar Residential. This is an automatic message; replies are not read.</p>
 </td></tr></table>
 </td></tr></table>
 </body></html>`

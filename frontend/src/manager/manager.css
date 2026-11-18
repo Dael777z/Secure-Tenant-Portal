@@ -65,7 +65,7 @@ body:has(.mgr-shell) {
   display: flex;
 }
 .mgr-brand .s-brand__sub {
-  color: #b9cbe0;
+  color: #b9d9e0;
 }
 .mgr-sidebar__theme {
   padding: 0 2px;
@@ -76,7 +76,7 @@ body:has(.mgr-shell) {
   display: flex;
 }
 .mgr-shell .mgr-nav__item {
-  color: #dbe6f3;
+  color: #dbeff3;
   border-radius: 8px;
   padding: 10px 12px;
   font-weight: 600;
@@ -120,7 +120,7 @@ body:has(.mgr-shell) {
   overflow: hidden;
 }
 .mgr-me__text span {
-  color: #b9cbe0;
+  color: #b9d9e0;
   font-size: 12px;
 }
 .mgr-signout {
@@ -1289,7 +1289,7 @@ body:has(.mgr-shell) {
 .mgr-nav__section {
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #8fb0d3;
+  color: #8fc7d3;
   margin: 12px 12px 2px;
   font-size: 11px;
   font-weight: 700;
@@ -1669,7 +1669,7 @@ body:has(.mgr-shell) {
 }
 .mgr-pnl-hero__main .mgr-kpi__label,
 .mgr-pnl-hero__main .mgr-muted {
-  color: #c6d7ea;
+  color: #c6e3ea;
 }
 .mgr-pnl-hero__value {
   letter-spacing: -0.01em;
@@ -2439,7 +2439,7 @@ body:has(.mgr-shell) {
   display: flex;
 }
 .mgr-shell .mgr-nav__subitem {
-  color: #c9d7e8;
+  color: #c9e2e8;
   border-radius: 7px;
   justify-content: space-between;
   align-items: center;
