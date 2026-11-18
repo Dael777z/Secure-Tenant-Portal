@@ -2,7 +2,8 @@
 // the wordmark ("Dar" over spaced "RESIDENTIAL"), drawn from the final logo artwork
 // (brandPaths.ts; the same drawings are in frontend/public/brand/). Also the light /
 // dark / auto switch. Shared by the sign-in page, the resident sidebar, the office
-// sidebar and the office's phone top bar. The browser tab icon is public/favicon.svg.
+// sidebar and the office's phone top bar, as the app-icon tile beside the wordmark.
+// The browser tab icon is public/favicon.svg (the same tile).
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { applyTheme, savedTheme, THEME_CHOICES, type ThemeChoice } from "./theme";
 import { ARCH_PATH, DIAMOND_PATH, LOGO_COLORS, MARK_H, MARK_W, WORDMARK_DAR_PATH, WORDMARK_H, WORDMARK_RESIDENTIAL_PATH, WORDMARK_W } from "./brandPaths";
@@ -33,14 +34,31 @@ export function BrandMark({ size = 36, tone = "navy", title = BRAND_NAME, classN
   );
 }
 
-/** The logo: mark and wordmark, as one image named "Dar Residential". `size` is the mark's height. */
-export function BrandLogo({ size = 40, tone = "light" }: { size?: number; tone?: Tone }) {
-  // Proportions from the artwork's on-dark lockup: the wordmark starts half a mark-height to the
-  // right, its top level with the arch's top, and is 119/110 of the mark's height.
-  const wordH = (size * WORDMARK_H) / 110;
+/**
+ * The app-icon tile: the white arch and light-gold diamond on a rounded teal square
+ * (corner radius 21%), the same drawing as the browser tab icon. On the teal sidebars a
+ * faint light edge keeps the tile visible. `size` is its width and height.
+ */
+export function BrandTile({ size = 40, title = BRAND_NAME, style }: { size?: number; title?: string; style?: CSSProperties }) {
   return (
-    <span className="s-brand__logo" role="img" aria-label={BRAND_NAME} style={{ gap: size * 0.49 }}>
-      <BrandMark size={size} tone={tone} title="" style={{ display: "block" }} />
+    <svg className="s-brand__mark" width={size} height={size} viewBox="0 0 288 288" role="img" aria-label={title || undefined} aria-hidden={title ? undefined : true} style={style}>
+      <rect width="288" height="288" rx="61" fill={LOGO_COLORS.teal} />
+      <rect x="4" y="4" width="280" height="280" rx="57" fill="none" stroke="#ffffff" strokeOpacity="0.22" strokeWidth="8" />
+      <g transform="translate(89 70) scale(0.8333)">
+        <path d={ARCH_PATH} fill="#ffffff" />
+        <path d={DIAMOND_PATH} fill={LOGO_COLORS.goldOnDark} />
+      </g>
+    </svg>
+  );
+}
+
+/** The logo: the app-icon tile beside the wordmark, as one image named "Dar Residential". `size` is the tile's height. */
+export function BrandLogo({ size = 40, tone = "light" }: { size?: number; tone?: Tone }) {
+  // The wordmark ("Dar" over spaced "RESIDENTIAL") is as tall as the tile.
+  const wordH = size;
+  return (
+    <span className="s-brand__logo" role="img" aria-label={BRAND_NAME} style={{ gap: size * 0.3, alignItems: "center" }}>
+      <BrandTile size={size} title="" style={{ display: "block", flexShrink: 0 }} />
       <svg width={(wordH * WORDMARK_W) / WORDMARK_H} height={wordH} viewBox={`0 0 ${WORDMARK_W} ${WORDMARK_H}`} aria-hidden="true" style={{ display: "block", flexShrink: 0 }}>
         <path d={WORDMARK_DAR_PATH} fill={onDark(tone) ? "#ffffff" : LOGO_COLORS.teal} fillRule="evenodd" />
         <path d={WORDMARK_RESIDENTIAL_PATH} fill={onDark(tone) ? LOGO_COLORS.pale : LOGO_COLORS.slate} fillRule="evenodd" />
