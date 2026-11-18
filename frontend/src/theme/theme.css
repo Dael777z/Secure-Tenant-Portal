@@ -355,6 +355,17 @@ body {
   white-space: nowrap;
   font-size: 12px;
 }
+/* The logo (mark + wordmark) with its line underneath. */
+.s-brand--stack {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.s-brand__logo {
+  flex-shrink: 0;
+  align-items: flex-start;
+  display: flex;
+}
 @media (prefers-reduced-motion: reduce) {
   :root {
     --s-motion: 0s;

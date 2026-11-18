@@ -28,7 +28,7 @@ import { MaintenanceDetailPage } from "./maintenance-detail";
 import { CompliancePage, PortfoliosPage, ReportsPage } from "./office";
 import { SearchButton, SearchDialog, useSearchShortcut } from "./search";
 import { ActivityPage, TeamPage } from "./team";
-import { Brand, BRAND_NAME, ThemeSwitch } from "../theme/Brand";
+import { Brand, BrandLogo, ThemeSwitch } from "../theme/Brand";
 import "./additions.css";
 import "./manager.css";
 
@@ -231,7 +231,7 @@ export function ManagerApp({ user, onLogout }: { user: SessionUser; onLogout: ()
       <div className="mgr-shell" ref={shellRef}>
         <aside className={`mgr-sidebar${menuOpen ? " mgr-sidebar--open" : ""}`} aria-label="Manager navigation">
           <div className="mgr-brand">
-            <Brand sub={can("ledger:read:property") ? "Manager workspace" : "Maintenance workspace"} />
+            <Brand size={40} sub={can("ledger:read:property") ? "Manager workspace" : "Maintenance workspace"} />
           </div>
           <SearchButton onOpen={openSearch} />
           {canCreate && (
@@ -315,7 +315,7 @@ export function ManagerApp({ user, onLogout }: { user: SessionUser; onLogout: ()
               <span aria-hidden="true">☰</span>
               <span className="mgr-menu-toggle__word" aria-hidden="true">Menu</span>
             </button>
-            <span className="mgr-topbar__title">{BRAND_NAME}</span>
+            <span className="mgr-topbar__title"><BrandLogo size={30} /></span>
             {/* Phones only (the top bar is hidden on wider screens): taking rent at the door is one tap. */}
             {can("ledger:adjust") && (
               <button

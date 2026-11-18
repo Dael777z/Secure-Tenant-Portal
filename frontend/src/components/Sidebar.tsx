@@ -94,7 +94,7 @@ export function Sidebar({ tenant, activePage, onNavigate, onLogout }: SidebarPro
   return (
     <aside className="portal-sidebar" aria-label="Resident portal navigation">
       <div className="portal-brand">
-        <Brand sub="Resident portal" size={32} />
+        <Brand sub="Resident portal" size={38} />
       </div>
       <div className="portal-greeting">
         <div className="portal-avatar" aria-hidden="true">
